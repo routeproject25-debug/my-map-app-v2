@@ -7,10 +7,10 @@ const path = require('path');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-//app.use(basicAuth({
-//  users: { [process.env.BASIC_AUTH_USER]: process.env.BASIC_AUTH_PASSWORD },
-//  challenge: true,
-//}));
+app.use(basicAuth({
+  users: { [process.env.BASIC_AUTH_USER]: process.env.BASIC_AUTH_PASSWORD },
+  challenge: true,
+}));
 
 app.use(express.static(path.join(__dirname, 'public')));
 
