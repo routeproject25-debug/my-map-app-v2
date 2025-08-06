@@ -1,0 +1,348 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Маршрути Mapbox</title>
+  <meta name="viewport" content="initial-scale=1,maximum-scale=1,user-scalable=no" />
+  <script src="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.js"></script>
+  <link href="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.css" rel="stylesheet" />
+  <style>
+    body { margin:0; padding:0; font-family: sans-serif; }
+    #map { position:absolute; top:0; bottom:0; width:100%; }
+    #controls {
+      position: absolute;
+      z-index: 1;
+      background: white;
+      padding: 10px;
+      margin: 10px;
+      border-radius: 5px;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.3);
+    }
+    .btn { margin: 5px; padding: 5px 10px; cursor: pointer; }
+    #styleSelector { margin-top: 10px; }
+    #contextMenu {
+      position: absolute;
+      background: white;
+      border: 1px solid #ccc;
+      display: none;
+      z-index: 2;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.15);
+    }
+    #contextMenu div {
+      padding: 5px 10px;
+      cursor: pointer;
+    }
+    #contextMenu div:hover {
+      background: #eee;
+    }
+  </style>
+</head>
+<body>
+
+<div id="controls">
+  <button id="toggleAdd" class="btn">Додати точку: ВИМК.</button>
+  <button id="clearRoute" class="btn">Очистити маршрут</button>
+  <button id="startLineMode" class="btn">Лінійка на початку: ВИМК.</button>
+  <button id="endLineMode" class="btn">Лінійка в кінці: ВИМК.</button>
+  <button id="clearRulers" class="btn">Очистити лінійки</button>
+  <button id="saveRoute" class="btn">💾 Зберегти маршрут</button>
+  <button id="loadRoute" class="btn">📂 Завантажити маршрут</button>
+  <input type="file" id="fileInput" accept=".json" style="display:none;" />
+  <div>Кілометраж: <span id="distance">0</span> км</div>
+  <div id="styleSelector">
+    <label for="mapStyle">Стиль карти:</label>
+    <select id="mapStyle">
+      <option value="mapbox://styles/mapbox/streets-v12">Streets</option>
+      <option value="mapbox://styles/mapbox/satellite-v9">Satellite</option>
+      <option value="mapbox://styles/mapbox/satellite-streets-v12">Satellite Streets</option>
+      <option value="mapbox://styles/mapbox/outdoors-v12">Outdoors</option>
+      <option value="mapbox://styles/mapbox/light-v11">Light</option>
+      <option value="mapbox://styles/mapbox/dark-v11">Dark</option>
+      <option value="mapbox://styles/mapbox/navigation-day-v1">Navigation Day</option>
+      <option value="mapbox://styles/mapbox/navigation-night-v1">Navigation Night</option>
+	  <option value="mapbox://styles/tkchk/cmdzvf97b00vq01qscpgsf1jt">map</option>
+    </select>
+  </div>
+</div>
+<div id="map"></div>
+<div id="contextMenu">
+  <div id="insertAfter">➕Вставити після</div>
+  <div id="deletePoint">❌Видалити точку</div>
+</div>
+
+<script>
+mapboxgl.accessToken = 'pk.eyJ1IjoidGtjaGsiLCJhIjoiY21keTN0bXVlMjN6djJrczZ2NDk5bXRoMiJ9.6n1kuiUJ3EdGUpz5I6-wdg';
+let currentStyle = 'mapbox://styles/mapbox/streets-v12';
+const map = new mapboxgl.Map({ container: 'map', style: currentStyle, center: [30.5238, 50.4547], zoom: 10 });
+
+let addMode = false, startLineMode = false, endLineMode = false;
+let insertAfterMode = false;
+let points = [], markers = [], startRuler = [], endRuler = [], rulerLines = [], routeLayers = [];
+let selectedMarkerIndex = null;
+
+const contextMenu = document.getElementById('contextMenu');
+const insertAfterBtn = document.getElementById('insertAfter');
+const deletePointBtn = document.getElementById('deletePoint');
+
+map.on('style.load', () => { updateRoute(); drawRulers(); });
+
+document.getElementById('mapStyle').addEventListener('change', function() {
+  currentStyle = this.value;
+  map.setStyle(currentStyle);
+});
+
+function toggleButton(id, flag) {
+  document.getElementById(id).textContent = document.getElementById(id).textContent.split(':')[0] + `: ${flag ? 'УВІМК.' : 'ВИМК.'}`;
+}
+
+document.getElementById('toggleAdd').onclick = () => {
+  addMode = !addMode; startLineMode = false; endLineMode = false; insertAfterMode = false;
+  toggleButton('toggleAdd', addMode); toggleButton('startLineMode', false); toggleButton('endLineMode', false);
+};
+
+document.getElementById('startLineMode').onclick = () => {
+  startLineMode = !startLineMode; endLineMode = false; addMode = false; insertAfterMode = false;
+  toggleButton('startLineMode', startLineMode); toggleButton('endLineMode', false); toggleButton('toggleAdd', false);
+};
+
+document.getElementById('endLineMode').onclick = () => {
+  endLineMode = !endLineMode; startLineMode = false; addMode = false; insertAfterMode = false;
+  toggleButton('endLineMode', endLineMode); toggleButton('startLineMode', false); toggleButton('toggleAdd', false);
+};
+
+document.getElementById('clearRulers').onclick = () => {
+  startRuler = []; endRuler = []; drawRulers(); updateRoute();
+};
+
+document.getElementById('clearRoute').onclick = () => {
+  points = []; markers.forEach(m => m.remove()); markers = [];
+  clearRouteLayers();
+  updateRoute();
+};
+
+map.on('click', (e) => {
+  const lngLat = [e.lngLat.lng, e.lngLat.lat];
+  contextMenu.style.display = 'none';
+
+  if (insertAfterMode && selectedMarkerIndex !== null) {
+    points.splice(selectedMarkerIndex + 1, 0, lngLat);
+    insertAfterMode = false;
+    rebuildMarkers();
+    return;
+  }
+
+  if (startLineMode) { startRuler.push(lngLat); drawRulers(); updateRoute(); return; }
+  if (endLineMode) { endRuler.push(lngLat); drawRulers(); updateRoute(); return; }
+  if (addMode) {
+    points.push(lngLat);
+    addMarker(lngLat);
+    updateRoute();
+  }
+});
+
+function addMarker(lngLat, index = points.length - 1) {
+  const marker = new mapboxgl.Marker({ draggable: false }).setLngLat(lngLat).addTo(map);
+  marker.getElement().addEventListener('contextmenu', (e) => {
+    e.preventDefault();
+    selectedMarkerIndex = index;
+    contextMenu.style.left = e.pageX + 'px';
+    contextMenu.style.top = e.pageY + 'px';
+    contextMenu.style.display = 'block';
+  });
+  markers.push(marker);
+}
+
+insertAfterBtn.onclick = () => {
+  if (selectedMarkerIndex !== null) {
+    insertAfterMode = true;
+  }
+  contextMenu.style.display = 'none';
+};
+
+deletePointBtn.onclick = () => {
+  if (selectedMarkerIndex !== null) {
+    points.splice(selectedMarkerIndex, 1);
+    rebuildMarkers();
+  }
+  contextMenu.style.display = 'none';
+};
+
+document.addEventListener('click', () => { contextMenu.style.display = 'none'; });
+
+function rebuildMarkers() {
+  markers.forEach(m => m.remove());
+  markers = [];
+  points.forEach((pt, idx) => addMarker(pt, idx));
+  updateRoute();
+}
+
+function drawRulers() {
+  rulerLines.forEach(id => { if (map.getLayer(id)) map.removeLayer(id); if (map.getSource(id)) map.removeSource(id); });
+  rulerLines = [];
+  drawRulerSegment(startRuler, 'start', '#0066ff');
+  drawRulerSegment(endRuler, 'end', '#33cc33');
+}
+
+function drawRulerSegment(ruler, prefix, color) {
+  for (let i = 0; i < ruler.length - 1; i++) {
+    const lineId = `${prefix}-ruler-${i}`;
+    const geojson = { type: 'Feature', geometry: { type: 'LineString', coordinates: [ruler[i], ruler[i + 1]] } };
+    map.addSource(lineId, { type: 'geojson', data: geojson });
+    map.addLayer({ id: lineId, type: 'line', source: lineId, layout: { 'line-join': 'round', 'line-cap': 'round' }, paint: { 'line-color': color, 'line-width': 4, 'line-dasharray': [1, 2] } });
+    rulerLines.push(lineId);
+  }
+}
+
+function calculateRulerDistance(ruler) {
+  let dist = 0;
+  for (let i = 0; i < ruler.length - 1; i++) {
+    dist += turf.distance(turf.point(ruler[i]), turf.point(ruler[i + 1]));
+  }
+  return dist;
+}
+
+function splitIntoChunks(array, chunkSize) {
+  const chunks = [];
+  for (let i = 0; i < array.length - 1; i += chunkSize - 1) {
+    const chunk = array.slice(i, i + chunkSize);
+    if (chunk.length >= 2) {
+      chunks.push(chunk);
+    }
+  }
+  return chunks;
+}
+
+function clearRouteLayers() {
+  routeLayers.forEach(id => {
+    if (map.getLayer(id)) map.removeLayer(id);
+    if (map.getSource(id)) map.removeSource(id);
+  });
+  routeLayers = [];
+}
+
+async function updateRoute() {
+  if (points.length < 2) {
+    document.getElementById('distance').textContent = (calculateRulerDistance(startRuler) + calculateRulerDistance(endRuler)).toFixed(2);
+    clearRouteLayers();
+    return;
+  }
+
+  const chunks = splitIntoChunks(points, 20);
+  let totalDistance = 0;
+  clearRouteLayers();
+
+  for (let i = 0; i < chunks.length; i++) {
+    const chunk = chunks[i];
+    const coordsStr = chunk.map(p => p.join(',')).join(';');
+    const url = `https://api.mapbox.com/directions/v5/mapbox/driving/${coordsStr}?geometries=geojson&access_token=${mapboxgl.accessToken}`;
+
+    try {
+      const res = await fetch(url);
+      const data = await res.json();
+      if (data.routes && data.routes[0]) {
+        const route = data.routes[0];
+        totalDistance += route.distance;
+        const layerId = `route-part-${i}`;
+
+        map.addSource(layerId, {
+          type: 'geojson',
+          data: {
+            type: 'Feature',
+            geometry: route.geometry
+          }
+        });
+
+        map.addLayer({
+          id: layerId,
+          type: 'line',
+          source: layerId,
+          layout: {
+            'line-join': 'round',
+            'line-cap': 'round'
+          },
+          paint: {
+            'line-color': `hsl(${(i * 60) % 360}, 100%, 50%)`,
+            'line-width': 5
+          }
+        });
+
+        routeLayers.push(layerId);
+      }
+    } catch (e) {
+      console.error('Помилка маршруту:', e);
+    }
+  }
+
+  totalDistance = (totalDistance / 1000) + calculateRulerDistance(startRuler) + calculateRulerDistance(endRuler);
+  document.getElementById('distance').textContent = totalDistance.toFixed(2);
+}
+
+const turfScript = document.createElement('script');
+turfScript.src = 'https://cdn.jsdelivr.net/npm/@turf/turf@6.5.0/turf.min.js';
+document.head.appendChild(turfScript);
+document.getElementById('saveRoute').onclick = () => {
+  const routeData = {
+    points: points,
+    startRuler: startRuler,
+    endRuler: endRuler,
+    date: new Date().toISOString()
+  };
+
+  const blob = new Blob([JSON.stringify(routeData, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'route_' + new Date().toISOString().replace(/[:.]/g, '-') + '.json';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+};
+const fileInput = document.getElementById('fileInput');
+document.getElementById('loadRoute').onclick = () => {
+  fileInput.value = null; // Очистити вибір файлу
+  fileInput.click();
+};
+
+fileInput.onchange = (event) => {
+  const file = event.target.files[0];
+  if (!file) return;
+
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    try {
+      const routeData = JSON.parse(e.target.result);
+
+      // Перевірка структури
+      if (!routeData.points || !Array.isArray(routeData.points)) {
+        alert('Неправильний формат файлу: відсутні точки маршруту');
+        return;
+      }
+
+      // Оновлюємо глобальні змінні
+      points = routeData.points || [];
+      startRuler = routeData.startRuler || [];
+      endRuler = routeData.endRuler || [];
+
+      // Оновлюємо маркери та маршрут
+      rebuildMarkers();
+      drawRulers();
+      updateRoute();
+
+      // Центруємо карту на першу точку маршруту (якщо є)
+      if (points.length > 0) {
+        map.flyTo({ center: points[0], zoom: 12 });
+      }
+
+      alert('Маршрут успішно завантажено!');
+    } catch (err) {
+      alert('Помилка при завантаженні маршруту: ' + err.message);
+    }
+  };
+
+  reader.readAsText(file);
+};
+</script>
+</body>
+</html>
