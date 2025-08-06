@@ -7,10 +7,13 @@ const path = require('path');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+console.log('BASIC_AUTH_USER:', process.env.BASIC_AUTH_USER);
+console.log('BASIC_AUTH_PASSWORD:', process.env.BASIC_AUTH_PASSWORD);
+
 // Базова авторизація для всього сайту
 app.use(basicAuth({
   users: { [process.env.BASIC_AUTH_USER]: process.env.BASIC_AUTH_PASSWORD },
-  challenge: true,           // Показувати браузеру форму логіну
+  challenge: true,
   unauthorizedResponse: (req) => 'Невірний логін або пароль'
 }));
 
