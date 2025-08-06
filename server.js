@@ -7,18 +7,22 @@ const path = require('path');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Спочатку даємо доступ до статичних файлів
+// Базова авторизація для всього сайту
+app.use(basicAuth({
+  users: { [process.env.BASIC_AUTH_USER]: process.env.BASIC_AUTH_PASSWORD },
+  challenge: true,           // Показувати браузеру форму логіну
+  unauthorizedResponse: (req) => 'Невірний логін або пароль'
+}));
+
+// Роздача статичних файлів з папки public
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Авторизація лише на GET /
-app.get('/', basicAuth({
-  users: { [process.env.BASIC_AUTH_USER]: process.env.BASIC_AUTH_PASSWORD },
-  challenge: true,
-}), (req, res) => {
+// Якщо зайти просто на корінь, віддаємо index.html
+app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-// Запуск сервера
+// Запускаємо сервер
 app.listen(PORT, () => {
-  console.log(`Server running on http://localhost:${PORT}`);
+  console.log(`Server running on port ${PORT}`);
 });
