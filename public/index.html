@@ -40,10 +40,10 @@
 <body>
 
 <div id="controls">
-  <button id="toggleAdd" class="btn">Додати точку: ВИМК.</button>
+  <button id="toggleAdd" class="btn">Створення маршруту: ВИМКНЕНО.</button>
   <button id="clearRoute" class="btn">Очистити маршрут</button>
-  <button id="startLineMode" class="btn">Лінійка на початку: ВИМК.</button>
-  <button id="endLineMode" class="btn">Лінійка в кінці: ВИМК.</button>
+  <button id="startLineMode" class="btn">Лінійка на початку: ВИМКНЕНО.</button>
+  <button id="endLineMode" class="btn">Лінійка в кінці: ВИМКНЕНО.</button>
   <button id="clearRulers" class="btn">Очистити лінійки</button>
   <button id="saveRoute" class="btn">💾 Зберегти маршрут</button>
   <button id="loadRoute" class="btn">📂 Завантажити маршрут</button>
@@ -92,7 +92,7 @@ document.getElementById('mapStyle').addEventListener('change', function() {
 });
 
 function toggleButton(id, flag) {
-  document.getElementById(id).textContent = document.getElementById(id).textContent.split(':')[0] + `: ${flag ? 'УВІМК.' : 'ВИМК.'}`;
+  document.getElementById(id).textContent = document.getElementById(id).textContent.split(':')[0] + `: ${flag ? 'УВІМКНЕНО.' : 'ВИМКНЕНО.'}`;
 }
 
 document.getElementById('toggleAdd').onclick = () => {
