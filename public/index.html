@@ -47,6 +47,7 @@
   <button id="clearRulers" class="btn">Очистити лінійки</button>
   <button id="saveRoute" class="btn">💾 Зберегти маршрут</button>
   <button id="loadRoute" class="btn">📂 Завантажити маршрут</button>
+  <button id="toggleMarkers" class="btn">📍 Показати точки</button>
   <input type="file" id="fileInput" accept=".json" style="display:none;" />
   <div>Кілометраж: <span id="distance">0</span> км</div>
   <div id="styleSelector">
@@ -175,6 +176,17 @@ function rebuildMarkers() {
   points.forEach((pt, idx) => addMarker(pt, idx));
   updateRoute();
 }
+
+let markersVisible = true;
+
+document.getElementById('toggleMarkers').onclick = () => {
+  markersVisible = !markersVisible;
+  markers.forEach(marker => {
+    const el = marker.getElement();
+    el.style.display = markersVisible ? 'block' : 'none';
+  });
+  document.getElementById('toggleMarkers').textContent = markersVisible ? '📍 Показати точки' : '📍 Приховати точки';
+};
 
 function drawRulers() {
   rulerLines.forEach(id => { if (map.getLayer(id)) map.removeLayer(id); if (map.getSource(id)) map.removeSource(id); });
