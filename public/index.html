@@ -6,35 +6,33 @@
   <meta name="viewport" content="initial-scale=1,maximum-scale=1,user-scalable=no" />
   <script src="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.js"></script>
   <link href="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.css" rel="stylesheet" />
+
+  <!-- Firebase (core + firestore, compat) -->
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+
   <style>
     body { margin:0; padding:0; font-family: sans-serif; }
     #map { position:absolute; top:0; bottom:0; width:100%; }
     #controls {
-      position: absolute;
-      z-index: 1;
-      background: white;
-      padding: 10px;
-      margin: 10px;
-      border-radius: 5px;
-      box-shadow: 0 1px 4px rgba(0,0,0,0.3);
+      position: absolute; z-index: 1; background: white; padding: 10px; margin: 10px;
+      border-radius: 8px; box-shadow: 0 1px 6px rgba(0,0,0,0.25); max-width: 420px;
     }
-    .btn { margin: 5px; padding: 5px 10px; cursor: pointer; }
+    .btn { margin: 5px 5px 5px 0; padding: 6px 10px; cursor: pointer; }
+    /* >>> ПІДСВІЧУВАННЯ АКТИВНОГО СТАНУ КНОПОК <<< */
+    .btn.active {
+      background-color: #90ee90; /* світло-зелений */
+      border: 1px solid #4CAF50;
+    }
     #styleSelector { margin-top: 10px; }
+    #dbControls { margin-top: 10px; padding-top:10px; border-top:1px solid #eee;}
+    #dbControls input, #dbControls select { margin: 5px 5px 5px 0; padding:6px; }
     #contextMenu {
-      position: absolute;
-      background: white;
-      border: 1px solid #ccc;
-      display: none;
-      z-index: 2;
+      position: absolute; background: white; border: 1px solid #ccc; display: none; z-index: 2;
       box-shadow: 0 2px 6px rgba(0,0,0,0.15);
     }
-    #contextMenu div {
-      padding: 5px 10px;
-      cursor: pointer;
-    }
-    #contextMenu div:hover {
-      background: #eee;
-    }
+    #contextMenu div { padding: 5px 10px; cursor: pointer; }
+    #contextMenu div:hover { background: #eee; }
   </style>
 </head>
 <body>
@@ -45,11 +43,12 @@
   <button id="startLineMode" class="btn">Лінійка на початку: ВИМКНЕНО.</button>
   <button id="endLineMode" class="btn">Лінійка в кінці: ВИМКНЕНО.</button>
   <button id="clearRulers" class="btn">Очистити лінійки</button>
-  <button id="saveRoute" class="btn">💾 Зберегти маршрут</button>
-  <button id="loadRoute" class="btn">📂 Завантажити маршрут</button>
+  <button id="saveRoute" class="btn">💾 Зберегти маршрут (JSON)</button>
+  <button id="loadRoute" class="btn">📂 Завантажити маршрут (JSON)</button>
   <button id="toggleMarkers" class="btn">📍 Показати точки</button>
   <input type="file" id="fileInput" accept=".json" style="display:none;" />
   <div>Кілометраж: <span id="distance">0</span> км</div>
+
   <div id="styleSelector">
     <label for="mapStyle">Стиль карти:</label>
     <select id="mapStyle">
@@ -61,17 +60,34 @@
       <option value="mapbox://styles/mapbox/dark-v11">Dark</option>
       <option value="mapbox://styles/mapbox/navigation-day-v1">Navigation Day</option>
       <option value="mapbox://styles/mapbox/navigation-night-v1">Navigation Night</option>
-	  <option value="mapbox://styles/tkchk/cmdzvf97b00vq01qscpgsf1jt">map</option>
+      <option value="mapbox://styles/tkchk/cmdzvf97b00vq01qscpgsf1jt">map</option>
     </select>
   </div>
+
+  <!-- Блок керування БД -->
+  <div id="dbControls">
+    <div><strong>База (Firestore)</strong></div>
+    <input id="routeName" type="text" placeholder="Назва маршруту" />
+    <button id="saveToDB" class="btn">💾 Зберегти в БД</button>
+    <br/>
+    <select id="remoteRoutes" style="min-width:220px">
+      <option value="">— вибери маршрут з БД —</option>
+    </select>
+    <button id="refreshList" class="btn">🔄 Оновити список</button>
+    <button id="loadFromDB" class="btn">⬇️ Завантажити з БД</button>
+    <button id="deleteFromDB" class="btn">🗑 Видалити з БД</button>
+  </div>
 </div>
+
 <div id="map"></div>
+
 <div id="contextMenu">
   <div id="insertAfter">➕Вставити після</div>
   <div id="deletePoint">❌Видалити точку</div>
 </div>
 
 <script>
+/* ===================== Mapbox init ===================== */
 mapboxgl.accessToken = 'pk.eyJ1IjoidGtjaGsiLCJhIjoiY21keTN0bXVlMjN6djJrczZ2NDk5bXRoMiJ9.6n1kuiUJ3EdGUpz5I6-wdg';
 let currentStyle = 'mapbox://styles/mapbox/streets-v12';
 const map = new mapboxgl.Map({ container: 'map', style: currentStyle, center: [30.5238, 50.4547], zoom: 10 });
@@ -92,33 +108,29 @@ document.getElementById('mapStyle').addEventListener('change', function() {
   map.setStyle(currentStyle);
 });
 
+/* >>> ОНОВЛЕНА ФУНКЦІЯ для тексту + підсвітки кнопки <<< */
 function toggleButton(id, flag) {
-  document.getElementById(id).textContent = document.getElementById(id).textContent.split(':')[0] + `: ${flag ? 'УВІМКНЕНО.' : 'ВИМКНЕНО.'}`;
+  const btn = document.getElementById(id);
+  btn.textContent = btn.textContent.split(':')[0] + `: ${flag ? 'УВІМКНЕНО.' : 'ВИМКНЕНО.'}`;
+  if (flag) btn.classList.add('active'); else btn.classList.remove('active');
 }
 
 document.getElementById('toggleAdd').onclick = () => {
   addMode = !addMode; startLineMode = false; endLineMode = false; insertAfterMode = false;
   toggleButton('toggleAdd', addMode); toggleButton('startLineMode', false); toggleButton('endLineMode', false);
 };
-
 document.getElementById('startLineMode').onclick = () => {
   startLineMode = !startLineMode; endLineMode = false; addMode = false; insertAfterMode = false;
   toggleButton('startLineMode', startLineMode); toggleButton('endLineMode', false); toggleButton('toggleAdd', false);
 };
-
 document.getElementById('endLineMode').onclick = () => {
   endLineMode = !endLineMode; startLineMode = false; addMode = false; insertAfterMode = false;
   toggleButton('endLineMode', endLineMode); toggleButton('startLineMode', false); toggleButton('toggleAdd', false);
 };
-
-document.getElementById('clearRulers').onclick = () => {
-  startRuler = []; endRuler = []; drawRulers(); updateRoute();
-};
-
+document.getElementById('clearRulers').onclick = () => { startRuler = []; endRuler = []; drawRulers(); updateRoute(); };
 document.getElementById('clearRoute').onclick = () => {
   points = []; markers.forEach(m => m.remove()); markers = [];
-  clearRouteLayers();
-  updateRoute();
+  clearRouteLayers(); updateRoute();
 };
 
 map.on('click', (e) => {
@@ -127,18 +139,11 @@ map.on('click', (e) => {
 
   if (insertAfterMode && selectedMarkerIndex !== null) {
     points.splice(selectedMarkerIndex + 1, 0, lngLat);
-    insertAfterMode = false;
-    rebuildMarkers();
-    return;
+    insertAfterMode = false; rebuildMarkers(); return;
   }
-
   if (startLineMode) { startRuler.push(lngLat); drawRulers(); updateRoute(); return; }
   if (endLineMode) { endRuler.push(lngLat); drawRulers(); updateRoute(); return; }
-  if (addMode) {
-    points.push(lngLat);
-    addMarker(lngLat);
-    updateRoute();
-  }
+  if (addMode) { points.push(lngLat); addMarker(lngLat); updateRoute(); }
 });
 
 function addMarker(lngLat, index = points.length - 1) {
@@ -153,38 +158,23 @@ function addMarker(lngLat, index = points.length - 1) {
   markers.push(marker);
 }
 
-insertAfterBtn.onclick = () => {
-  if (selectedMarkerIndex !== null) {
-    insertAfterMode = true;
-  }
-  contextMenu.style.display = 'none';
-};
-
+insertAfterBtn.onclick = () => { if (selectedMarkerIndex !== null) insertAfterMode = true; contextMenu.style.display = 'none'; };
 deletePointBtn.onclick = () => {
-  if (selectedMarkerIndex !== null) {
-    points.splice(selectedMarkerIndex, 1);
-    rebuildMarkers();
-  }
+  if (selectedMarkerIndex !== null) { points.splice(selectedMarkerIndex, 1); rebuildMarkers(); }
   contextMenu.style.display = 'none';
 };
-
 document.addEventListener('click', () => { contextMenu.style.display = 'none'; });
 
 function rebuildMarkers() {
-  markers.forEach(m => m.remove());
-  markers = [];
+  markers.forEach(m => m.remove()); markers = [];
   points.forEach((pt, idx) => addMarker(pt, idx));
   updateRoute();
 }
 
 let markersVisible = true;
-
 document.getElementById('toggleMarkers').onclick = () => {
   markersVisible = !markersVisible;
-  markers.forEach(marker => {
-    const el = marker.getElement();
-    el.style.display = markersVisible ? 'block' : 'none';
-  });
+  markers.forEach(marker => marker.getElement().style.display = markersVisible ? 'block' : 'none');
   document.getElementById('toggleMarkers').textContent = markersVisible ? '📍 Показати точки' : '📍 Приховати точки';
 };
 
@@ -194,13 +184,14 @@ function drawRulers() {
   drawRulerSegment(startRuler, 'start', '#0066ff');
   drawRulerSegment(endRuler, 'end', '#33cc33');
 }
-
 function drawRulerSegment(ruler, prefix, color) {
   for (let i = 0; i < ruler.length - 1; i++) {
     const lineId = `${prefix}-ruler-${i}`;
     const geojson = { type: 'Feature', geometry: { type: 'LineString', coordinates: [ruler[i], ruler[i + 1]] } };
     map.addSource(lineId, { type: 'geojson', data: geojson });
-    map.addLayer({ id: lineId, type: 'line', source: lineId, layout: { 'line-join': 'round', 'line-cap': 'round' }, paint: { 'line-color': color, 'line-width': 4, 'line-dasharray': [1, 2] } });
+    map.addLayer({ id: lineId, type: 'line', source: lineId,
+      layout: { 'line-join': 'round', 'line-cap': 'round' },
+      paint: { 'line-color': color, 'line-width': 4, 'line-dasharray': [1, 2] } });
     rulerLines.push(lineId);
   }
 }
@@ -217,9 +208,7 @@ function splitIntoChunks(array, chunkSize) {
   const chunks = [];
   for (let i = 0; i < array.length - 1; i += chunkSize - 1) {
     const chunk = array.slice(i, i + chunkSize);
-    if (chunk.length >= 2) {
-      chunks.push(chunk);
-    }
+    if (chunk.length >= 2) chunks.push(chunk);
   }
   return chunks;
 }
@@ -234,9 +223,9 @@ function clearRouteLayers() {
 
 async function updateRoute() {
   if (points.length < 2) {
-    document.getElementById('distance').textContent = (calculateRulerDistance(startRuler) + calculateRulerDistance(endRuler)).toFixed(2);
-    clearRouteLayers();
-    return;
+    document.getElementById('distance').textContent =
+      (calculateRulerDistance(startRuler) + calculateRulerDistance(endRuler)).toFixed(2);
+    clearRouteLayers(); return;
   }
 
   const chunks = splitIntoChunks(points, 20);
@@ -256,105 +245,201 @@ async function updateRoute() {
         totalDistance += route.distance;
         const layerId = `route-part-${i}`;
 
-        map.addSource(layerId, {
-          type: 'geojson',
-          data: {
-            type: 'Feature',
-            geometry: route.geometry
-          }
-        });
-
+        map.addSource(layerId, { type: 'geojson', data: { type: 'Feature', geometry: route.geometry } });
         map.addLayer({
-          id: layerId,
-          type: 'line',
-          source: layerId,
-          layout: {
-            'line-join': 'round',
-            'line-cap': 'round'
-          },
-          paint: {
-            'line-color': `hsl(${(i * 60) % 360}, 100%, 50%)`,
-            'line-width': 5
-          }
+          id: layerId, type: 'line', source: layerId,
+          layout: { 'line-join': 'round', 'line-cap': 'round' },
+          paint: { 'line-color': `hsl(${(i * 60) % 360}, 100%, 50%)`, 'line-width': 5 }
         });
-
         routeLayers.push(layerId);
       }
-    } catch (e) {
-      console.error('Помилка маршруту:', e);
-    }
+    } catch (e) { console.error('Помилка маршруту:', e); }
   }
 
   totalDistance = (totalDistance / 1000) + calculateRulerDistance(startRuler) + calculateRulerDistance(endRuler);
   document.getElementById('distance').textContent = totalDistance.toFixed(2);
 }
 
+/* turf */
 const turfScript = document.createElement('script');
 turfScript.src = 'https://cdn.jsdelivr.net/npm/@turf/turf@6.5.0/turf.min.js';
 document.head.appendChild(turfScript);
+
+/* =============== Локальне збереження в JSON =============== */
 document.getElementById('saveRoute').onclick = () => {
   const routeData = {
-    points: points,
-    startRuler: startRuler,
-    endRuler: endRuler,
+    name: (document.getElementById('routeName').value || 'Без назви'),
+    points, startRuler, endRuler,
     date: new Date().toISOString()
   };
-
   const blob = new Blob([JSON.stringify(routeData, null, 2)], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
-
   const a = document.createElement('a');
-  a.href = url;
-  a.download = 'route_' + new Date().toISOString().replace(/[:.]/g, '-') + '.json';
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
+  a.href = url; a.download = 'route_' + new Date().toISOString().replace(/[:.]/g, '-') + '.json';
+  document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
 };
+
 const fileInput = document.getElementById('fileInput');
-document.getElementById('loadRoute').onclick = () => {
-  fileInput.value = null; // Очистити вибір файлу
-  fileInput.click();
-};
-
+document.getElementById('loadRoute').onclick = () => { fileInput.value = null; fileInput.click(); };
 fileInput.onchange = (event) => {
-  const file = event.target.files[0];
-  if (!file) return;
-
+  const file = event.target.files[0]; if (!file) return;
   const reader = new FileReader();
   reader.onload = (e) => {
     try {
       const routeData = JSON.parse(e.target.result);
-
-      // Перевірка структури
-      if (!routeData.points || !Array.isArray(routeData.points)) {
-        alert('Неправильний формат файлу: відсутні точки маршруту');
-        return;
-      }
-
-      // Оновлюємо глобальні змінні
-      points = routeData.points || [];
-      startRuler = routeData.startRuler || [];
-      endRuler = routeData.endRuler || [];
-
-      // Оновлюємо маркери та маршрут
-      rebuildMarkers();
-      drawRulers();
-      updateRoute();
-
-      // Центруємо карту на першу точку маршруту (якщо є)
-      if (points.length > 0) {
-        map.flyTo({ center: points[0], zoom: 12 });
-      }
-
-      alert('Маршрут успішно завантажено!');
-    } catch (err) {
-      alert('Помилка при завантаженні маршруту: ' + err.message);
-    }
+      if (!routeData.points || !Array.isArray(routeData.points)) { alert('Неправильний формат файлу'); return; }
+      points = routeData.points || []; startRuler = routeData.startRuler || []; endRuler = routeData.endRuler || [];
+      document.getElementById('routeName').value = routeData.name || '';
+      rebuildMarkers(); drawRulers(); updateRoute();
+      if (points.length > 0) map.flyTo({ center: points[0], zoom: 12 });
+      alert('Маршрут успішно завантажено з файлу!');
+    } catch (err) { alert('Помилка при завантаженні: ' + err.message); }
   };
-
   reader.readAsText(file);
 };
+
+/* ===================== Firestore ===================== */
+/* 1) Твоя конфігурація Firebase */
+const firebaseConfig = {
+  apiKey: "AIzaSyDjDBZkmy-skuDEQF8-AkRma7yw6TugoQc",
+  authDomain: "my-map-app-58312.firebaseapp.com",
+  projectId: "my-map-app-58312",
+  storageBucket: "my-map-app-58312.firebasestorage.app",
+  messagingSenderId: "53260611353",
+  appId: "1:53260611353:web:f25e120996ad8305405f88",
+  measurementId: "G-9LRX1FLTKL"
+};
+
+let db = null;
+try {
+  const fbApp = firebase.apps && firebase.apps.length ? firebase.app() : firebase.initializeApp(firebaseConfig);
+  db = firebase.firestore();
+  console.log('✅ Firebase ініціалізовано:', firebaseConfig.projectId);
+} catch (e) {
+  console.error('❌ Firebase не ініціалізовано:', e);
+}
+
+/* ===== helpers для конвертації Firestore <-> карта ===== */
+// [[lng,lat], ...] -> [{lng,lat}, ...]
+function toObjPoints(arr) {
+  return (arr || []).map(p => ({ lng: p[0], lat: p[1] }));
+}
+// [{lng,lat}, ...] -> [[lng,lat], ...]
+function fromObjPoints(arr) {
+  return (arr || []).map(p => [p.lng, p.lat]);
+}
+
+/* 2) Допоміжні функції для Firestore */
+async function saveToDB() {
+  try {
+    if (!db) { alert('БД не ініціалізована'); return; }
+    if (points.length === 0 && startRuler.length === 0 && endRuler.length === 0) {
+      alert('Немає що зберігати'); return;
+    }
+    const name = (document.getElementById('routeName').value || '').trim();
+    if (!name) { alert('Вкажи назву маршруту'); return; }
+
+    const payload = {
+      name,
+      points: toObjPoints(points),
+      startRuler: toObjPoints(startRuler),
+      endRuler: toObjPoints(endRuler),
+      distance_km: parseFloat(document.getElementById('distance').textContent) || 0,
+      updatedAt: new Date().toISOString()
+    };
+
+    console.log('➡️ Спроба збереження в Firestore:', payload);
+    const ref = db.collection('routes').doc(name); // ключ = назва
+    await ref.set(payload, { merge: true });
+
+    alert('✅ Збережено в БД як: ' + name);
+    await refreshRoutesList();
+  } catch (err) {
+    console.error('❌ Помилка збереження в Firestore:', err);
+    alert('❌ Не вдалося зберегти в БД: ' + (err?.message || err));
+  }
+}
+
+async function refreshRoutesList() {
+  if (!db) return;
+  const sel = document.getElementById('remoteRoutes');
+  const current = sel.value;
+  sel.innerHTML = '<option value="">— вибери маршрут з БД —</option>';
+
+  const snap = await db.collection('routes')
+    .orderBy('updatedAt', 'desc')
+    .limit(200)
+    .get();
+
+  snap.forEach(doc => {
+    const d = doc.data();
+    const opt = document.createElement('option');
+    opt.value = doc.id;
+
+    const km = (typeof d.distance_km === 'number') ? '(' + d.distance_km.toFixed(2) + ' км)' : '';
+    opt.textContent = doc.id + (km ? ' ' + km : '');
+
+    sel.appendChild(opt);
+  });
+
+  if (Array.from(sel.options).some(o => o.value === current)) {
+    sel.value = current;
+  }
+}
+
+async function loadFromDB() {
+  try {
+    if (!db) { alert('БД не ініціалізована'); return; }
+    const sel = document.getElementById('remoteRoutes');
+    const id = sel.value;
+    if (!id) { alert('Оберіть маршрут у списку'); return; }
+
+    const docRef = db.collection('routes').doc(id);
+    const docSnap = await docRef.get();
+    if (!docSnap.exists) { alert('Маршрут не знайдено'); return; }
+    const data = docSnap.data();
+
+    points = fromObjPoints(data.points || []);
+    startRuler = fromObjPoints(data.startRuler || []);
+    endRuler = fromObjPoints(data.endRuler || []);
+    document.getElementById('routeName').value = data.name || id;
+
+    rebuildMarkers();
+    drawRulers();
+    updateRoute();
+    if (points.length > 0) map.flyTo({ center: points[0], zoom: 12 });
+    alert('Маршрут завантажено з БД: ' + id);
+  } catch (err) {
+    console.error('❌ Помилка завантаження з БД:', err);
+    alert('❌ Не вдалося завантажити: ' + (err?.message || err));
+  }
+}
+
+async function deleteFromDB() {
+  try {
+    if (!db) { alert('БД не ініціалізована'); return; }
+    const sel = document.getElementById('remoteRoutes');
+    const id = sel.value;
+    if (!id) { alert('Оберіть маршрут у списку'); return; }
+    if (!confirm(`Точно видалити маршрут "${id}"?`)) return;
+
+    await db.collection('routes').doc(id).delete();
+    alert('Видалено з БД: ' + id);
+    await refreshRoutesList();
+  } catch (err) {
+    console.error('❌ Помилка видалення з БД:', err);
+    alert('❌ Не вдалося видалити: ' + (err?.message || err));
+  }
+}
+
+/* 3) Прив’язка кнопок */
+document.getElementById('saveToDB').onclick = saveToDB;
+document.getElementById('refreshList').onclick = refreshRoutesList;
+document.getElementById('loadFromDB').onclick = loadFromDB;
+document.getElementById('deleteFromDB').onclick = deleteFromDB;
+
+// автооновлення списку при завантаженні
+window.addEventListener('load', () => { if (db) refreshRoutesList(); });
 </script>
 </body>
 </html>
