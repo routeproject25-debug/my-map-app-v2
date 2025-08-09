@@ -15,15 +15,18 @@
     body { margin:0; padding:0; font-family: sans-serif; }
     #map { position:absolute; top:0; bottom:0; width:100%; }
     #controls {
-      position: absolute; z-index: 1; background: white; padding: 10px; margin: 10px;
-      border-radius: 8px; box-shadow: 0 1px 6px rgba(0,0,0,0.25); max-width: 420px;
-    }
+  position: absolute; z-index: 1; background: white; padding: 8px; margin: 10px;
+  border-radius: 8px; box-shadow: 0 1px 6px rgba(0,0,0,0.25);
+  max-width: 360px;           /* було 520 → стане вже */
+  max-height: 90vh;           /* щоб не виходило за екран */
+  overflow: auto;             /* скрол якщо що */
+}
+    .row { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
     .btn { margin: 5px 5px 5px 0; padding: 6px 10px; cursor: pointer; }
-    /* >>> ПІДСВІЧУВАННЯ АКТИВНОГО СТАНУ КНОПОК <<< */
-    .btn.active {
-      background-color: #90ee90; /* світло-зелений */
-      border: 1px solid #4CAF50;
-    }
+    .btn.active { background-color: #90ee90; border: 1px solid #4CAF50; }
+    input[type="text"], select, textarea { width: 100%; padding: 6px; }
+    textarea { min-height: 48px; resize: vertical; }
+    small.muted { color:#666; }
     #styleSelector { margin-top: 10px; }
     #dbControls { margin-top: 10px; padding-top:10px; border-top:1px solid #eee;}
     #dbControls input, #dbControls select { margin: 5px 5px 5px 0; padding:6px; }
@@ -33,23 +36,111 @@
     }
     #contextMenu div { padding: 5px 10px; cursor: pointer; }
     #contextMenu div:hover { background: #eee; }
+	/* --- компактніші відступи та шрифти --- */
+/* компактні розміри елементів */
+#controls label { font-size: 12.5px; }
+input[type="text"], select, textarea { padding: 3px 6px; font-size: 13.5px; }
+.btn { padding: 3px 8px; font-size: 13.5px; margin: 4px 4px 4px 0; }
+.row { gap: 4px; } /* було 6px */
+
+/* --- міні-режим панелі --- */
+#controls.mini { width: 280px; }
+.mini-bar { display: none; margin-bottom: 6px; gap: 6px; flex-wrap: wrap; }
+#controls.mini .mini-bar { display: flex; }
+
+/* ховаємо «важке» у міні-режимі */
+#controls.mini .row,
+#controls.mini hr,
+#controls.mini details { display: none; }
+
+/* кнопка-перемикач міні-режиму */
+.toggleMini { float: right; margin-left: 6px; }
+/* дрібніші поля у рядку */
+#controls .row input[type="text"],
+#controls .row select {
+  height: 28px;             /* невисокі контролли */
+}
+
+/* міні-бар — дрібні кнопки */
+.mini-bar .btn { padding: 2px 6px; font-size: 12.5px; }
+
+/* Кнопка показати/сховати панель: фіксовано у вікні */
+.panel-toggle{
+  position: fixed;
+  z-index: 9999;
+  top: 12px;
+  left: 12px;       /* коли панель схована */
+  padding: 4px 8px;
+}
+
+/* Коли панель прихована */
+.controls-hidden #controls{
+  display:none;
+}
+
+/* Коли панель прихована — повертаємо кнопку в кут */
+.controls-hidden .panel-toggle{ left:10px; }
+
   </style>
 </head>
 <body>
 
 <div id="controls">
-  <button id="toggleAdd" class="btn">Створення маршруту: ВИМКНЕНО.</button>
-  <button id="clearRoute" class="btn">Очистити маршрут</button>
-  <button id="startLineMode" class="btn">Лінійка на початку: ВИМКНЕНО.</button>
-  <button id="endLineMode" class="btn">Лінійка в кінці: ВИМКНЕНО.</button>
-  <button id="clearRulers" class="btn">Очистити лінійки</button>
+<!-- Міні-бар (відображається лише у міні-режимі) -->
+<div class="mini-bar">
+  <button id="toggleAddMini" class="btn">Маршрут</button>
+  <button id="clearRouteMini" class="btn">Очистити</button>
+  <button id="saveToDBMini" class="btn">Зберегти</button>
+</div>
+
+<!-- Перемикач міні-режиму -->
+<!-- <button id="toggleMini" class="btn toggleMini">↔ Згорнути</button> -->
+
+  <!-- Керування режимами -->
+  <button id="toggleAdd" class="btn">Створення марш.: ВИМКНЕНО.</button>
+  <button id="startLineMode" class="btn">Лінійка на поч.: ВИМКНЕНО.</button>
+  <button id="endLineMode" class="btn">Лінійка в кін.: ВИМКНЕНО.</button>
+  <button id="clearRoute" class="btn">Очист. марш.</button>
+  <button id="clearRulers" class="btn">Очист. лін.</button>
   <button id="saveRoute" class="btn">💾 Зберегти маршрут (JSON)</button>
   <button id="loadRoute" class="btn">📂 Завантажити маршрут (JSON)</button>
   <button id="toggleMarkers" class="btn">📍 Показати точки</button>
   <input type="file" id="fileInput" accept=".json" style="display:none;" />
   <div>Кілометраж: <span id="distance">0</span> км</div>
 
-  <div id="styleSelector">
+  <!-- Нові поля маршруту -->
+  <hr/>
+  <div class="row">
+    <div>
+      <label>Від</label>
+      <input id="fromName" type="text" placeholder="Почни вводити назву..." list="directoryList" autocomplete="off">
+    </div>
+    <div>
+      <label>До</label>
+      <input id="toName" type="text" placeholder="Почни вводити назву..." list="directoryList" autocomplete="off">
+    </div>
+  </div>
+  <datalist id="directoryList"></datalist>
+
+  <div class="row" style="margin-top:6px;">
+    <div>
+      <label>Тип маршруту</label>
+      <select id="routeType">
+        <option value="Основний">Основний</option>
+        <option value="Альтернативний1">Альтернативний1</option>
+        <option value="Альтернативний2">Альтернативний2</option>
+      </select>
+    </div>
+    <div>
+      <label>Проміжні пункти</label>
+      <input id="intermediateText" type="text" placeholder="Напр.: Немирів; Гайсин; Тульчин">
+    </div>
+  </div>
+  <small class="muted">У БД зберігаються <b>коди</b> “Від/До”. Назва маршруту генерується з актуальних назв довідника.</small>
+
+  <details>
+  <summary><b>Стиль карти</b></summary>
+  <div id="styleSelector" style="margin-top:10px;">
     <label for="mapStyle">Стиль карти:</label>
     <select id="mapStyle">
       <option value="mapbox://styles/mapbox/streets-v12">Streets</option>
@@ -63,22 +154,29 @@
       <option value="mapbox://styles/tkchk/cmdzvf97b00vq01qscpgsf1jt">map</option>
     </select>
   </div>
+</details>
 
-  <!-- Блок керування БД -->
+
+  <!-- Керування БД -->
   <div id="dbControls">
     <div><strong>База (Firestore)</strong></div>
-    <input id="routeName" type="text" placeholder="Назва маршруту" />
+    <input id="routeName" type="text" placeholder="Назва маршруту (згенерується автоматично, можна змінити)" />
     <button id="saveToDB" class="btn">💾 Зберегти в БД</button>
     <br/>
-    <select id="remoteRoutes" style="min-width:220px">
+	<input id="routeSearch" type="text"
+       placeholder="🔎 Пошук маршруту..."
+       list="routesList" autocomplete="off" />
+	<datalist id="routesList"></datalist>
+    <select id="remoteRoutes" style="min-width:260px">
       <option value="">— вибери маршрут з БД —</option>
     </select>
     <button id="refreshList" class="btn">🔄 Оновити список</button>
     <button id="loadFromDB" class="btn">⬇️ Завантажити з БД</button>
     <button id="deleteFromDB" class="btn">🗑 Видалити з БД</button>
+	<button id="clearForm" class="btn">🧹 Очистити форму</button>
   </div>
 </div>
-
+<button id="panelToggle" class="btn panel-toggle" title="Сховати панель">◀ Сховати</button>
 <div id="map"></div>
 
 <div id="contextMenu">
@@ -108,7 +206,7 @@ document.getElementById('mapStyle').addEventListener('change', function() {
   map.setStyle(currentStyle);
 });
 
-/* >>> ОНОВЛЕНА ФУНКЦІЯ для тексту + підсвітки кнопки <<< */
+/* ПІДСВІЧУВАННЯ стану кнопок */
 function toggleButton(id, flag) {
   const btn = document.getElementById(id);
   btn.textContent = btn.textContent.split(':')[0] + `: ${flag ? 'УВІМКНЕНО.' : 'ВИМКНЕНО.'}`;
@@ -319,14 +417,70 @@ try {
   console.error('❌ Firebase не ініціалізовано:', e);
 }
 
-/* ===== helpers для конвертації Firestore <-> карта ===== */
-// [[lng,lat], ...] -> [{lng,lat}, ...]
-function toObjPoints(arr) {
-  return (arr || []).map(p => ({ lng: p[0], lat: p[1] }));
+/* ===== Довідник: code <-> details(name, company, unit) ===== */
+const dirByCode = {};   // { code: {name, company, unit} }
+const codeByName = {};  // { name: code }  (для підстановки за назвою)
+const routesLookup = {}; // label -> doc.id для пошуку
+
+async function loadDirectory() {
+  if (!db) return;
+  const snap = await db.collection('directory').get();
+  const list = document.getElementById('directoryList');
+  list.innerHTML = '';
+  Object.keys(dirByCode).forEach(k => delete dirByCode[k]);
+  Object.keys(codeByName).forEach(k => delete codeByName[k]);
+
+  snap.forEach(doc => {
+    const code = doc.id;
+    const d = doc.data() || {};
+    const name = d.name || code;
+    const company = d.company || '';
+    const unit = d.unit || '';
+    dirByCode[code] = { name, company, unit };
+    if (!(name in codeByName)) codeByName[name] = code;
+
+    const opt = document.createElement('option');
+    opt.value = name; // datalist шукає по value
+    opt.label = [name, unit, company].filter(Boolean).join(' • '); // підказка
+    list.appendChild(opt);
+  });
+  
+  // 🔹 ось тут оновлюємо назву маршруту та список після зміни довідника
+  updateRouteName();
+  refreshRoutesList();
+
+  console.log('📒 Довідник завантажено:', Object.keys(dirByCode).length, 'запис(ів)');
 }
-// [{lng,lat}, ...] -> [[lng,lat], ...]
-function fromObjPoints(arr) {
-  return (arr || []).map(p => [p.lng, p.lat]);
+
+/* helpers */
+function toObjPoints(arr) { return (arr || []).map(p => ({ lng: p[0], lat: p[1] })); }
+function fromObjPoints(arr) { return (arr || []).map(p => [p.lng, p.lat]); }
+function getCodeByInput(inputId) {
+  const name = document.getElementById(inputId).value.trim();
+  return codeByName[name] || null;
+}
+function getNameByCode(code) {
+  return (dirByCode[code]?.name) || '';
+}
+function formatRouteTitle(data) {
+  const from = dirByCode[data.fromCode]?.name || 'невідомо';
+  const to   = dirByCode[data.toCode]?.name   || 'невідомо';
+  const type = data.routeType || 'Основний';
+  return `${from} → ${to} [${type}]`;
+}
+function updateRouteName() {
+  const fromCode = getCodeByInput('fromName');
+  const toCode = getCodeByInput('toName');
+  const routeType = document.getElementById('routeType').value;
+
+  if (!fromCode || !toCode) return;
+
+  const from = dirByCode[fromCode] || {};
+  const to   = dirByCode[toCode] || {};
+  const fromLabel = [from.name, from.unit, from.company].filter(Boolean).join(' • ');
+  const toLabel   = [to.name, to.unit, to.company].filter(Boolean).join(' • ');
+
+  document.getElementById('routeName').value = `${fromLabel} → ${toLabel} [${routeType}]`;
 }
 
 /* 2) Допоміжні функції для Firestore */
@@ -336,11 +490,30 @@ async function saveToDB() {
     if (points.length === 0 && startRuler.length === 0 && endRuler.length === 0) {
       alert('Немає що зберігати'); return;
     }
-    const name = (document.getElementById('routeName').value || '').trim();
-    if (!name) { alert('Вкажи назву маршруту'); return; }
+
+    const fromCode = getCodeByInput('fromName');
+    const toCode   = getCodeByInput('toName');
+    const routeType = document.getElementById('routeType').value;
+    const intermediateText = document.getElementById('intermediateText').value.trim();
+
+    if (!fromCode || !toCode) {
+      alert('Оберіть значення “Від” та “До” зі списку довідника.');
+      return;
+    }
+
+    // Згенерувати назву з актуальними деталями
+    const from = dirByCode[fromCode] || {};
+    const to   = dirByCode[toCode] || {};
+    const fromLabel = [from.name, from.unit, from.company].filter(Boolean).join(' • ');
+    const toLabel   = [to.name, to.unit, to.company].filter(Boolean).join(' • ');
+    const generatedName = `${fromLabel} → ${toLabel} [${routeType}]`;
+
+    const manual = (document.getElementById('routeName').value || '').trim();
+    const finalName = manual || generatedName;
 
     const payload = {
-      name,
+      name: finalName,
+      fromCode, toCode, routeType, intermediateText,
       points: toObjPoints(points),
       startRuler: toObjPoints(startRuler),
       endRuler: toObjPoints(endRuler),
@@ -348,11 +521,15 @@ async function saveToDB() {
       updatedAt: new Date().toISOString()
     };
 
-    console.log('➡️ Спроба збереження в Firestore:', payload);
-    const ref = db.collection('routes').doc(name); // ключ = назва
-    await ref.set(payload, { merge: true });
+    console.log('➡️ Зберігаю маршрут:', payload);
+    // Генеруємо безпечний ID без заборонених символів
+const safeId = finalName.replace(/[\/\\#?[\]]/g, '_');
 
-    alert('✅ Збережено в БД як: ' + name);
+// Зберігаємо в БД з безпечним ID, але з оригінальною назвою у полі "name"
+await db.collection('routes').doc(safeId).set(payload, { merge: true });
+
+
+    alert('✅ Збережено в БД: ' + finalName);
     await refreshRoutesList();
   } catch (err) {
     console.error('❌ Помилка збереження в Firestore:', err);
@@ -362,9 +539,15 @@ async function saveToDB() {
 
 async function refreshRoutesList() {
   if (!db) return;
-  const sel = document.getElementById('remoteRoutes');
+
+  const sel  = document.getElementById('remoteRoutes');
+  const list = document.getElementById('routesList');
   const current = sel.value;
+
+  // очистити селект, datalist і індекс
   sel.innerHTML = '<option value="">— вибери маршрут з БД —</option>';
+  list.innerHTML = '';
+  for (const k in routesLookup) delete routesLookup[k];
 
   const snap = await db.collection('routes')
     .orderBy('updatedAt', 'desc')
@@ -373,13 +556,21 @@ async function refreshRoutesList() {
 
   snap.forEach(doc => {
     const d = doc.data();
+    const km = (typeof d.distance_km === 'number') ? ` (${d.distance_km.toFixed(2)} км)` : '';
+    const labelNow = formatRouteTitle(d);           // актуальна назва за довідником
+    const label = labelNow + km;
+
+    // селект
     const opt = document.createElement('option');
     opt.value = doc.id;
-
-    const km = (typeof d.distance_km === 'number') ? '(' + d.distance_km.toFixed(2) + ' км)' : '';
-    opt.textContent = doc.id + (km ? ' ' + km : '');
-
+    opt.textContent = label;
     sel.appendChild(opt);
+
+    // індекс + datalist
+    routesLookup[label] = doc.id;
+    const sOpt = document.createElement('option');
+    sOpt.value = label;           // datalist шукає по value
+    list.appendChild(sOpt);
   });
 
   if (Array.from(sel.options).some(o => o.value === current)) {
@@ -398,11 +589,19 @@ async function loadFromDB() {
     const docSnap = await docRef.get();
     if (!docSnap.exists) { alert('Маршрут не знайдено'); return; }
     const data = docSnap.data();
+updateRouteName();
 
+    // Поля форми
+    document.getElementById('fromName').value = getNameByCode(data.fromCode) || '';
+    document.getElementById('toName').value   = getNameByCode(data.toCode) || '';
+    document.getElementById('routeType').value = data.routeType || 'Основний';
+    document.getElementById('intermediateText').value = data.intermediateText || '';
+    document.getElementById('routeName').value = formatRouteTitle(data);
+
+    // Точки
     points = fromObjPoints(data.points || []);
     startRuler = fromObjPoints(data.startRuler || []);
     endRuler = fromObjPoints(data.endRuler || []);
-    document.getElementById('routeName').value = data.name || id;
 
     rebuildMarkers();
     drawRulers();
@@ -432,14 +631,122 @@ async function deleteFromDB() {
   }
 }
 
-/* 3) Прив’язка кнопок */
+/* Прив’язка кнопок + автозавантаження довідника/списку */
 document.getElementById('saveToDB').onclick = saveToDB;
 document.getElementById('refreshList').onclick = refreshRoutesList;
 document.getElementById('loadFromDB').onclick = loadFromDB;
 document.getElementById('deleteFromDB').onclick = deleteFromDB;
+document.getElementById('clearForm').onclick = clearForm;
+// Пошук маршруту за введеним текстом у полі routeSearch
+const routeSearch = document.getElementById('routeSearch');
+const remoteRoutesSel = document.getElementById('remoteRoutes');
 
-// автооновлення списку при завантаженні
-window.addEventListener('load', () => { if (db) refreshRoutesList(); });
+// коли друкуємо — підсвічуємо перший збіг у списку
+routeSearch.addEventListener('input', () => {
+  const q = routeSearch.value.trim().toLowerCase();
+  let matched = false;
+
+  for (const opt of remoteRoutesSel.options) {
+    const text = (opt.textContent || '').toLowerCase();
+    if (text.includes(q) && opt.value) {   // пропускаємо placeholder
+      remoteRoutesSel.value = opt.value;
+      matched = true;
+      break;
+    }
+  }
+  if (!matched) remoteRoutesSel.value = ''; // нічого не знайшли
+});
+
+// натиснули Enter у полі — одразу завантажити вибране
+routeSearch.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') {
+    if (!remoteRoutesSel.value) {
+      // спробувати ще раз знайти перший збіг
+      const ev = new Event('input');
+      routeSearch.dispatchEvent(ev);
+    }
+    if (remoteRoutesSel.value) {
+      document.getElementById('loadFromDB').click();
+    }
+  }
+});
+
+function clearForm() {
+  // Очистити текстові поля
+  document.getElementById('fromName').value = '';
+  document.getElementById('toName').value = '';
+  document.getElementById('routeType').value = 'Основний';
+  document.getElementById('intermediateText').value = '';
+  document.getElementById('routeName').value = '';
+  document.getElementById('distance').textContent = '0';
+
+  // Очистити точки та лінійки
+  points = [];
+  startRuler = [];
+  endRuler = [];
+  rebuildMarkers();
+  drawRulers();
+  updateRoute();
+
+  // Скинути вибраний маршрут у списку
+  document.getElementById('remoteRoutes').value = '';
+
+  alert('Форма очищена');
+}
+
+window.addEventListener('load', () => { if (db) { loadDirectory(); refreshRoutesList(); } });
+document.getElementById('fromName').addEventListener('change', updateRouteName);
+document.getElementById('toName').addEventListener('change', updateRouteName);
+document.getElementById('routeType').addEventListener('change', updateRouteName);
+
+/* // Перемикач компактного (міні) режиму
+const controlsEl = document.getElementById('controls');
+const toggleMiniBtn = document.getElementById('toggleMini');
+if (toggleMiniBtn) {
+  toggleMiniBtn.addEventListener('click', () => {
+    controlsEl.classList.toggle('mini');
+  });
+}
+
+// Міні-бар: дублює дії великих кнопок
+document.getElementById('toggleAddMini')?.addEventListener('click', () =>
+  document.getElementById('toggleAdd').click()
+);
+document.getElementById('clearRouteMini')?.addEventListener('click', () =>
+  document.getElementById('clearRoute').click()
+);
+document.getElementById('saveToDBMini')?.addEventListener('click', () =>
+  document.getElementById('saveToDB').click()
+); */
+// Показати/сховати панель керування
+const panelToggle = document.getElementById('panelToggle');
+const controlsBox = document.getElementById('controls');
+
+function positionPanelToggle(){
+  const hidden = document.body.classList.contains('controls-hidden');
+  if (hidden){
+    panelToggle.style.left = '12px';
+  } else {
+    const w = controlsBox.offsetWidth;
+    panelToggle.style.left = (w + 16) + 'px';
+  }
+}
+
+function updatePanelToggleLabel(){
+  const hidden = document.body.classList.contains('controls-hidden');
+  panelToggle.textContent = hidden ? '▶ Панель' : '◀ Сховати';
+  if (typeof map?.resize === 'function') requestAnimationFrame(() => map.resize());
+  positionPanelToggle();
+}
+
+panelToggle.addEventListener('click', () => {
+  document.body.classList.toggle('controls-hidden');
+  updatePanelToggleLabel();
+});
+
+updatePanelToggleLabel();
+window.addEventListener('resize', positionPanelToggle);
+
 </script>
 </body>
 </html>
