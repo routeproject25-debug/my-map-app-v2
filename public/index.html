@@ -536,45 +536,50 @@ await db.collection('routes').doc(safeId).set(payload, { merge: true });
     alert('❌ Не вдалося зберегти в БД: ' + (err?.message || err));
   }
 }
+let isRefreshingRoutes = false; // ДОДАЙ вище за функцію, один раз
 
 async function refreshRoutesList() {
-  if (!db) return;
+  if (!db || isRefreshingRoutes) return;
+  isRefreshingRoutes = true;
+  try {
+    const sel  = document.getElementById('remoteRoutes');
+    const list = document.getElementById('routesList');
+    const current = sel.value;
 
-  const sel  = document.getElementById('remoteRoutes');
-  const list = document.getElementById('routesList');
-  const current = sel.value;
+    // очистити селект, datalist і індекс
+    sel.innerHTML = '<option value="">— вибери маршрут з БД —</option>';
+    list.innerHTML = '';
+    for (const k in routesLookup) delete routesLookup[k];
 
-  // очистити селект, datalist і індекс
-  sel.innerHTML = '<option value="">— вибери маршрут з БД —</option>';
-  list.innerHTML = '';
-  for (const k in routesLookup) delete routesLookup[k];
+    const snap = await db.collection('routes')
+      .orderBy('updatedAt', 'desc')
+      .limit(200)
+      .get();
 
-  const snap = await db.collection('routes')
-    .orderBy('updatedAt', 'desc')
-    .limit(200)
-    .get();
+    snap.forEach(doc => {
+      const d = doc.data();
+      const km = (typeof d.distance_km === 'number') ? ` (${d.distance_km.toFixed(2)} км)` : '';
+      const labelNow = formatRouteTitle(d);
+      const label = labelNow + km;
 
-  snap.forEach(doc => {
-    const d = doc.data();
-    const km = (typeof d.distance_km === 'number') ? ` (${d.distance_km.toFixed(2)} км)` : '';
-    const labelNow = formatRouteTitle(d);           // актуальна назва за довідником
-    const label = labelNow + km;
+      // селект
+      const opt = document.createElement('option');
+      opt.value = doc.id;
+      opt.textContent = label;
+      sel.appendChild(opt);
 
-    // селект
-    const opt = document.createElement('option');
-    opt.value = doc.id;
-    opt.textContent = label;
-    sel.appendChild(opt);
+      // індекс + datalist
+      routesLookup[label] = doc.id;
+      const sOpt = document.createElement('option');
+      sOpt.value = label;
+      list.appendChild(sOpt);
+    });
 
-    // індекс + datalist
-    routesLookup[label] = doc.id;
-    const sOpt = document.createElement('option');
-    sOpt.value = label;           // datalist шукає по value
-    list.appendChild(sOpt);
-  });
-
-  if (Array.from(sel.options).some(o => o.value === current)) {
-    sel.value = current;
+    if (Array.from(sel.options).some(o => o.value === current)) {
+      sel.value = current;
+    }
+  } finally {
+    isRefreshingRoutes = false;
   }
 }
 
@@ -633,7 +638,14 @@ async function deleteFromDB() {
 
 /* Прив’язка кнопок + автозавантаження довідника/списку */
 document.getElementById('saveToDB').onclick = saveToDB;
-document.getElementById('refreshList').onclick = refreshRoutesList;
+let lastRefreshClick = 0;
+document.getElementById('refreshList').onclick = () => {
+  const now = Date.now();
+  if (now - lastRefreshClick < 500) return; // ігноруємо подвійний клік < 0.5с
+  lastRefreshClick = now;
+  refreshRoutesList();
+};
+
 document.getElementById('loadFromDB').onclick = loadFromDB;
 document.getElementById('deleteFromDB').onclick = deleteFromDB;
 document.getElementById('clearForm').onclick = clearForm;
@@ -694,7 +706,7 @@ function clearForm() {
   alert('Форма очищена');
 }
 
-window.addEventListener('load', () => { if (db) { loadDirectory(); refreshRoutesList(); } });
+window.addEventListener('load', () => { if (db) { loadDirectory(); } });
 document.getElementById('fromName').addEventListener('change', updateRouteName);
 document.getElementById('toName').addEventListener('change', updateRouteName);
 document.getElementById('routeType').addEventListener('change', updateRouteName);
