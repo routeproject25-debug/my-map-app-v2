@@ -231,6 +231,29 @@ const contextMenu = document.getElementById('contextMenu');
 const insertAfterBtn = document.getElementById('insertAfter');
 const deletePointBtn = document.getElementById('deletePoint');
 
+// --- контекстне меню: дії ---
+insertAfterBtn.onclick = (e) => {
+  e.preventDefault();
+  e.stopPropagation();
+  if (selectedMarkerIndex !== null) insertAfterMode = true;
+  contextMenu.style.display = 'none';
+};
+
+deletePointBtn.onclick = (e) => {
+  e.preventDefault();
+  e.stopPropagation();
+  if (selectedMarkerIndex !== null) {
+    points.splice(selectedMarkerIndex, 1);
+    rebuildMarkers();                 // перемальовує маркери + маршрут
+  }
+  contextMenu.style.display = 'none';
+  selectedMarkerIndex = null;
+};
+
+// клік будь-де поза меню — ховаємо меню
+document.addEventListener('click', () => { contextMenu.style.display = 'none'; });
+
+
 map.on('style.load', () => { updateRoute(); drawRulers(); });
 
 document.getElementById('mapStyle').addEventListener('change', function() {
@@ -277,27 +300,38 @@ map.on('click', (e) => {
 });
 
 function addMarker(lngLat, index = points.length - 1) {
-  const marker = new mapboxgl.Marker({ draggable: false }).setLngLat(lngLat).addTo(map);
+  // перетягуваний маркер
+  const marker = new mapboxgl.Marker({ draggable: true })
+    .setLngLat(lngLat)
+    .addTo(map);
+
+  // ПКМ по маркеру → відкрити контекст-меню і запам'ятати індекс
   marker.getElement().addEventListener('contextmenu', (e) => {
     e.preventDefault();
+    e.stopPropagation();
     selectedMarkerIndex = index;
     contextMenu.style.left = e.pageX + 'px';
-    contextMenu.style.top = e.pageY + 'px';
+    contextMenu.style.top  = e.pageY + 'px';
     contextMenu.style.display = 'block';
   });
+
+  // після перетягування — оновити координату точки і перемалювати маршрут
+  marker.on('dragend', () => {
+    const ll = marker.getLngLat();
+    points[index] = [ll.lng, ll.lat];
+    updateRoute();
+  });
+
   markers.push(marker);
 }
 
-insertAfterBtn.onclick = () => { if (selectedMarkerIndex !== null) insertAfterMode = true; contextMenu.style.display = 'none'; };
-deletePointBtn.onclick = () => {
-  if (selectedMarkerIndex !== null) { points.splice(selectedMarkerIndex, 1); rebuildMarkers(); }
-  contextMenu.style.display = 'none';
-};
-document.addEventListener('click', () => { contextMenu.style.display = 'none'; });
-
 function rebuildMarkers() {
-  markers.forEach(m => m.remove()); markers = [];
+  markers.forEach(m => m.remove());
+  markers = [];
   points.forEach((pt, idx) => addMarker(pt, idx));
+  selectedMarkerIndex = null;
+  insertAfterMode = false;
+  contextMenu.style.display = 'none';
   updateRoute();
 }
 
