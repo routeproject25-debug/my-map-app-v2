@@ -102,10 +102,11 @@
   .controls-hidden .panel-toggle{ left:10px; }
 
   /* ОПУСТИТИ шари Mapbox нижче за панель (на випадок високого z-index) */
-  .mapboxgl-canvas,
-  .mapboxgl-control-container {
-    z-index: 1 !important;
-  }
+  /* canvas нижче маркерів, але панель все одно вище завдяки z-index:3000 */
+.mapboxgl-canvas { z-index: 0 !important; }
+.mapboxgl-control-container { z-index: 1 !important; }
+/* маркери гарантовано над canvas */
+.mapboxgl-marker { z-index: 2 !important; }
 </style>
 </head>
 <body>
@@ -303,8 +304,9 @@ function rebuildMarkers() {
 let markersVisible = true;
 document.getElementById('toggleMarkers').onclick = () => {
   markersVisible = !markersVisible;
-  markers.forEach(marker => marker.getElement().style.display = markersVisible ? 'block' : 'none');
-  document.getElementById('toggleMarkers').textContent = markersVisible ? '📍 Показати точки' : '📍 Приховати точки';
+  markers.forEach(m => m.getElement().style.display = markersVisible ? 'block' : 'none');
+  document.getElementById('toggleMarkers').textContent =
+    markersVisible ? '📍 Приховати точки' : '📍 Показати точки';
 };
 
 function drawRulers() {
