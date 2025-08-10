@@ -12,76 +12,101 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 
   <style>
-    body { margin:0; padding:0; font-family: sans-serif; }
-    #map { position:absolute; top:0; bottom:0; width:100%; }
-    #controls {
-  position: absolute; z-index: 1; background: white; padding: 8px; margin: 10px;
-  border-radius: 8px; box-shadow: 0 1px 6px rgba(0,0,0,0.25);
-  max-width: 360px;           /* було 520 → стане вже */
-  max-height: 90vh;           /* щоб не виходило за екран */
-  overflow: auto;             /* скрол якщо що */
-}
-    .row { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
-    .btn { margin: 5px 5px 5px 0; padding: 6px 10px; cursor: pointer; }
-    .btn.active { background-color: #90ee90; border: 1px solid #4CAF50; }
-    input[type="text"], select, textarea { width: 100%; padding: 6px; }
-    textarea { min-height: 48px; resize: vertical; }
-    small.muted { color:#666; }
-    #styleSelector { margin-top: 10px; }
-    #dbControls { margin-top: 10px; padding-top:10px; border-top:1px solid #eee;}
-    #dbControls input, #dbControls select { margin: 5px 5px 5px 0; padding:6px; }
-    #contextMenu {
-      position: absolute; background: white; border: 1px solid #ccc; display: none; z-index: 2;
-      box-shadow: 0 2px 6px rgba(0,0,0,0.15);
-    }
-    #contextMenu div { padding: 5px 10px; cursor: pointer; }
-    #contextMenu div:hover { background: #eee; }
-	/* --- компактніші відступи та шрифти --- */
-/* компактні розміри елементів */
-#controls label { font-size: 12.5px; }
-input[type="text"], select, textarea { padding: 3px 6px; font-size: 13.5px; }
-.btn { padding: 3px 8px; font-size: 13.5px; margin: 4px 4px 4px 0; }
-.row { gap: 4px; } /* було 6px */
+  /* висота шапки (за потреби підкоригуй число) */
+  :root { --nav-h: 48px; }
 
-/* --- міні-режим панелі --- */
-#controls.mini { width: 280px; }
-.mini-bar { display: none; margin-bottom: 6px; gap: 6px; flex-wrap: wrap; }
-#controls.mini .mini-bar { display: flex; }
+  body { margin:0; padding:0; font-family: sans-serif; }
 
-/* ховаємо «важке» у міні-режимі */
-#controls.mini .row,
-#controls.mini hr,
-#controls.mini details { display: none; }
+  /* шапка зверху завжди поверх карти */
+  header {
+    position: sticky;
+    top: 0;
+    z-index: 1500;
+  }
 
-/* кнопка-перемикач міні-режиму */
-.toggleMini { float: right; margin-left: 6px; }
-/* дрібніші поля у рядку */
-#controls .row input[type="text"],
-#controls .row select {
-  height: 28px;             /* невисокі контролли */
-}
+  /* ЗСУВАЄМО карту НИЖЧЕ шапки (було top:0) */
+  #map {
+    position: absolute;
+    top: var(--nav-h);
+    bottom: 0;
+    width: 100%;
+  }
 
-/* міні-бар — дрібні кнопки */
-.mini-bar .btn { padding: 2px 6px; font-size: 12.5px; }
+  /* ПАНЕЛЬ: фіксуємо координати і піднімаємо над canvas */
+  #controls{
+    position: absolute;
+    z-index: 3000;          /* вище за canvas мапи */
+    background: white;
+    padding: 8px;
+    margin: 0;              /* margin не потрібен */
+    top: calc(var(--nav-h) + 8px);
+    left: 8px;
 
-/* Кнопка показати/сховати панель: фіксовано у вікні */
-.panel-toggle{
-  position: fixed;
-  z-index: 9999;
-  top: 12px;
-  left: 12px;       /* коли панель схована */
-  padding: 4px 8px;
-}
+    border-radius: 8px; box-shadow: 0 1px 6px rgba(0,0,0,0.25);
+    max-width: 360px;       /* було 520 → компактніше */
+    max-height: 90vh;       /* не виходить за екран */
+    overflow: auto;         /* скрол усередині */
+  }
 
-/* Коли панель прихована */
-.controls-hidden #controls{
-  display:none;
-}
+  .row { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+  .btn { margin: 5px 5px 5px 0; padding: 6px 10px; cursor: pointer; }
+  .btn.active { background-color: #90ee90; border: 1px solid #4CAF50; }
+  input[type="text"], select, textarea { width: 100%; padding: 6px; }
+  textarea { min-height: 48px; resize: vertical; }
+  small.muted { color:#666; }
+  #styleSelector { margin-top: 10px; }
+  #dbControls { margin-top: 10px; padding-top:10px; border-top:1px solid #eee;}
+  #dbControls input, #dbControls select { margin: 5px 5px 5px 0; padding:6px; }
 
-/* Коли панель прихована — повертаємо кнопку в кут */
-.controls-hidden .panel-toggle{ left:10px; }
+  #contextMenu {
+    position: absolute; background: white; border: 1px solid #ccc; display: none; z-index: 3500;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.15);
+  }
+  #contextMenu div { padding: 5px 10px; cursor: pointer; }
+  #contextMenu div:hover { background: #eee; }
 
-  </style>
+  /* --- компактніші відступи та шрифти --- */
+  #controls label { font-size: 12.5px; }
+  input[type="text"], select, textarea { padding: 3px 6px; font-size: 13.5px; }
+  .btn { padding: 3px 8px; font-size: 13.5px; margin: 4px 4px 4px 0; }
+  .row { gap: 4px; }
+
+  /* --- міні-режим панелі --- */
+  #controls.mini { width: 280px; }
+  .mini-bar { display: none; margin-bottom: 6px; gap: 6px; flex-wrap: wrap; }
+  #controls.mini .mini-bar { display: flex; }
+  #controls.mini .row,
+  #controls.mini hr,
+  #controls.mini details { display: none; }
+
+  .toggleMini { float: right; margin-left: 6px; }
+
+  /* дрібніші поля у рядку */
+  #controls .row input[type="text"],
+  #controls .row select { height: 28px; }
+
+  /* міні-бар — дрібні кнопки */
+  .mini-bar .btn { padding: 2px 6px; font-size: 12.5px; }
+
+  /* Кнопка показати/сховати панель: фіксовано у вікні */
+  .panel-toggle{
+    position: fixed;
+    z-index: 9999;
+    top: 60px;
+    left: 6px; /* базова позиція; JS пересуне правіше панелі */
+    padding: 4px 8px;
+  }
+
+  /* Коли панель прихована */
+  .controls-hidden #controls{ display:none; }
+  .controls-hidden .panel-toggle{ left:10px; }
+
+  /* ОПУСТИТИ шари Mapbox нижче за панель (на випадок високого z-index) */
+  .mapboxgl-canvas,
+  .mapboxgl-control-container {
+    z-index: 1 !important;
+  }
+</style>
 </head>
 <body>
 <!-- кнопки переходу -->
