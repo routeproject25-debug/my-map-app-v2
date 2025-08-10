@@ -1,0 +1,429 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+  <meta charset="utf-8" />
+  <title>Імпорт довідника в Firestore</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <!-- Firebase compat -->
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js" defer></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js" defer></script>
+  <style>
+    :root{
+      --bg:#f6f7f9; --card:#fff; --text:#1f2328; --muted:#6b7280;
+      --line:#e5e7eb; --ok:#0a7a0a; --err:#b00020; --brand:#0ea5e9; --brand-2:#0369a1;
+      --radius:12px; --shadow:0 1px 3px rgba(16,24,40,.06),0 1px 2px rgba(16,24,40,.04);
+    }
+    *{box-sizing:border-box}
+    body{margin:0; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; background:var(--bg); color:var(--text);}
+    .wrap{max-width:960px; margin:24px auto; padding:0 16px;}
+    h1{font-size:22px; margin:0 0 12px}
+    .sub{color:var(--muted); font-size:14px; margin-bottom:16px}
+    .card{background:var(--card); border:1px solid var(--line); border-radius:var(--radius); box-shadow:var(--shadow); padding:14px; margin:12px 0}
+    .row{display:flex; gap:10px; align-items:center; flex-wrap:wrap}
+    label{font-weight:600; font-size:14px}
+    select,input[type=number],input[type=file]{padding:8px 10px; border:1px solid var(--line); border-radius:10px; background:#fff; outline:none; min-height:40px}
+    textarea{width:100%; min-height:200px; padding:10px; border:1px solid var(--line); border-radius:10px; resize:vertical; background:#fff; outline:none}
+    .muted{color:var(--muted); font-size:13px}
+    .btn{padding:10px 14px; border-radius:10px; border:1px solid transparent; cursor:pointer; font-weight:600; min-height:40px}
+    .btn.primary{background:var(--brand); color:#fff}
+    .btn.primary:hover{background:var(--brand-2)}
+    .btn.ghost{background:#fff; border-color:var(--line)}
+    .btn.ghost:hover{border-color:#cbd5e1}
+    .btn.warn{background:#fff; border-color:#f59e0b; color:#b45309}
+    .grid{display:grid; gap:12px}
+    @media(min-width:720px){ .grid.two{grid-template-columns:1fr 1fr} }
+    .counter{margin-top:8px; font-size:14px}
+    .ok{color:var(--ok)} .err{color:var(--err)}
+    pre#log{background:#0b1020; color:#e2e8f0; padding:12px; border-radius:10px; max-height:260px; overflow:auto; margin-top:8px}
+    code{background:#f1f5f9; padding:2px 6px; border-radius:6px}
+    .toolbar{display:flex; gap:10px; flex-wrap:wrap}
+    .pill{display:inline-flex; align-items:center; gap:6px; padding:4px 10px; background:#eef6ff; border:1px solid #dbeafe; color:#1e3a8a; border-radius:999px; font-size:12px}
+
+    /* Progress bar */
+    .progress-wrap{margin-top:10px}
+    .progress{width:100%; background:#eef2f7; border:1px solid #dfe4ea; border-radius:999px; height:12px; overflow:hidden}
+    .progress > .bar{height:100%; width:0%; background:linear-gradient(90deg,#60a5fa,#22d3ee); transition:width .15s ease}
+    .progress-label{margin-top:6px; font-size:12px; color:#475569}
+  </style>
+</head>
+<body>
+<!-- Кнопка переходу -->
+<header style="background:#2563eb;color:#fff;padding:10px;display:flex;gap:16px;">
+  <a href="/" style="color:#fff;text-decoration:none;">🏠 Карта</a>
+  <a href="/export/" style="color:#fff;text-decoration:none;">📤 Експорт</a>
+  <a href="/import/" style="color:#fff;text-decoration:none;">📥 Імпорт</a>
+</header>
+
+  <div class="wrap">
+    <h1>Імпорт довідника → Firestore <span class="pill"><b>collection:</b> <code>directory</code></span></h1>
+    <div class="sub">CSV/TSV, копіпаста з Excel. Підтримує “сухий” запуск. Швидкий імпорт батчами (до 500 записів).</div>
+
+    <div class="card">
+      <b>Формат даних</b>
+      <ul class="muted">
+        <li>CSV із заголовками: <i>Підприємство, Підрозділ, Назва, КОД ЦБ</i></li>
+        <li>Копіпаста з Excel (табами)</li>
+        <li>Простий CSV/TSV з двома колонками: <i>Назва, КОД</i></li>
+      </ul>
+      <div class="muted">Імпортер шукає “Назва”, “КОД”, “Підприємство”, “Підрозділ”. Якщо не знайде — вкажи індекси.</div>
+    </div>
+
+    <div class="grid two">
+      <div class="card">
+        <label>1) Завантаж файл (необов’язково)</label>
+        <input type="file" id="file" accept=".csv,.tsv,.txt" />
+        <div class="muted">Або встав дані нижче</div>
+        <div style="margin-top:8px">
+          <button class="btn ghost" id="demoBtn">Вставити демо-дані</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="row">
+          <div>
+            <label>Розділювач</label><br/>
+            <select id="sep">
+              <option value="auto">Авто</option>
+              <option value=",">Кома (,)</option>
+              <option value=";">Крапка з комою (;)</option>
+              <option value="\t">Таб</option>
+            </select>
+          </div>
+          <div>
+            <label>Кодування</label><br/>
+            <select id="enc">
+              <option value="utf-8">UTF-8</option>
+              <option value="windows-1251">Windows-1251</option>
+            </select>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <label>2) Встав текст (CSV/TSV/Excel):</label>
+      <textarea id="raw" placeholder="Встав сюди дані…"></textarea>
+    </div>
+
+    <div class="card">
+      <label>3) Мапінг колонок (якщо авто-визначення не спрацює):</label>
+      <div class="row" style="margin-top:6px">
+        <span>“Назва”:</span><input id="nameCol" type="number" min="0" style="width:90px" placeholder="індекс" />
+        <span>“КОД”:</span><input id="codeCol" type="number" min="0" style="width:90px" placeholder="індекс" />
+        <span>“Підприємство”:</span><input id="companyCol" type="number" min="0" style="width:110px" placeholder="індекс" />
+        <span>“Підрозділ”:</span><input id="unitCol" type="number" min="0" style="width:100px" placeholder="індекс" />
+        <span class="muted">(рахунок з 0; заголовок – окремо)</span>
+      </div>
+      <div class="row" style="margin-top:6px">
+        <label><input type="checkbox" id="hasHeader" checked /> Перша строка — заголовки</label>
+        <label><input type="checkbox" id="dryRun" /> “Сухий” запуск (без запису)</label>
+      </div>
+    </div>
+
+    <div class="toolbar">
+      <button class="btn ghost" id="parseBtn">Перевірити дані</button>
+      <button class="btn primary" id="importBtn">Імпорт у Firestore</button>
+      <button class="btn warn" id="clearBtn">Очистити поля</button>
+    </div>
+
+    <div id="status" class="counter"></div>
+
+    <!-- Прогрес -->
+    <div class="progress-wrap" id="progressWrap" style="display:none">
+      <div class="progress"><div class="bar" id="progressBar"></div></div>
+      <div class="progress-label" id="progressLabel">0% • 0/0</div>
+    </div>
+
+    <pre id="log"></pre>
+  </div>
+
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  'use strict';
+
+  const $ = (id) => document.getElementById(id);
+  function log(msg, type=''){ $('log').textContent += (type ? `[${type}] ` : '') + msg + "\n"; }
+  function setStatus(html){ $('status').innerHTML = html; }
+
+  // Прогрес-бар
+  function showProgress(show=true){ $('progressWrap').style.display = show ? '' : 'none'; }
+  function setProgress(pct, text){
+    $('progressBar').style.width = `${Math.max(0, Math.min(100, pct))}%`;
+    $('progressLabel').textContent = text || `${Math.round(pct)}%`;
+  }
+
+  // Перехоплювач помилок → у лог
+  window.addEventListener('error', (e) => { log(`${e.message} @ ${e.filename||''}:${e.lineno||''}`, 'err'); });
+
+  let db = null;
+  const PREVIEW_ROWS = 5;
+  const BATCH_LIMIT = 500;  // максимум операцій у writeBatch
+  const SAFE_BATCH = 450;   // запас (щоб точно не перевищити)
+  const COLLECTION = 'directory';
+
+  const firebaseConfig = {
+    apiKey: "AIzaSyDjDBZkmy-skuDEQF8-AkRma7yw6TugoQc",
+    authDomain: "my-map-app-58312.firebaseapp.com",
+    projectId: "my-map-app-58312",
+    storageBucket: "my-map-app-58312.firebasestorage.app",
+    messagingSenderId: "53260611353",
+    appId: "1:53260611353:web:f25e120996ad8305405f88",
+    measurementId: "G-9LRX1FLTKL"
+  };
+
+  function initFirebase(){
+    if (db) return db;
+    if (typeof firebase === 'undefined') {
+      log('Firebase SDK не завантажився (перевір мережу або CDN). Імпорт неможливий.', 'err');
+      alert('Firebase недоступний. Спробуй пізніше.');
+      return null;
+    }
+    try{
+      const app = firebase.apps && firebase.apps.length ? firebase.app() : firebase.initializeApp(firebaseConfig);
+      db = firebase.firestore();
+      log('Firebase ініціалізовано. projectId=' + firebaseConfig.projectId, 'ok');
+      return db;
+    }catch(e){
+      log('Помилка ініціалізації Firebase: ' + e.message, 'err');
+      alert('Не вдалося ініціалізувати Firebase.');
+      return null;
+    }
+  }
+
+  // ДЕМО
+  $('demoBtn')?.addEventListener('click', () => {
+    $('raw').value =
+`Підприємство\tПідрозділ\tНазва\tКОД
+АТП\tДільниця 1\tЕлеватор А\tELV01
+АТП\tДільниця 2\tЕлеватор Б\tELV02
+Тарний\tЗміна 3\tПоле-1\tFLD11`;
+    setStatus('<span class="muted">Демо-дані вставлено</span>');
+    $('raw').focus();
+  });
+
+  // Читання файлу
+  $('file').addEventListener('change', async (e) => {
+    try{
+      const file = e.target.files[0];
+      if (!file) return;
+      const enc = $('enc').value || 'utf-8';
+      const buf = await file.arrayBuffer();
+      let text;
+      try { text = new TextDecoder(enc).decode(buf); }
+      catch { text = new TextDecoder('utf-8').decode(buf); }
+      $('raw').value = text;
+      setStatus(`<span class="muted">Файл завантажено: ${file.name} (${enc})</span>`);
+    }catch(err){
+      log('Помилка читання файлу: ' + (err?.message||err), 'err');
+    }
+  });
+
+  // Детекція розділювача
+  function detectSep(text){
+    const s = $('sep').value;
+    if (s !== 'auto') return s === '\\t' ? '\t' : s;
+    const firstLine = text.split(/\r?\n/).find(l => l.trim().length);
+    if (!firstLine) return ',';
+    const counts = { ',': (firstLine.match(/,/g)||[]).length,
+                     ';': (firstLine.match(/;/g)||[]).length,
+                     '\t': (firstLine.match(/\t/g)||[]).length };
+    return Object.entries(counts).sort((a,b)=>b[1]-a[1])[0][0] || ',';
+  }
+
+  function parseTable(text){
+    const sep = detectSep(text);
+    const rows = text.split(/\r?\n/).filter(r=>r.trim().length);
+    const table = rows.map(r => r.split(sep));
+    return { sep, rows, table };
+  }
+
+  function guessColumns(headerRow){
+    const h = headerRow.map(x => (x||'').toString().trim().toLowerCase());
+    const nameIdx = h.findIndex(x => ['назва','name'].includes(x));
+    const codeIdx = h.findIndex(x => ['код','код цб','code'].includes(x));
+    const companyIdx = h.findIndex(x => ['підприємство','pidpryiemstvo','company'].includes(x));
+    const unitIdx = h.findIndex(x => ['підрозділ','pidrozdil','unit','division'].includes(x));
+    return { nameIdx: nameIdx>=0?nameIdx:null, codeIdx: codeIdx>=0?codeIdx:null,
+             companyIdx: companyIdx>=0?companyIdx:null, unitIdx: unitIdx>=0?unitIdx:null };
+  }
+
+  // Діагностика
+  function dumpDiagnostics({sep, rows, table}, mapping, hasHeader){
+    $('log').textContent = '';
+    log(`Розділювач: ${sep === '\t' ? 'TAB' : sep}`, 'ok');
+    log(`Рядків (включно із заголовком, якщо є): ${rows.length}`, 'ok');
+    if (rows.length){
+      const header = table[0] || [];
+      log(`Колонок у 1-му рядку: ${header.length}`, 'ok');
+      log(`Заголовок (split): [${header.map(x=>JSON.stringify((x||'').trim())).join(', ')}]`);
+    }
+    const sampleCount = Math.min(PREVIEW_ROWS, table.length);
+    for (let i=0; i<sampleCount; i++){
+      log(`row #${i}: [${(table[i]||[]).map(x=>JSON.stringify((x||'').trim())).join(', ')}]`);
+    }
+    const {nameIdx, codeIdx, companyIdx, unitIdx} = mapping;
+    log(`Мапінг → name:${nameIdx} code:${codeIdx} company:${companyIdx} unit:${unitIdx}`, 'ok');
+    if (table.length > (hasHeader?1:0)) {
+      const firstData = table[hasHeader?1:0];
+      if (firstData){
+        log(`Перший data-рядок → name="${firstData[nameIdx]||''}" | code="${firstData[codeIdx]||''}" | company="${firstData[companyIdx]||''}" | unit="${firstData[unitIdx]||''}"`, 'ok');
+      }
+    }
+  }
+
+  // Санітизація ID для Firestore
+  function sanitizeId(id){
+    return (id||'').toString().trim().replace(/[/#?[\]*]/g,'_').slice(0,150);
+  }
+
+  function prepareEntries(){
+    const raw = $('raw').value;
+    if (!raw.trim()){ alert('Порожні дані для імпорту'); return null; }
+    const parsed = parseTable(raw);
+    const hasHeader = $('hasHeader').checked;
+
+    let rows = parsed.table, startIdx = 0;
+    let nameIdx = $('nameCol').value ? parseInt($('nameCol').value,10) : null;
+    let codeIdx = $('codeCol').value ? parseInt($('codeCol').value,10) : null;
+    let companyIdx = $('companyCol').value ? parseInt($('companyCol').value,10) : null;
+    let unitIdx = $('unitCol').value ? parseInt($('unitCol').value,10) : null;
+
+    if (hasHeader && rows.length){
+      const g = guessColumns(rows[0]);
+      if (nameIdx === null) nameIdx = g.nameIdx;
+      if (codeIdx === null) codeIdx = g.codeIdx;
+      if (companyIdx === null) companyIdx = g.companyIdx;
+      if (unitIdx === null) unitIdx = g.unitIdx;
+      startIdx = 1;
+      setStatus(`<span class="muted">Виявлено розділювач: <b>${parsed.sep === '\t' ? 'TAB' : parsed.sep}</b>. Заголовки визначені.</span>`);
+    }
+
+    if (nameIdx === null || codeIdx === null){
+      const cols = rows[0]?.length || 2;
+      if (codeIdx === null) codeIdx = cols - 1;
+      if (nameIdx === null) nameIdx = 0;
+      setStatus(`<span class="muted">Виявлено розділювач: <b>${parsed.sep === '\t' ? 'TAB' : parsed.sep}</b>. Мапінг підібрано за замовчуванням.</span>`);
+    }
+
+    dumpDiagnostics(parsed, {nameIdx, codeIdx, companyIdx, unitIdx}, hasHeader);
+
+    const entries = [];
+    let skippedEmptyName = 0, skippedEmptyCode = 0, skippedBlankRow = 0;
+
+    for (let i = startIdx; i < rows.length; i++){
+      const r = rows[i];
+      if (!r || !r.length || r.every(c => (c||'').toString().trim()==='')) { skippedBlankRow++; continue; }
+      const name = (r[nameIdx]||'').toString().trim();
+      const code = (r[codeIdx]||'').toString().trim();
+      const company = companyIdx!=null ? (r[companyIdx]||'').toString().trim() : '';
+      const unit = unitIdx!=null ? (r[unitIdx]||'').toString().trim() : '';
+      if (!name && !code) { skippedBlankRow++; continue; }
+      if (!name) { skippedEmptyName++; continue; }
+      if (!code) { skippedEmptyCode++; continue; }
+      entries.push({ id: sanitizeId(code), data: { name, ...(company?{company}:{}) , ...(unit?{unit}:{}) }});
+    }
+
+    log(`Статистика пропусків → blank:${skippedBlankRow} | emptyName:${skippedEmptyName} | emptyCode:${skippedEmptyCode}`, 'ok');
+    return entries;
+  }
+
+  // Хелпер: розбити на батчі
+  function chunkArray(arr, size){
+    const out = [];
+    for (let i=0; i<arr.length; i+=size) out.push(arr.slice(i, i+size));
+    return out;
+  }
+
+  // Перевірити дані
+  $('parseBtn').addEventListener('click', () => {
+    const entries = prepareEntries();
+    if (!entries) return;
+    setStatus(`<b>Знайдено рядків:</b> ${entries.length}`);
+    if (entries.length){
+      log('Приклади перших 5 entries:', 'ok');
+      entries.slice(0,PREVIEW_ROWS).forEach(e => log(`{id:"${e.id}", name:"${e.data.name}", company:"${e.data.company||''}", unit:"${e.data.unit||''}"}`));
+    }
+  });
+
+  // Імпорт батчами з прогресом
+  $('importBtn').addEventListener('click', async () => {
+    const entries = prepareEntries();
+    if (!entries) return;
+
+    const dry = $('dryRun').checked;
+    if (!dry){
+      if (!initFirebase()) return;
+    }
+
+    // UI lock
+    const toDisable = ['parseBtn','importBtn','clearBtn','file','raw','sep','enc','nameCol','codeCol','companyCol','unitCol','hasHeader','dryRun'];
+    toDisable.forEach(id => { const el=$(id); if (el) el.disabled = true; });
+    showProgress(true);
+    setProgress(0, '0%');
+
+    const batches = chunkArray(entries, SAFE_BATCH);
+    const total = entries.length;
+    const totalBatches = batches.length;
+
+    let ok = 0, fail = 0;
+    const start = performance.now();
+
+    for (let b=0; b<totalBatches; b++){
+      const batchEntries = batches[b];
+
+      if (dry){
+        // емуляція роботи батча для прогресу
+        await new Promise(r => setTimeout(r, Math.min(50 + batchEntries.length, 250)));
+        ok += batchEntries.length;
+      } else {
+        try{
+          const batch = db.batch();
+          batchEntries.forEach(e => {
+            const ref = db.collection(COLLECTION).doc(e.id);
+            batch.set(ref, e.data, { merge:true });
+          });
+          await batch.commit();
+          ok += batchEntries.length;
+        }catch(err){
+          fail += batchEntries.length;
+          log(`Помилка батча #${b+1}/${totalBatches}: ${err?.message||err}`, 'err');
+        }
+      }
+
+      const done = ok + fail;
+      const pct = (done/total)*100;
+      const elapsed = (performance.now() - start)/1000;
+      const rate = done / Math.max(elapsed, 0.001);
+      const remain = total - done;
+      const eta = remain / Math.max(rate, 0.001);
+      setProgress(pct, `${Math.round(pct)}% • ${done}/${total} • ок:${ok} помилок:${fail} • батч ${b+1}/${totalBatches} • ~ETA ${eta.toFixed(1)}s`);
+      await new Promise(r => setTimeout(r, 0)); // промальовка
+    }
+
+    setStatus(`<span class="ok"><b>Готово.</b> Успішно: ${ok}</span>${fail ? `, <span class="err"> Помилок: ${fail}</span>` : ''}`);
+    log(`Імпорт завершено. ok=${ok}, fail=${fail}, batches=${totalBatches}`, 'ok');
+
+    // UI unlock
+    toDisable.forEach(id => { const el=$(id); if (el) el.disabled = false; });
+    showProgress(false);
+  });
+
+  // Очистити поля
+  $('clearBtn').addEventListener('click', () => {
+    $('file').value = '';
+    $('raw').value = '';
+    $('sep').value = 'auto';
+    $('enc').value = 'utf-8';
+    ['nameCol','codeCol','companyCol','unitCol'].forEach(id => { $(id).value = ''; });
+    $('hasHeader').checked = true;
+    $('dryRun').checked = false;
+    $('status').innerHTML = '';
+    $('log').textContent = '';
+    showProgress(false);
+    setProgress(0,'');
+    $('raw').focus();
+  });
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,402 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+  <meta charset="utf-8" />
+  <title>Експорт маршрутів (Firestore → Excel)</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <!-- Firebase compat -->
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+  <!-- SheetJS (Excel) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+
+  <style>
+    :root { --w: 1080px; }
+    * { box-sizing: border-box; }
+    body { margin:0; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; background:#f6f7f9; }
+    .wrap { max-width:var(--w); margin:24px auto; padding:0 16px; }
+    .card { background:#fff; border-radius:12px; box-shadow:0 2px 10px rgba(0,0,0,.06); padding:16px; }
+    h1 { margin:0 0 12px; font-size:20px; }
+
+    .row { display:grid; gap:12px; }
+    .row.cols-2 { grid-template-columns: 1fr 1fr; }
+    .row.cols-3 { grid-template-columns: 1fr 1fr 1fr; }
+    .row.dates { grid-template-columns: minmax(180px,1fr) minmax(180px,1fr); gap:10px; }
+    @media (max-width: 640px) {
+      .row.cols-2, .row.cols-3, .row.dates { grid-template-columns: 1fr; }
+    }
+
+    label { display:block; font-size:13px; color:#555; margin:4px 0; }
+    input[type="text"], input[type="date"], input[type="number"], select {
+      width:100%; padding:8px 10px; border:1px solid #d5d9e0; border-radius:8px; background:#fff; font-size:14px;
+    }
+    .btn { padding:8px 12px; border:1px solid #cbd5e1; background:#fff; border-radius:8px; cursor:pointer; }
+    .btn.primary { background:#2563eb; border-color:#2563eb; color:#fff; }
+    .btn:disabled { opacity:.6; cursor:not-allowed; }
+    .bar { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+    .muted { color:#667085; font-size:12.5px; }
+    table { width:100%; border-collapse:collapse; }
+    th, td { border:1px solid #e5e7eb; padding:6px 8px; font-size:13px; text-align:left; }
+    th { background:#f1f5f9; }
+    .topbar { display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; }
+    .pill { background:#eef2ff; color:#3730a3; padding:2px 8px; border-radius:999px; font-size:12px; }
+    .stats { display:flex; gap:12px; flex-wrap:wrap; font-size:13px; color:#111827; }
+    .stats .chip { background:#f3f4f6; border:1px solid #e5e7eb; border-radius:999px; padding:4px 10px; }
+  </style>
+</head>
+<body>
+<!-- Кнопка переходу-->
+<header style="background:#2563eb;color:#fff;padding:10px;display:flex;gap:16px;">
+  <a href="/" style="color:#fff;text-decoration:none;">🏠 Карта</a>
+  <a href="/export/" style="color:#fff;text-decoration:none;">📤 Експорт</a>
+  <a href="/import/" style="color:#fff;text-decoration:none;">📥 Імпорт</a>
+</header>
+
+  <div class="wrap">
+    <div class="topbar">
+      <h1>Експорт маршрутів (Firestore → Excel)</h1>
+      <div class="bar">
+        <a class="btn" href="index.html">← До карти</a>
+        <span id="status" class="pill">З’єднання…</span>
+      </div>
+    </div>
+
+    <div class="card" style="margin-bottom:12px;">
+      <!-- 1 ряд: Від/До -->
+      <div class="row cols-2">
+        <div>
+          <label>Фільтр: Від</label>
+          <input id="fromName" type="text" placeholder="Почни вводити..." list="directoryList" autocomplete="off">
+        </div>
+        <div>
+          <label>Фільтр: До</label>
+          <input id="toName" type="text" placeholder="Почни вводити..." list="directoryList" autocomplete="off">
+        </div>
+      </div>
+
+      <!-- 2 ряд: Тип + Дати -->
+      <div class="row cols-2" style="margin-top:12px;">
+        <div>
+          <label>Тип</label>
+          <select id="routeType">
+            <option value="">— будь-який —</option>
+            <option value="Основний">Основний</option>
+            <option value="Альтернативний1">Альтернативний1</option>
+            <option value="Альтернативний2">Альтернативний2</option>
+          </select>
+        </div>
+        <div>
+          <label>Оновлено: з → по</label>
+          <div class="row dates">
+            <input id="dateFrom" type="date">
+            <input id="dateTo" type="date">
+          </div>
+        </div>
+      </div>
+
+      <!-- 3 ряд: Підрозділ + Відстань -->
+      <div class="row cols-3" style="margin-top:12px;">
+        <div>
+          <label>Виробничий підрозділ (у Від або До)</label>
+          <select id="unitFilter">
+            <option value="">— будь-який —</option>
+          </select>
+        </div>
+        <div>
+          <label>Відстань, км — від</label>
+          <input id="distMin" type="number" step="0.001" placeholder="мін.">
+        </div>
+        <div>
+          <label>Відстань, км — до</label>
+          <input id="distMax" type="number" step="0.001" placeholder="макс.">
+        </div>
+      </div>
+
+      <div class="bar" style="margin-top:12px;">
+        <button id="btnPreview" class="btn">👁️ Попередній перегляд</button>
+        <button id="btnExport" class="btn primary">📥 Експорт у Excel</button>
+        <span class="muted">Порожні фільтри = не обмежувати. Якщо Firestore попросить індекс — створіть, за посиланням із консолі.</span>
+      </div>
+      <datalist id="directoryList"></datalist>
+    </div>
+
+    <div class="card">
+      <div class="bar" style="justify-content:space-between; margin-bottom:8px;">
+        <strong>Результати</strong>
+        <span class="muted" id="countInfo">Натисніть «Попередній перегляд»</span>
+      </div>
+
+      <!-- Статистика -->
+      <div class="stats" id="statsInfo" style="display:none; margin-bottom:8px;">
+        <div class="chip" id="statMax">Найбільша: —</div>
+        <div class="chip" id="statMin">Найменша: —</div>
+        <div class="chip" id="statAvg">Середня: —</div>
+      </div>
+
+      <div style="overflow:auto;">
+        <table id="resTable">
+          <thead>
+            <tr>
+              <th>Код Від</th><th>Код До</th>
+              <th>Від</th><th>До</th>
+              <th>Відстань, км</th><th>Тип</th>
+              <th>Оновлено</th><th>ID</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+<script>
+/* ---------- Firebase config ---------- */
+const firebaseConfig = {
+  apiKey: "AIzaSyDjDBZkmy-skuDEQF8-AkRma7yw6TugoQc",
+  authDomain: "my-map-app-58312.firebaseapp.com",
+  projectId: "my-map-app-58312",
+  storageBucket: "my-map-app-58312.firebasestorage.app",
+  messagingSenderId: "53260611353",
+  appId: "1:53260611353:web:f25e120996ad8305405f88",
+  measurementId: "G-9LRX1FLTKL"
+};
+
+let db=null;
+const dirByCode={}, codeByName={}, unitsSet=new Set();
+const statusEl = document.getElementById('status');
+
+try{
+  firebase.apps?.length ? firebase.app() : firebase.initializeApp(firebaseConfig);
+  db = firebase.firestore();
+  statusEl.textContent = 'Підключено';
+} catch(e){
+  statusEl.textContent = 'Помилка ініціалізації';
+  console.error(e);
+}
+
+/* ---------- Довідник (коди → назви/підрозділи) ---------- */
+async function loadDirectory(){
+  const list = document.getElementById('directoryList');
+  const unitSelect = document.getElementById('unitFilter');
+  list.innerHTML = '';
+  unitSelect.querySelectorAll('option:not([value=""])').forEach(o=>o.remove());
+  unitsSet.clear();
+  Object.keys(dirByCode).forEach(k=>delete dirByCode[k]);
+  Object.keys(codeByName).forEach(k=>delete codeByName[k]);
+
+  const snap = await db.collection('directory').get();
+  snap.forEach(doc=>{
+    const code = doc.id;
+    const d = doc.data()||{};
+    const name = d.name || code;
+    const company = d.company || '';
+    const unit = d.unit || '';
+    dirByCode[code] = { name, company, unit };
+    if(!(name in codeByName)) codeByName[name]=code;
+    if (unit) unitsSet.add(unit);
+
+    const opt = document.createElement('option');
+    opt.value = name;
+    opt.label = [name, unit, company].filter(Boolean).join(' • ');
+    list.appendChild(opt);
+  });
+
+  // заповнити селект підрозділів
+  Array.from(unitsSet).sort((a,b)=>a.localeCompare(b,'uk')).forEach(u=>{
+    const o=document.createElement('option'); o.value=u; o.textContent=u; unitSelect.appendChild(o);
+  });
+}
+
+function getCodeByNameInput(id){
+  const name = (document.getElementById(id).value||'').trim();
+  return codeByName[name] || '';
+}
+function nameByCode(code){ return (dirByCode[code]?.name)||''; }
+function unitByCode(code){ return (dirByCode[code]?.unit)||''; }
+
+/* ---------- Утиліти ---------- */
+function dayStartISO(d){ const x=new Date(d); x.setHours(0,0,0,0); return x.toISOString(); }
+function dayEndISO(d){ const x=new Date(d); x.setHours(23,59,59,999); return x.toISOString(); }
+
+function formatDate(dt) {
+  if (!dt) return '';
+  const d = new Date(dt);
+  if (isNaN(d)) return '';
+  const pad = n => String(n).padStart(2, '0');
+  return `${pad(d.getDate())}.${pad(d.getMonth()+1)}.${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+}
+
+/* ---------- Вибірка з Firestore ---------- */
+async function queryRoutes(){
+  let q = db.collection('routes');
+  const fromCode = getCodeByNameInput('fromName');
+  const toCode   = getCodeByNameInput('toName');
+  const type     = document.getElementById('routeType').value;
+  const df       = document.getElementById('dateFrom').value;
+  const dt       = document.getElementById('dateTo').value;
+
+  if (fromCode) q = q.where('fromCode','==',fromCode);
+  if (toCode)   q = q.where('toCode','==',toCode);
+  if (type)     q = q.where('routeType','==',type);
+
+  if (df || dt) {
+    q = q.orderBy('updatedAt','desc');
+    if (df) q = q.where('updatedAt','>=', dayStartISO(df));
+    if (dt) q = q.where('updatedAt','<=', dayEndISO(dt));
+  } else {
+    q = q.orderBy('updatedAt','desc');
+  }
+
+  const snap = await q.limit(2000).get();
+  const rows=[];
+  snap.forEach(doc=>{
+    const d=doc.data()||{};
+    rows.push({
+      id: doc.id,
+      fromCode: d.fromCode||'',
+      toCode: d.toCode||'',
+      fromName: nameByCode(d.fromCode)||'',
+      toName: nameByCode(d.toCode)||'',
+      fromUnit: unitByCode(d.fromCode)||'',
+      toUnit: unitByCode(d.toCode)||'',
+      distance_km: (typeof d.distance_km==='number')? d.distance_km : NaN,
+      type: d.routeType||'',
+      updatedAtRaw: d.updatedAt || null,
+      updatedAt: formatDate(d.updatedAt)
+    });
+  });
+  return rows;
+}
+
+/* ---------- Додаткові фільтри (клієнтські) ---------- */
+function applyClientFilters(rows){
+  const unit = document.getElementById('unitFilter').value.trim();
+  const dmin = parseFloat(document.getElementById('distMin').value);
+  const dmax = parseFloat(document.getElementById('distMax').value);
+
+  return rows.filter(r=>{
+    // unit: збіг у будь-якому з кінців
+    if (unit && !(r.fromUnit === unit || r.toUnit === unit)) return false;
+
+    // distance
+    const dist = r.distance_km;
+    if (!Number.isFinite(dist)) return false; // відкидаємо нечислові
+    if (!Number.isNaN(dmin) && isFinite(dmin) && dist < dmin) return false;
+    if (!Number.isNaN(dmax) && isFinite(dmax) && dist > dmax) return false;
+
+    return true;
+  });
+}
+
+/* ---------- Статистика ---------- */
+function updateStats(rows){
+  const statsBox = document.getElementById('statsInfo');
+  if (!rows.length){
+    statsBox.style.display='none';
+    return;
+  }
+  const nums = rows.map(r=>r.distance_km).filter(Number.isFinite);
+  if (!nums.length){ statsBox.style.display='none'; return; }
+
+  const max = Math.max(...nums);
+  const min = Math.min(...nums);
+  const avg = nums.reduce((a,b)=>a+b,0)/nums.length;
+
+  document.getElementById('statMax').textContent = `Найбільша: ${max.toFixed(3)}`;
+  document.getElementById('statMin').textContent = `Найменша: ${min.toFixed(3)}`;
+  document.getElementById('statAvg').textContent = `Середня: ${avg.toFixed(3)}`;
+  statsBox.style.display='';
+}
+
+/* ---------- Таблиця ---------- */
+function renderTable(rows){
+  const tb = document.querySelector('#resTable tbody');
+  tb.innerHTML = rows.map(r=>`<tr>
+    <td>${r.fromCode}</td>
+    <td>${r.toCode}</td>
+    <td>${r.fromName}</td>
+    <td>${r.toName}</td>
+    <td>${Number.isFinite(r.distance_km) ? r.distance_km.toFixed(3) : ''}</td>
+    <td>${r.type}</td>
+    <td>${r.updatedAt}</td>
+    <td>${r.id}</td>
+  </tr>`).join('');
+  document.getElementById('countInfo').textContent = `Записів (після фільтру): ${rows.length}`;
+  updateStats(rows);
+}
+
+/* ---------- Експорт у Excel ---------- */
+function exportToExcel(rows){
+  const data = [
+    ['Код Від','Код До','Від','До','Відстань, км','Тип','Оновлено','ID'],
+    ...rows.map(r => [
+      r.fromCode,
+      r.toCode,
+      r.fromName,
+      r.toName,
+      Number.isFinite(r.distance_km) ? Number(r.distance_km.toFixed(3)) : '',
+      r.type,
+      r.updatedAt,
+      r.id
+    ])
+  ];
+  const ws = XLSX.utils.aoa_to_sheet(data);
+  ws['!cols'] = [12,12,28,28,12,16,22,36].map(w => ({ wch: w }));
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Маршрути');
+  XLSX.writeFile(wb, 'routes_export.xlsx');
+}
+
+/* ---------- Обробник помилок Firestore (індекс) ---------- */
+function handleFirestoreError(e){
+  console.error('Firestore error:', e);
+  const msg = e?.message || '';
+  if (e?.code === 'failed-precondition' && msg.includes('create it here')) {
+    const m = msg.match(/https:\/\/console\.firebase\.google\.com\/[^\s"]+/);
+    if (m && m[0]) {
+      const url = m[0];
+      try { window.open(url, '_blank'); } catch(_) {}
+      alert('Для цього запиту потрібен індекс у Firestore.\nЯ відкрив сторінку створення індексу у новій вкладці.\n\nПосилання:\n' + url);
+      return;
+    }
+  }
+  alert(msg || e);
+}
+
+/* ---------- Події ---------- */
+document.getElementById('btnPreview').addEventListener('click', async ()=>{
+  try{
+    setBusy(true);
+    const all = await queryRoutes();
+    const rows = applyClientFilters(all);
+    renderTable(rows);
+  }catch(e){ handleFirestoreError(e); }
+  finally{ setBusy(false); }
+});
+
+document.getElementById('btnExport').addEventListener('click', async ()=>{
+  try{
+    setBusy(true);
+    const all = await queryRoutes();
+    const rows = applyClientFilters(all);
+    exportToExcel(rows);
+  }catch(e){ handleFirestoreError(e); }
+  finally{ setBusy(false); }
+});
+
+function setBusy(b){
+  document.getElementById('btnPreview').disabled=b;
+  document.getElementById('btnExport').disabled=b;
+  statusEl.textContent = b ? 'Виконується…' : 'Готово';
+}
+
+/* ---------- Старт ---------- */
+(async ()=>{
+  if (!db) return;
+  await loadDirectory();
+  statusEl.textContent = 'Готово';
+})();
+</script>
+</body>
+</html>
