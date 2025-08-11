@@ -151,6 +151,12 @@
   </div>
 
 <script>
+/* --- глобальний логер, щоби одразу бачити падіння --- */
+window.addEventListener('error', (e) => {
+  console.error('Global error:', e.message, 'at', e.filename, e.lineno);
+  try { document.getElementById('status').textContent = 'Помилка скрипта'; } catch(_) {}
+});
+
 /* ---------- Firebase config ---------- */
 const firebaseConfig = {
   apiKey: "AIzaSyDjDBZkmy-skuDEQF8-AkRma7yw6TugoQc",
@@ -162,36 +168,43 @@ const firebaseConfig = {
   measurementId: "G-9LRX1FLTKL"
 };
 
-let db=null;
-const dirByCode={}, codeByName={}, unitsSet=new Set();
 const statusEl = document.getElementById('status');
+let db = null;
 
 try{
-  firebase.apps?.length ? firebase.app() : firebase.initializeApp(firebaseConfig);
+  const app = firebase.apps?.length ? firebase.app() : firebase.initializeApp(firebaseConfig);
   db = firebase.firestore();
   statusEl.textContent = 'Підключено';
+
+  // офлайновий кеш — не блокує старт, якщо не вдасться
+  db.enablePersistence({ synchronizeTabs: true }).catch((e) => {
+    console.warn('Persistence off:', e.code || e.message);
+  });
 } catch(e){
+  console.error('Init error:', e);
   statusEl.textContent = 'Помилка ініціалізації';
-  console.error(e);
 }
 
 /* ---------- Довідник (коди → назви/підрозділи) ---------- */
-async function loadDirectory(){
+const dirByCode = {};     // {code:{name,company,unit}}
+const codeByName = {};    // {name:code}
+const unitsSet = new Set();
+
+const DIR_CACHE_KEY = 'export.directoryCache.v1';
+const DIR_CACHE_TTL_MS = 12 * 60 * 60 * 1000; // 12 год
+
+function fillDirectoryUI(rows){
   const list = document.getElementById('directoryList');
   const unitSelect = document.getElementById('unitFilter');
+
   list.innerHTML = '';
   unitSelect.querySelectorAll('option:not([value=""])').forEach(o=>o.remove());
   unitsSet.clear();
   Object.keys(dirByCode).forEach(k=>delete dirByCode[k]);
   Object.keys(codeByName).forEach(k=>delete codeByName[k]);
 
-  const snap = await db.collection('directory').get();
-  snap.forEach(doc=>{
-    const code = doc.id;
-    const d = doc.data()||{};
-    const name = d.name || code;
-    const company = d.company || '';
-    const unit = d.unit || '';
+  for (const r of rows){
+    const { code, name, company, unit } = r;
     dirByCode[code] = { name, company, unit };
     if(!(name in codeByName)) codeByName[name]=code;
     if (unit) unitsSet.add(unit);
@@ -200,14 +213,52 @@ async function loadDirectory(){
     opt.value = name;
     opt.label = [name, unit, company].filter(Boolean).join(' • ');
     list.appendChild(opt);
-  });
+  }
 
-  // заповнити селект підрозділів
   Array.from(unitsSet).sort((a,b)=>a.localeCompare(b,'uk')).forEach(u=>{
     const o=document.createElement('option'); o.value=u; o.textContent=u; unitSelect.appendChild(o);
   });
 }
 
+async function loadDirectory(){
+  // 1) localStorage спершу
+  try{
+    const raw = localStorage.getItem(DIR_CACHE_KEY);
+    if (raw){
+      const { ts, rows } = JSON.parse(raw);
+      if (Array.isArray(rows) && Date.now() - ts < DIR_CACHE_TTL_MS){
+        fillDirectoryUI(rows);
+        console.log('📒 Directory from localStorage cache:', rows.length);
+        return;
+      }
+    }
+  }catch{}
+
+  // 2) Firestore cache-first
+  let snap = null;
+  try { snap = await db.collection('directory').get({ source: 'cache' }); } catch {}
+  if (!snap || snap.empty) { snap = await db.collection('directory').get(); }
+
+  const rows = [];
+  snap.forEach(doc=>{
+    const d = doc.data()||{};
+    rows.push({
+      code: doc.id,
+      name: d.name || doc.id,
+      company: d.company || '',
+      unit: d.unit || ''
+    });
+  });
+
+  fillDirectoryUI(rows);
+
+  // 3) оновити localStorage
+  try{ localStorage.setItem(DIR_CACHE_KEY, JSON.stringify({ ts: Date.now(), rows })); }catch{}
+
+  console.log('📒 Directory loaded from Firestore:', rows.length);
+}
+
+/* ---------- Хелпери ---------- */
 function getCodeByNameInput(id){
   const name = (document.getElementById(id).value||'').trim();
   return codeByName[name] || '';
@@ -215,7 +266,6 @@ function getCodeByNameInput(id){
 function nameByCode(code){ return (dirByCode[code]?.name)||''; }
 function unitByCode(code){ return (dirByCode[code]?.unit)||''; }
 
-/* ---------- Утиліти ---------- */
 function dayStartISO(d){ const x=new Date(d); x.setHours(0,0,0,0); return x.toISOString(); }
 function dayEndISO(d){ const x=new Date(d); x.setHours(23,59,59,999); return x.toISOString(); }
 
@@ -227,28 +277,47 @@ function formatDate(dt) {
   return `${pad(d.getDate())}.${pad(d.getMonth()+1)}.${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
 }
 
+/* --- мемо стан останньої вибірки --- */
+let lastQueryKey = '';
+let lastAllRows = null;
+
+// підпис фільтрів (одна версія!)
+function getFiltersSignature(){
+  const fromCode = getCodeByNameInput('fromName');
+  const toCode   = getCodeByNameInput('toName');
+  const type     = document.getElementById('routeType')?.value || '';
+  const df       = document.getElementById('dateFrom')?.value || '';
+  const dt       = document.getElementById('dateTo')?.value || '';
+  const unit     = document.getElementById('unitFilter')?.value || '';
+  const dmin     = document.getElementById('distMin')?.value || '';
+  const dmax     = document.getElementById('distMax')?.value || '';
+  return JSON.stringify({ fromCode, toCode, type, df, dt, unit, dmin, dmax });
+}
+
 /* ---------- Вибірка з Firestore ---------- */
+const ROUTES_LIMIT = 1000; // підлаштуй за потреби
+
 async function queryRoutes(){
   let q = db.collection('routes');
   const fromCode = getCodeByNameInput('fromName');
   const toCode   = getCodeByNameInput('toName');
-  const type     = document.getElementById('routeType').value;
-  const df       = document.getElementById('dateFrom').value;
-  const dt       = document.getElementById('dateTo').value;
+  const type     = document.getElementById('routeType')?.value;
+  const df       = document.getElementById('dateFrom')?.value;
+  const dt       = document.getElementById('dateTo')?.value;
 
   if (fromCode) q = q.where('fromCode','==',fromCode);
   if (toCode)   q = q.where('toCode','==',toCode);
   if (type)     q = q.where('routeType','==',type);
 
-  if (df || dt) {
-    q = q.orderBy('updatedAt','desc');
-    if (df) q = q.where('updatedAt','>=', dayStartISO(df));
-    if (dt) q = q.where('updatedAt','<=', dayEndISO(dt));
-  } else {
-    q = q.orderBy('updatedAt','desc');
-  }
+  q = q.orderBy('updatedAt','desc');
+  if (df) q = q.where('updatedAt','>=', dayStartISO(df));
+  if (dt) q = q.where('updatedAt','<=', dayEndISO(dt));
 
-  const snap = await q.limit(2000).get();
+  // cache-first
+  let snap = null;
+  try { snap = await q.limit(ROUTES_LIMIT).get({ source: 'cache' }); } catch {}
+  if (!snap || snap.empty) { snap = await q.limit(ROUTES_LIMIT).get(); }
+
   const rows=[];
   snap.forEach(doc=>{
     const d=doc.data()||{};
@@ -269,19 +338,29 @@ async function queryRoutes(){
   return rows;
 }
 
-/* ---------- Додаткові фільтри (клієнтські) ---------- */
+/* --- не зчитуємо БД двічі при тих самих фільтрах --- */
+async function getFilteredRows(){
+  const key = getFiltersSignature();
+  if (lastAllRows && key === lastQueryKey){
+    return applyClientFilters(lastAllRows);
+  }
+  const all = await queryRoutes();
+  lastQueryKey = key;
+  lastAllRows = all;
+  return applyClientFilters(all);
+}
+
+/* ---------- Додаткові фільтри на клієнті ---------- */
 function applyClientFilters(rows){
-  const unit = document.getElementById('unitFilter').value.trim();
-  const dmin = parseFloat(document.getElementById('distMin').value);
-  const dmax = parseFloat(document.getElementById('distMax').value);
+  const unit = document.getElementById('unitFilter')?.value.trim() || '';
+  const dmin = parseFloat(document.getElementById('distMin')?.value);
+  const dmax = parseFloat(document.getElementById('distMax')?.value);
 
   return rows.filter(r=>{
-    // unit: збіг у будь-якому з кінців
     if (unit && !(r.fromUnit === unit || r.toUnit === unit)) return false;
 
-    // distance
     const dist = r.distance_km;
-    if (!Number.isFinite(dist)) return false; // відкидаємо нечислові
+    if (!Number.isFinite(dist)) return false;
     if (!Number.isNaN(dmin) && isFinite(dmin) && dist < dmin) return false;
     if (!Number.isNaN(dmax) && isFinite(dmax) && dist > dmax) return false;
 
@@ -292,10 +371,8 @@ function applyClientFilters(rows){
 /* ---------- Статистика ---------- */
 function updateStats(rows){
   const statsBox = document.getElementById('statsInfo');
-  if (!rows.length){
-    statsBox.style.display='none';
-    return;
-  }
+  if (!rows.length){ statsBox.style.display='none'; return; }
+
   const nums = rows.map(r=>r.distance_km).filter(Number.isFinite);
   if (!nums.length){ statsBox.style.display='none'; return; }
 
@@ -368,8 +445,7 @@ function handleFirestoreError(e){
 document.getElementById('btnPreview').addEventListener('click', async ()=>{
   try{
     setBusy(true);
-    const all = await queryRoutes();
-    const rows = applyClientFilters(all);
+    const rows = await getFilteredRows();
     renderTable(rows);
   }catch(e){ handleFirestoreError(e); }
   finally{ setBusy(false); }
@@ -378,8 +454,7 @@ document.getElementById('btnPreview').addEventListener('click', async ()=>{
 document.getElementById('btnExport').addEventListener('click', async ()=>{
   try{
     setBusy(true);
-    const all = await queryRoutes();
-    const rows = applyClientFilters(all);
+    const rows = await getFilteredRows();
     exportToExcel(rows);
   }catch(e){ handleFirestoreError(e); }
   finally{ setBusy(false); }
@@ -394,8 +469,13 @@ function setBusy(b){
 /* ---------- Старт ---------- */
 (async ()=>{
   if (!db) return;
-  await loadDirectory();
-  statusEl.textContent = 'Готово';
+  try{
+    await loadDirectory();
+  } finally {
+    if (statusEl.textContent === 'З’єднання…' || statusEl.textContent === 'Підключено') {
+      statusEl.textContent = 'Готово';
+    }
+  }
 })();
 </script>
 </body>

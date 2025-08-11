@@ -480,6 +480,10 @@ try {
   const fbApp = firebase.apps && firebase.apps.length ? firebase.app() : firebase.initializeApp(firebaseConfig);
   db = firebase.firestore();
   console.log('✅ Firebase ініціалізовано:', firebaseConfig.projectId);
+  // офлайновий кеш (якщо підтримується)
+firebase.firestore().enablePersistence({ synchronizeTabs: true }).catch((e) => {
+  console.warn('Firestore persistence is off:', e.code || e.message);
+});
 } catch (e) {
   console.error('❌ Firebase не ініціалізовано:', e);
 }
@@ -489,34 +493,71 @@ const dirByCode = {};   // { code: {name, company, unit} }
 const codeByName = {};  // { name: code }  (для підстановки за назвою)
 const routesLookup = {}; // label -> doc.id для пошуку
 
-async function loadDirectory() {
-  if (!db) return;
-  const snap = await db.collection('directory').get();
+const DIR_CACHE_KEY = 'directoryCache.v1';
+const DIR_CACHE_TTL_MS = 12 * 60 * 60 * 1000; // 12 годин
+
+function fillDirectoryUI(rows){
   const list = document.getElementById('directoryList');
   list.innerHTML = '';
   Object.keys(dirByCode).forEach(k => delete dirByCode[k]);
   Object.keys(codeByName).forEach(k => delete codeByName[k]);
 
-  snap.forEach(doc => {
-    const code = doc.id;
-    const d = doc.data() || {};
-    const name = d.name || code;
-    const company = d.company || '';
-    const unit = d.unit || '';
+  for (const r of rows){
+    const { code, name, company, unit } = r;
     dirByCode[code] = { name, company, unit };
     if (!(name in codeByName)) codeByName[name] = code;
 
     const opt = document.createElement('option');
-    opt.value = name; // datalist шукає по value
-    opt.label = [name, unit, company].filter(Boolean).join(' • '); // підказка
+    opt.value = name;
+    opt.label = [name, unit, company].filter(Boolean).join(' • ');
     list.appendChild(opt);
+  }
+}
+
+async function loadDirectory(){
+  // 1) Спроба з localStorage (TTL 12 год)
+  try{
+    const raw = localStorage.getItem(DIR_CACHE_KEY);
+    if (raw){
+      const { ts, rows } = JSON.parse(raw);
+      if (Array.isArray(rows) && Date.now() - ts < DIR_CACHE_TTL_MS){
+        fillDirectoryUI(rows);
+        updateRouteName();
+        refreshRoutesList();
+        console.log('📒 Directory from localStorage cache:', rows.length);
+        return;
+      }
+    }
+  }catch{}
+
+  // 2) Спроба з кешу Firestore (offline cache)
+  let snap = null;
+  try { snap = await db.collection('directory').get({ source: 'cache' }); } catch {}
+  if (!snap || snap.empty){
+    snap = await db.collection('directory').get(); // сервер тільки якщо кеш порожній
+  }
+
+  const rows = [];
+  snap.forEach(doc => {
+    const d = doc.data() || {};
+    rows.push({
+      code: doc.id,
+      name: d.name || doc.id,
+      company: d.company || '',
+      unit: d.unit || ''
+    });
   });
-  
-  // 🔹 ось тут оновлюємо назву маршруту та список після зміни довідника
+
+  fillDirectoryUI(rows);
   updateRouteName();
   refreshRoutesList();
 
-  console.log('📒 Довідник завантажено:', Object.keys(dirByCode).length, 'запис(ів)');
+  // 3) Оновлюємо localStorage
+  try{
+    localStorage.setItem(DIR_CACHE_KEY, JSON.stringify({ ts: Date.now(), rows }));
+  }catch{}
+
+  console.log('📒 Directory loaded from Firestore:', rows.length);
 }
 
 /* helpers */
@@ -605,7 +646,7 @@ await db.collection('routes').doc(safeId).set(payload, { merge: true });
 }
 let isRefreshingRoutes = false; // ДОДАЙ вище за функцію, один раз
 
-async function refreshRoutesList() {
+async function refreshRoutesList(limitNum = 100) {
   if (!db || isRefreshingRoutes) return;
   isRefreshingRoutes = true;
   try {
@@ -613,15 +654,18 @@ async function refreshRoutesList() {
     const list = document.getElementById('routesList');
     const current = sel.value;
 
-    // очистити селект, datalist і індекс
     sel.innerHTML = '<option value="">— вибери маршрут з БД —</option>';
     list.innerHTML = '';
     for (const k in routesLookup) delete routesLookup[k];
 
-    const snap = await db.collection('routes')
-      .orderBy('updatedAt', 'desc')
-      .limit(200)
-      .get();
+    let q = db.collection('routes')
+      .orderBy('updatedAt','desc')
+      .limit(limitNum);
+
+    // cache-first
+    let snap = null;
+    try { snap = await q.get({ source: 'cache' }); } catch {}
+    if (!snap || snap.empty) snap = await q.get();
 
     snap.forEach(doc => {
       const d = doc.data();
@@ -629,13 +673,11 @@ async function refreshRoutesList() {
       const labelNow = formatRouteTitle(d);
       const label = labelNow + km;
 
-      // селект
       const opt = document.createElement('option');
       opt.value = doc.id;
       opt.textContent = label;
       sel.appendChild(opt);
 
-      // індекс + datalist
       routesLookup[label] = doc.id;
       const sOpt = document.createElement('option');
       sOpt.value = label;
@@ -649,6 +691,7 @@ async function refreshRoutesList() {
     isRefreshingRoutes = false;
   }
 }
+
 
 async function loadFromDB() {
   try {

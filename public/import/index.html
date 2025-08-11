@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <title>Імпорт довідника в Firestore</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <!-- Firebase compat -->
+  <!-- Firebase compat (завантажуються одразу, але ініціалізуємось тільки при реальному імпорті) -->
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js" defer></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js" defer></script>
   <style>
@@ -38,34 +38,31 @@
     code{background:#f1f5f9; padding:2px 6px; border-radius:6px}
     .toolbar{display:flex; gap:10px; flex-wrap:wrap}
     .pill{display:inline-flex; align-items:center; gap:6px; padding:4px 10px; background:#eef6ff; border:1px solid #dbeafe; color:#1e3a8a; border-radius:999px; font-size:12px}
-
-    /* Progress bar */
-    .progress-wrap{margin-top:10px}
-    .progress{width:100%; background:#eef2f7; border:1px solid #dfe4ea; border-radius:999px; height:12px; overflow:hidden}
-    .progress > .bar{height:100%; width:0%; background:linear-gradient(90deg,#60a5fa,#22d3ee); transition:width .15s ease}
-    .progress-label{margin-top:6px; font-size:12px; color:#475569}
+    /* прогрес */
+    .progress-wrap{display:flex; align-items:center; gap:10px; margin-top:8px}
+    progress{width:260px; height:14px}
   </style>
 </head>
 <body>
-<!-- Кнопка переходу -->
-<header style="background:#2563eb;color:#fff;padding:10px;display:flex;gap:16px;">
-  <a href="/" style="color:#fff;text-decoration:none;">🏠 Карта</a>
-  <a href="/export/" style="color:#fff;text-decoration:none;">📤 Експорт</a>
-  <a href="/import/" style="color:#fff;text-decoration:none;">📥 Імпорт</a>
-</header>
+  <!-- Навігація -->
+  <header style="background:#2563eb;color:#fff;padding:10px;display:flex;gap:16px;">
+    <a href="/" style="color:#fff;text-decoration:none;">🏠 Карта</a>
+    <a href="/export/" style="color:#fff;text-decoration:none;">📤 Експорт</a>
+    <a href="/import/" style="color:#fff;text-decoration:none;">📥 Імпорт</a>
+  </header>
 
   <div class="wrap">
     <h1>Імпорт довідника → Firestore <span class="pill"><b>collection:</b> <code>directory</code></span></h1>
-    <div class="sub">CSV/TSV, копіпаста з Excel. Підтримує “сухий” запуск. Швидкий імпорт батчами (до 500 записів).</div>
+    <div class="sub">Працює з CSV/TSV, копіпастою з Excel та простими двоколонковими списками. Є “сухий запуск”.</div>
 
     <div class="card">
       <b>Формат даних</b>
       <ul class="muted">
-        <li>CSV із заголовками: <i>Підприємство, Підрозділ, Назва, КОД ЦБ</i></li>
+        <li>CSV із заголовками: <i>Підприємство, Підрозділ, Назва, КОД</i></li>
         <li>Копіпаста з Excel (табами)</li>
         <li>Простий CSV/TSV з двома колонками: <i>Назва, КОД</i></li>
       </ul>
-      <div class="muted">Імпортер шукає “Назва”, “КОД”, “Підприємство”, “Підрозділ”. Якщо не знайде — вкажи індекси.</div>
+      <div class="muted">Імпортер шукає колонки “Назва”, “КОД”, “Підприємство”, “Підрозділ”. Якщо не знайде — задай індекси вручну.</div>
     </div>
 
     <div class="grid two">
@@ -116,7 +113,7 @@
       </div>
       <div class="row" style="margin-top:6px">
         <label><input type="checkbox" id="hasHeader" checked /> Перша строка — заголовки</label>
-        <label><input type="checkbox" id="dryRun" /> “Сухий” запуск (без запису)</label>
+        <label><input type="checkbox" id="dryRun" checked /> “Сухий” запуск (без запису)</label>
       </div>
     </div>
 
@@ -126,14 +123,12 @@
       <button class="btn warn" id="clearBtn">Очистити поля</button>
     </div>
 
-    <div id="status" class="counter"></div>
-
-    <!-- Прогрес -->
-    <div class="progress-wrap" id="progressWrap" style="display:none">
-      <div class="progress"><div class="bar" id="progressBar"></div></div>
-      <div class="progress-label" id="progressLabel">0% • 0/0</div>
+    <div class="progress-wrap">
+      <progress id="prog" value="0" max="100"></progress>
+      <span id="progLabel" class="muted">Готово</span>
     </div>
 
+    <div id="status" class="counter"></div>
     <pre id="log"></pre>
   </div>
 
@@ -144,22 +139,19 @@ document.addEventListener('DOMContentLoaded', () => {
   const $ = (id) => document.getElementById(id);
   function log(msg, type=''){ $('log').textContent += (type ? `[${type}] ` : '') + msg + "\n"; }
   function setStatus(html){ $('status').innerHTML = html; }
-
-  // Прогрес-бар
-  function showProgress(show=true){ $('progressWrap').style.display = show ? '' : 'none'; }
-  function setProgress(pct, text){
-    $('progressBar').style.width = `${Math.max(0, Math.min(100, pct))}%`;
-    $('progressLabel').textContent = text || `${Math.round(pct)}%`;
+  function setProg(pct, label){
+    $('prog').value = Math.max(0, Math.min(100, Math.round(pct)));
+    $('progLabel').textContent = label || '';
   }
 
-  // Перехоплювач помилок → у лог
-  window.addEventListener('error', (e) => { log(`${e.message} @ ${e.filename||''}:${e.lineno||''}`, 'err'); });
+  // Глобальний перехоплювач помилок → у лог
+  window.addEventListener('error', (e) => {
+    log(`${e.message} @ ${e.filename||''}:${e.lineno||''}`, 'err');
+  });
 
   let db = null;
   const PREVIEW_ROWS = 5;
-  const BATCH_LIMIT = 500;  // максимум операцій у writeBatch
-  const SAFE_BATCH = 450;   // запас (щоб точно не перевищити)
-  const COLLECTION = 'directory';
+  const SAFE_BATCH = 450; // нижче 500 — ліміт для writeBatch
 
   const firebaseConfig = {
     apiKey: "AIzaSyDjDBZkmy-skuDEQF8-AkRma7yw6TugoQc",
@@ -190,7 +182,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
-  // ДЕМО
+  // Демо
   $('demoBtn')?.addEventListener('click', () => {
     $('raw').value =
 `Підприємство\tПідрозділ\tНазва\tКОД
@@ -201,7 +193,7 @@ document.addEventListener('DOMContentLoaded', () => {
     $('raw').focus();
   });
 
-  // Читання файлу
+  // Читання файлу з кодуванням
   $('file').addEventListener('change', async (e) => {
     try{
       const file = e.target.files[0];
@@ -218,7 +210,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  // Детекція розділювача
+  // Парсинг
   function detectSep(text){
     const s = $('sep').value;
     if (s !== 'auto') return s === '\\t' ? '\t' : s;
@@ -229,7 +221,6 @@ document.addEventListener('DOMContentLoaded', () => {
                      '\t': (firstLine.match(/\t/g)||[]).length };
     return Object.entries(counts).sort((a,b)=>b[1]-a[1])[0][0] || ',';
   }
-
   function parseTable(text){
     const sep = detectSep(text);
     const rows = text.split(/\r?\n/).filter(r=>r.trim().length);
@@ -240,42 +231,18 @@ document.addEventListener('DOMContentLoaded', () => {
   function guessColumns(headerRow){
     const h = headerRow.map(x => (x||'').toString().trim().toLowerCase());
     const nameIdx = h.findIndex(x => ['назва','name'].includes(x));
-    const codeIdx = h.findIndex(x => ['код','код цб','code'].includes(x));
+    const codeIdx = h.findIndex(x => ['код','код цб','код цб','code'].includes(x));
     const companyIdx = h.findIndex(x => ['підприємство','pidpryiemstvo','company'].includes(x));
     const unitIdx = h.findIndex(x => ['підрозділ','pidrozdil','unit','division'].includes(x));
     return { nameIdx: nameIdx>=0?nameIdx:null, codeIdx: codeIdx>=0?codeIdx:null,
              companyIdx: companyIdx>=0?companyIdx:null, unitIdx: unitIdx>=0?unitIdx:null };
   }
 
-  // Діагностика
-  function dumpDiagnostics({sep, rows, table}, mapping, hasHeader){
-    $('log').textContent = '';
-    log(`Розділювач: ${sep === '\t' ? 'TAB' : sep}`, 'ok');
-    log(`Рядків (включно із заголовком, якщо є): ${rows.length}`, 'ok');
-    if (rows.length){
-      const header = table[0] || [];
-      log(`Колонок у 1-му рядку: ${header.length}`, 'ok');
-      log(`Заголовок (split): [${header.map(x=>JSON.stringify((x||'').trim())).join(', ')}]`);
-    }
-    const sampleCount = Math.min(PREVIEW_ROWS, table.length);
-    for (let i=0; i<sampleCount; i++){
-      log(`row #${i}: [${(table[i]||[]).map(x=>JSON.stringify((x||'').trim())).join(', ')}]`);
-    }
-    const {nameIdx, codeIdx, companyIdx, unitIdx} = mapping;
-    log(`Мапінг → name:${nameIdx} code:${codeIdx} company:${companyIdx} unit:${unitIdx}`, 'ok');
-    if (table.length > (hasHeader?1:0)) {
-      const firstData = table[hasHeader?1:0];
-      if (firstData){
-        log(`Перший data-рядок → name="${firstData[nameIdx]||''}" | code="${firstData[codeIdx]||''}" | company="${firstData[companyIdx]||''}" | unit="${firstData[unitIdx]||''}"`, 'ok');
-      }
-    }
+  function sanitizeId(s){
+    return (s||'').toString().trim().replace(/[\/\\#?[\]]/g, '_').slice(0, 500);
   }
 
-  // Санітизація ID для Firestore
-  function sanitizeId(id){
-    return (id||'').toString().trim().replace(/[/#?[\]*]/g,'_').slice(0,150);
-  }
-
+  // Підготовка entries
   function prepareEntries(){
     const raw = $('raw').value;
     if (!raw.trim()){ alert('Порожні дані для імпорту'); return null; }
@@ -305,13 +272,12 @@ document.addEventListener('DOMContentLoaded', () => {
       setStatus(`<span class="muted">Виявлено розділювач: <b>${parsed.sep === '\t' ? 'TAB' : parsed.sep}</b>. Мапінг підібрано за замовчуванням.</span>`);
     }
 
-    dumpDiagnostics(parsed, {nameIdx, codeIdx, companyIdx, unitIdx}, hasHeader);
-
+    // Формуємо entries
     const entries = [];
     let skippedEmptyName = 0, skippedEmptyCode = 0, skippedBlankRow = 0;
 
     for (let i = startIdx; i < rows.length; i++){
-      const r = rows[i];
+      const r = rows[i]; 
       if (!r || !r.length || r.every(c => (c||'').toString().trim()==='')) { skippedBlankRow++; continue; }
       const name = (r[nameIdx]||'').toString().trim();
       const code = (r[codeIdx]||'').toString().trim();
@@ -320,92 +286,90 @@ document.addEventListener('DOMContentLoaded', () => {
       if (!name && !code) { skippedBlankRow++; continue; }
       if (!name) { skippedEmptyName++; continue; }
       if (!code) { skippedEmptyCode++; continue; }
-      entries.push({ id: sanitizeId(code), data: { name, ...(company?{company}:{}) , ...(unit?{unit}:{}) }});
+      entries.push({ id: sanitizeId(code), data: { name, ...(company?{company}:{}), ...(unit?{unit}:{}) } });
     }
 
-    log(`Статистика пропусків → blank:${skippedBlankRow} | emptyName:${skippedEmptyName} | emptyCode:${skippedEmptyCode}`, 'ok');
-    return entries;
+    // ДЕДУПЛІКАЦІЯ за id (остання згадка перемагає)
+    const map = new Map();
+    for (const e of entries) map.set(e.id, e);
+    const deduped = Array.from(map.values());
+
+    log(`Знайдено записів: ${entries.length}. Після дедуплікації: ${deduped.length}`, 'ok');
+    log(`Пропущено → blank:${skippedBlankRow} | emptyName:${skippedEmptyName} | emptyCode:${skippedEmptyCode}`, 'ok');
+
+    return deduped;
   }
 
-  // Хелпер: розбити на батчі
-  function chunkArray(arr, size){
-    const out = [];
-    for (let i=0; i<arr.length; i+=size) out.push(arr.slice(i, i+size));
-    return out;
-  }
-
-  // Перевірити дані
+  // Перевірка
   $('parseBtn').addEventListener('click', () => {
     const entries = prepareEntries();
     if (!entries) return;
-    setStatus(`<b>Знайдено рядків:</b> ${entries.length}`);
-    if (entries.length){
-      log('Приклади перших 5 entries:', 'ok');
-      entries.slice(0,PREVIEW_ROWS).forEach(e => log(`{id:"${e.id}", name:"${e.data.name}", company:"${e.data.company||''}", unit:"${e.data.unit||''}"}`));
-    }
+    setStatus(`<b>Готово до імпорту:</b> ${entries.length}`);
+    log('Приклади перших 5:', 'ok');
+    entries.slice(0,PREVIEW_ROWS).forEach(e => log(`id="${e.id}"  data=${JSON.stringify(e.data)}`));
   });
 
-  // Імпорт батчами з прогресом
+  // Імпорт
   $('importBtn').addEventListener('click', async () => {
     const entries = prepareEntries();
     if (!entries) return;
-
     const dry = $('dryRun').checked;
-    if (!dry){
+
+    // ініціалізація Firebase лише якщо НЕ dry run
+    if (!dry) {
       if (!initFirebase()) return;
     }
 
-    // UI lock
-    const toDisable = ['parseBtn','importBtn','clearBtn','file','raw','sep','enc','nameCol','codeCol','companyCol','unitCol','hasHeader','dryRun'];
-    toDisable.forEach(id => { const el=$(id); if (el) el.disabled = true; });
-    showProgress(true);
-    setProgress(0, '0%');
+    $('importBtn').disabled = true;
+    $('parseBtn').disabled = true;
+    $('clearBtn').disabled = true;
 
-    const batches = chunkArray(entries, SAFE_BATCH);
     const total = entries.length;
-    const totalBatches = batches.length;
-
+    const totalBatches = Math.ceil(total / SAFE_BATCH);
     let ok = 0, fail = 0;
-    const start = performance.now();
 
-    for (let b=0; b<totalBatches; b++){
-      const batchEntries = batches[b];
+    const startedAt = Date.now();
+    setProg(0, 'Початок…');
 
-      if (dry){
-        // емуляція роботи батча для прогресу
-        await new Promise(r => setTimeout(r, Math.min(50 + batchEntries.length, 250)));
-        ok += batchEntries.length;
-      } else {
-        try{
+    try{
+      for (let b = 0; b < totalBatches; b++){
+        const slice = entries.slice(b*SAFE_BATCH, (b+1)*SAFE_BATCH);
+        if (!dry) {
           const batch = db.batch();
-          batchEntries.forEach(e => {
-            const ref = db.collection(COLLECTION).doc(e.id);
-            batch.set(ref, e.data, { merge:true });
-          });
+          for (const {id, data} of slice){
+            const ref = db.collection('directory').doc(id);
+            batch.set(ref, data, { merge: true });
+          }
           await batch.commit();
-          ok += batchEntries.length;
-        }catch(err){
-          fail += batchEntries.length;
-          log(`Помилка батча #${b+1}/${totalBatches}: ${err?.message||err}`, 'err');
+        }
+        ok += slice.length;
+
+        // Прогрес + рідший лог (кожен 5-й батч)
+        const pct = ((b+1)/totalBatches)*100;
+        const elapsed = (Date.now() - startedAt)/1000;
+        const speed = ok / Math.max(elapsed, 0.001); // rows/sec
+        const remain = total - ok;
+        const eta = remain / Math.max(speed, 0.001);
+
+        setProg(pct, `Виконано ${Math.round(pct)}% • ${ok}/${total} • ETA ~ ${Math.ceil(eta)}с`);
+        if ((b % 5) === 0 || b === totalBatches-1){
+          log(`Батч ${b+1}/${totalBatches} завершено. Загалом записано: ${ok}.`, 'ok');
         }
       }
 
-      const done = ok + fail;
-      const pct = (done/total)*100;
-      const elapsed = (performance.now() - start)/1000;
-      const rate = done / Math.max(elapsed, 0.001);
-      const remain = total - done;
-      const eta = remain / Math.max(rate, 0.001);
-      setProgress(pct, `${Math.round(pct)}% • ${done}/${total} • ок:${ok} помилок:${fail} • батч ${b+1}/${totalBatches} • ~ETA ${eta.toFixed(1)}s`);
-      await new Promise(r => setTimeout(r, 0)); // промальовка
+      setStatus(`<span class="ok"><b>Готово.</b> Успішно: ${ok}</span>${fail ? `, <span class="err">Помилок: ${fail}</span>` : ''}`);
+      if (!dry) log('Імпорт завершено', 'ok');
+      setProg(100, 'Готово');
+    }catch(e){
+      fail = total - ok;
+      log(`Помилка імпорту: ${e.message || e}`, 'err');
+      alert('Сталася помилка під час імпорту. Деталі у логах.');
+      setProg(0, 'Помилка');
+    }finally{
+      $('importBtn').disabled = false;
+      $('parseBtn').disabled = false;
+      $('clearBtn').disabled = false;
     }
-
-    setStatus(`<span class="ok"><b>Готово.</b> Успішно: ${ok}</span>${fail ? `, <span class="err"> Помилок: ${fail}</span>` : ''}`);
-    log(`Імпорт завершено. ok=${ok}, fail=${fail}, batches=${totalBatches}`, 'ok');
-
-    // UI unlock
-    toDisable.forEach(id => { const el=$(id); if (el) el.disabled = false; });
-    showProgress(false);
   });
 
   // Очистити поля
@@ -416,11 +380,10 @@ document.addEventListener('DOMContentLoaded', () => {
     $('enc').value = 'utf-8';
     ['nameCol','codeCol','companyCol','unitCol'].forEach(id => { $(id).value = ''; });
     $('hasHeader').checked = true;
-    $('dryRun').checked = false;
+    $('dryRun').checked = true;
     $('status').innerHTML = '';
     $('log').textContent = '';
-    showProgress(false);
-    setProgress(0,'');
+    setProg(0, 'Готово');
     $('raw').focus();
   });
 });
