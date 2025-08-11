@@ -12,7 +12,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 
   <style>
-  /* висота шапки (за потреби підкоригуй число) */
+  /* висота шапки */
   :root { --nav-h: 48px; }
 
   body { margin:0; padding:0; font-family: sans-serif; }
@@ -24,7 +24,7 @@
     z-index: 1500;
   }
 
-  /* ЗСУВАЄМО карту НИЖЧЕ шапки (було top:0) */
+  /* Зсуваємо карту нижче шапки */
   #map {
     position: absolute;
     top: var(--nav-h);
@@ -35,25 +35,38 @@
   /* ПАНЕЛЬ: фіксуємо координати і піднімаємо над canvas */
   #controls{
     position: absolute;
-    z-index: 3000;          /* вище за canvas мапи */
+    z-index: 3000;
     background: white;
     padding: 8px;
-    margin: 0;              /* margin не потрібен */
+    margin: 0;
     top: calc(var(--nav-h) + 8px);
     left: 8px;
-
-    border-radius: 8px; box-shadow: 0 1px 6px rgba(0,0,0,0.25);
-    max-width: 360px;       /* було 520 → компактніше */
-    max-height: 90vh;       /* не виходить за екран */
-    overflow: auto;         /* скрол усередині */
+    border-radius: 8px;
+    box-shadow: 0 1px 6px rgba(0,0,0,0.25);
+    max-width: 360px;
+    max-height: 90vh;
+    overflow-y: auto;
+    overflow-x: hidden; /* не дозволяємо горизонтальний скрол */
   }
+
+  /* Поля та селекти всередині панелі */
+  #controls input[type="text"],
+  #controls select,
+  #controls textarea {
+    width: 100%;
+    max-width: 100%;
+    padding: 6px;
+  }
+  textarea { min-height: 48px; resize: vertical; }
+  small.muted { color:#666; }
+
+  /* Гарантуємо, що елементи в .row не розтягують контейнер */
+  #controls .row > * { min-width: 0; }
 
   .row { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
   .btn { margin: 5px 5px 5px 0; padding: 6px 10px; cursor: pointer; }
   .btn.active { background-color: #90ee90; border: 1px solid #4CAF50; }
-  input[type="text"], select, textarea { width: 100%; padding: 6px; }
-  textarea { min-height: 48px; resize: vertical; }
-  small.muted { color:#666; }
+
   #styleSelector { margin-top: 10px; }
   #dbControls { margin-top: 10px; padding-top:10px; border-top:1px solid #eee;}
   #dbControls input, #dbControls select { margin: 5px 5px 5px 0; padding:6px; }
@@ -65,13 +78,13 @@
   #contextMenu div { padding: 5px 10px; cursor: pointer; }
   #contextMenu div:hover { background: #eee; }
 
-  /* --- компактніші відступи та шрифти --- */
+  /* компактніші відступи та шрифти */
   #controls label { font-size: 12.5px; }
   input[type="text"], select, textarea { padding: 3px 6px; font-size: 13.5px; }
   .btn { padding: 3px 8px; font-size: 13.5px; margin: 4px 4px 4px 0; }
   .row { gap: 4px; }
 
-  /* --- міні-режим панелі --- */
+  /* міні-режим панелі */
   #controls.mini { width: 280px; }
   .mini-bar { display: none; margin-bottom: 6px; gap: 6px; flex-wrap: wrap; }
   #controls.mini .mini-bar { display: flex; }
@@ -88,26 +101,44 @@
   /* міні-бар — дрібні кнопки */
   .mini-bar .btn { padding: 2px 6px; font-size: 12.5px; }
 
-  /* Кнопка показати/сховати панель: фіксовано у вікні */
+  /* Кнопка показати/сховати панель */
   .panel-toggle{
     position: fixed;
     z-index: 9999;
     top: 60px;
-    left: 6px; /* базова позиція; JS пересуне правіше панелі */
+    left: 6px;
     padding: 4px 8px;
   }
-
-  /* Коли панель прихована */
   .controls-hidden #controls{ display:none; }
   .controls-hidden .panel-toggle{ left:10px; }
 
-  /* ОПУСТИТИ шари Mapbox нижче за панель (на випадок високого z-index) */
-  /* canvas нижче маркерів, але панель все одно вище завдяки z-index:3000 */
-.mapboxgl-canvas { z-index: 0 !important; }
-.mapboxgl-control-container { z-index: 1 !important; }
-/* маркери гарантовано над canvas */
-.mapboxgl-marker { z-index: 2 !important; }
+  /* Mapbox шари нижче за панель */
+  .mapboxgl-canvas { z-index: 0 !important; }
+  .mapboxgl-control-container { z-index: 1 !important; }
+  .mapboxgl-marker { z-index: 2 !important; }
+
+  /* Панель: компактний, впорядкований вигляд */
+  .panel-head{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px}
+  .btn.xs{padding:4px 8px;font-size:12.5px}
+  .segment{display:flex;gap:6px;flex-wrap:wrap}
+  .segment .btn{border:1px solid #cbd5e1;background:#fff}
+  .segment .btn.active{background:#e6f4ea;border-color:#22c55e}
+
+  .section{border-top:1px solid #eee;padding-top:8px;margin-top:8px}
+  .section summary{cursor:pointer;font-weight:700;margin:-8px 0 8px}
+  .section .grid{display:grid;gap:6px}
+  .section .grid.col2{grid-template-columns:1fr 1fr}
+  .section .grid.col3{grid-template-columns:1fr 1fr 1fr}
+  @media (max-width:480px){
+    .section .grid.col2,.section .grid.col3{grid-template-columns:1fr}
+  }
+
+  .btn-row{display:flex;gap:6px;flex-wrap:wrap}
+  .kbd{font:11px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;background:#f1f5f9;border:1px solid #e5e7eb;border-radius:6px;padding:2px 6px}
+
+  .sticky-actions{position:sticky;bottom:0;background:#fff;padding-top:8px}
 </style>
+
 </head>
 <body>
 <!-- кнопки переходу -->
@@ -128,17 +159,28 @@
 <!-- Перемикач міні-режиму -->
 <!-- <button id="toggleMini" class="btn toggleMini">↔ Згорнути</button> -->
 
-  <!-- Керування режимами -->
-  <button id="toggleAdd" class="btn">Створення марш.: ВИМКНЕНО.</button>
-  <button id="startLineMode" class="btn">Лінійка на поч.: ВИМКНЕНО.</button>
-  <button id="endLineMode" class="btn">Лінійка в кін.: ВИМКНЕНО.</button>
-  <button id="clearRoute" class="btn">Очист. марш.</button>
-  <button id="clearRulers" class="btn">Очист. лін.</button>
-  <button id="saveRoute" class="btn">💾 Зберегти маршрут (JSON)</button>
-  <button id="loadRoute" class="btn">📂 Завантажити маршрут (JSON)</button>
-  <button id="toggleMarkers" class="btn">📍 Показати точки</button>
-  <input type="file" id="fileInput" accept=".json" style="display:none;" />
-  <div>Кілометраж: <span id="distance">0</span> км</div>
+  <!-- новий компактний хедер панелі -->
+<div class="panel-head">
+  <div class="segment">
+    <button id="toggleAdd" class="btn xs">Маршрут</button>
+    <button id="startLineMode" class="btn xs">Лінійка(поч.)</button>
+    <button id="endLineMode" class="btn xs">Лінійка(кін.)</button>
+  </div>
+
+  <div class="btn-row">
+    <button id="clearRoute" class="btn xs">Очист. марш.</button>
+    <button id="clearRulers" class="btn xs">Очист. лін.</button>
+    <button id="toggleMarkers" class="btn xs">📍 Точки</button>
+  </div>
+
+  <div class="btn-row">
+    <button id="saveRoute" class="btn xs">💾 Route JSON</button>
+    <button id="loadRoute" class="btn xs">📂 Завантажити</button>
+    <input type="file" id="fileInput" accept=".json" style="display:none;">
+  </div>
+
+  <div class="km-chip">км: <span id="distance">0</span></div>
+</div>
 
   <!-- Нові поля маршруту -->
   <hr/>
