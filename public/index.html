@@ -12,132 +12,73 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 
   <style>
-  /* висота шапки */
-  :root { --nav-h: 48px; }
+  :root { --nav-h:48px; --card:#fff; --line:#e5e7eb; --muted:#6b7280; }
 
-  body { margin:0; padding:0; font-family: sans-serif; }
+  body{margin:0;padding:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
 
-  /* шапка зверху завжди поверх карти */
-  header {
-    position: sticky;
-    top: 0;
-    z-index: 1500;
-  }
+  header{position:sticky;top:0;z-index:1500}
+  #map{position:absolute;top:var(--nav-h);bottom:0;width:100%}
 
-  /* Зсуваємо карту нижче шапки */
-  #map {
-    position: absolute;
-    top: var(--nav-h);
-    bottom: 0;
-    width: 100%;
-  }
-
-  /* ПАНЕЛЬ: фіксуємо координати і піднімаємо над canvas */
+  /* Панель */
   #controls{
-    position: absolute;
-    z-index: 3000;
-    background: white;
-    padding: 8px;
-    margin: 0;
-    top: calc(var(--nav-h) + 8px);
-    left: 8px;
-    border-radius: 8px;
-    box-shadow: 0 1px 6px rgba(0,0,0,0.25);
-    max-width: 360px;
-    max-height: 90vh;
-    overflow-y: auto;
-    overflow-x: hidden; /* не дозволяємо горизонтальний скрол */
+    position:absolute; z-index:3000; top:calc(var(--nav-h) + 8px); left:8px;
+    background:var(--card); border:1px solid var(--line); border-radius:12px;
+    box-shadow:0 1px 8px rgba(0,0,0,.12); padding:10px;
+    max-width:340px; max-height:90vh; overflow-y:auto; overflow-x:hidden;
   }
-
-  /* Поля та селекти всередині панелі */
-  #controls input[type="text"],
-  #controls select,
-  #controls textarea {
-    width: 100%;
-    max-width: 100%;
-    padding: 6px;
+  /* Щоб поля не розпирали контейнер */
+  #controls .row>*{min-width:0}
+  #controls input[type=text], #controls select, #controls textarea{
+    width:100%; max-width:100%; padding:7px 9px; font-size:13.5px;
+    border:1px solid var(--line); border-radius:8px; outline:none;
   }
-  textarea { min-height: 48px; resize: vertical; }
-  small.muted { color:#666; }
+  #controls textarea{min-height:48px; resize:vertical}
+  label{display:block;font-size:12.5px;color:#444;margin:2px 0 4px}
+  small.muted{color:var(--muted)}
 
-  /* Гарантуємо, що елементи в .row не розтягують контейнер */
-  #controls .row > * { min-width: 0; }
-
-  .row { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
-  .btn { margin: 5px 5px 5px 0; padding: 6px 10px; cursor: pointer; }
-  .btn.active { background-color: #90ee90; border: 1px solid #4CAF50; }
-
-  #styleSelector { margin-top: 10px; }
-  #dbControls { margin-top: 10px; padding-top:10px; border-top:1px solid #eee;}
-  #dbControls input, #dbControls select { margin: 5px 5px 5px 0; padding:6px; }
-
-  #contextMenu {
-    position: absolute; background: white; border: 1px solid #ccc; display: none; z-index: 3500;
-    box-shadow: 0 2px 6px rgba(0,0,0,0.15);
-  }
-  #contextMenu div { padding: 5px 10px; cursor: pointer; }
-  #contextMenu div:hover { background: #eee; }
-
-  /* компактніші відступи та шрифти */
-  #controls label { font-size: 12.5px; }
-  input[type="text"], select, textarea { padding: 3px 6px; font-size: 13.5px; }
-  .btn { padding: 3px 8px; font-size: 13.5px; margin: 4px 4px 4px 0; }
-  .row { gap: 4px; }
-
-  /* міні-режим панелі */
-  #controls.mini { width: 280px; }
-  .mini-bar { display: none; margin-bottom: 6px; gap: 6px; flex-wrap: wrap; }
-  #controls.mini .mini-bar { display: flex; }
-  #controls.mini .row,
-  #controls.mini hr,
-  #controls.mini details { display: none; }
-
-  .toggleMini { float: right; margin-left: 6px; }
-
-  /* дрібніші поля у рядку */
-  #controls .row input[type="text"],
-  #controls .row select { height: 28px; }
-
-  /* міні-бар — дрібні кнопки */
-  .mini-bar .btn { padding: 2px 6px; font-size: 12.5px; }
-
-  /* Кнопка показати/сховати панель */
-  .panel-toggle{
-    position: fixed;
-    z-index: 9999;
-    top: 60px;
-    left: 6px;
-    padding: 4px 8px;
-  }
-  .controls-hidden #controls{ display:none; }
-  .controls-hidden .panel-toggle{ left:10px; }
-
-  /* Mapbox шари нижче за панель */
-  .mapboxgl-canvas { z-index: 0 !important; }
-  .mapboxgl-control-container { z-index: 1 !important; }
-  .mapboxgl-marker { z-index: 2 !important; }
-
-  /* Панель: компактний, впорядкований вигляд */
-  .panel-head{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px}
+  /* Грід для двох колонок */
+  .row{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  @media(max-width:420px){ .row{grid-template-columns:1fr} }
+  /* кнопки */
+  .btn{cursor:pointer;border:1px solid var(--line);background:#fff;border-radius:8px;
+       padding:6px 10px;font-size:13px}
   .btn.xs{padding:4px 8px;font-size:12.5px}
+  .btn.active{background:#e6f4ea;border-color:#22c55e}
+
+  /* Новий компактний хедер */
+  .panel-head{display:grid;gap:8px;margin-bottom:8px}
   .segment{display:flex;gap:6px;flex-wrap:wrap}
-  .segment .btn{border:1px solid #cbd5e1;background:#fff}
-  .segment .btn.active{background:#e6f4ea;border-color:#22c55e}
-
-  .section{border-top:1px solid #eee;padding-top:8px;margin-top:8px}
-  .section summary{cursor:pointer;font-weight:700;margin:-8px 0 8px}
-  .section .grid{display:grid;gap:6px}
-  .section .grid.col2{grid-template-columns:1fr 1fr}
-  .section .grid.col3{grid-template-columns:1fr 1fr 1fr}
-  @media (max-width:480px){
-    .section .grid.col2,.section .grid.col3{grid-template-columns:1fr}
-  }
-
   .btn-row{display:flex;gap:6px;flex-wrap:wrap}
-  .kbd{font:11px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;background:#f1f5f9;border:1px solid #e5e7eb;border-radius:6px;padding:2px 6px}
+  .km-chip{margin-top:2px;font-size:12.5px;color:#111;background:#f3f4f6;
+           border:1px solid var(--line);border-radius:999px;display:inline-block;
+           padding:3px 8px;width:max-content}
 
-  .sticky-actions{position:sticky;bottom:0;background:#fff;padding-top:8px}
+  /* Секції */
+  .section{border-top:1px dashed var(--line);padding-top:8px;margin-top:8px}
+  details>summary{cursor:pointer;font-weight:700;margin:4px 0}
+  #dbControls{margin-top:10px;padding-top:10px;border-top:1px dashed var(--line)}
+  #dbControls input,#dbControls select{margin:5px 0}
+
+  /* Контекст-меню */
+  #contextMenu{position:absolute;background:#fff;border:1px solid #ccc;display:none;z-index:3500;
+               box-shadow:0 2px 6px rgba(0,0,0,.15)}
+  #contextMenu div{padding:6px 10px;cursor:pointer}
+  #contextMenu div:hover{background:#f3f4f6}
+
+  /* Компактні розміри */
+  #controls .row input[type=text], #controls .row select{height:30px}
+  .btn{margin:4px 4px 0 0}
+  /* Приховування панелі */
+  .panel-toggle{position:fixed;z-index:9999;top:60px;left:8px;padding:4px 8px}
+  .controls-hidden #controls{display:none}
+  .controls-hidden .panel-toggle{left:10px}
+
+  /* Mapbox поверхи */
+  .mapboxgl-canvas{z-index:0!important}
+  .mapboxgl-control-container{z-index:1!important}
+  .mapboxgl-marker{z-index:2!important}
 </style>
+
 
 </head>
 <body>
