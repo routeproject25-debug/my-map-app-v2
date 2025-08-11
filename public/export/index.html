@@ -37,7 +37,7 @@
     .bar { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
     .muted { color:#667085; font-size:12.5px; }
     table { width:100%; border-collapse:collapse; }
-    th, td { border:1px solid #e5e7eb; padding:6px 8px; font-size:13px; text-align:left; }
+    th, td { border:1px solid #e5e7eb; padding:6px 8px; font-size:13px; text-align:left; vertical-align: top; }
     th { background:#f1f5f9; }
     .topbar { display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; }
     .pill { background:#eef2ff; color:#3730a3; padding:2px 8px; border-radius:999px; font-size:12px; }
@@ -142,6 +142,7 @@
               <th>Від</th><th>До</th>
               <th>Відстань, км</th><th>Тип</th>
               <th>Оновлено</th><th>ID</th>
+              <th>Карта</th> <!-- нова колонка -->
             </tr>
           </thead>
           <tbody></tbody>
@@ -156,6 +157,9 @@ window.addEventListener('error', (e) => {
   console.error('Global error:', e.message, 'at', e.filename, e.lineno);
   try { document.getElementById('status').textContent = 'Помилка скрипта'; } catch(_) {}
 });
+
+/* ---------- Куди відкривати маршрут з таблиці ---------- */
+const MAP_URL = '/index.html'; // зміни шлях, якщо інший
 
 /* ---------- Firebase config ---------- */
 const firebaseConfig = {
@@ -398,6 +402,7 @@ function renderTable(rows){
     <td>${r.type}</td>
     <td>${r.updatedAt}</td>
     <td>${r.id}</td>
+    <td><a href="${MAP_URL}?rid=${encodeURIComponent(r.id)}" target="_blank" rel="noopener">Відкрити</a></td>
   </tr>`).join('');
   document.getElementById('countInfo').textContent = `Записів (після фільтру): ${rows.length}`;
   updateStats(rows);
@@ -406,7 +411,7 @@ function renderTable(rows){
 /* ---------- Експорт у Excel ---------- */
 function exportToExcel(rows){
   const data = [
-    ['Код Від','Код До','Від','До','Відстань, км','Тип','Оновлено','ID'],
+    ['Код Від','Код До','Від','До','Відстань, км','Тип','Оновлено','ID','URL'],
     ...rows.map(r => [
       r.fromCode,
       r.toCode,
@@ -415,11 +420,12 @@ function exportToExcel(rows){
       Number.isFinite(r.distance_km) ? Number(r.distance_km.toFixed(3)) : '',
       r.type,
       r.updatedAt,
-      r.id
+      r.id,
+      `${location.origin}${MAP_URL}?rid=${encodeURIComponent(r.id)}`
     ])
   ];
   const ws = XLSX.utils.aoa_to_sheet(data);
-  ws['!cols'] = [12,12,28,28,12,16,22,36].map(w => ({ wch: w }));
+  ws['!cols'] = [12,12,28,28,12,16,22,36,40].map(w => ({ wch: w }));
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Маршрути');
   XLSX.writeFile(wb, 'routes_export.xlsx');
@@ -434,7 +440,7 @@ function handleFirestoreError(e){
     if (m && m[0]) {
       const url = m[0];
       try { window.open(url, '_blank'); } catch(_) {}
-      alert('Для цього запиту потрібен індекс у Firestore.\nЯ відкрив сторінку створення індексу у новій вкладці.\n\nПосилання:\n' + url);
+      alert('Для цього запиту потрібен індекс у Firestore.\нЯ відкрив сторінку створення індексу у новій вкладці.\n\nПосилання:\n' + url);
       return;
     }
   }

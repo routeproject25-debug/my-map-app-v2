@@ -2,7 +2,7 @@
 <html>
 <head>
   <meta charset="utf-8" />
-  <title>Маршрути Mapbox</title>
+  <title>🚚Маршрути Mapbox</title>
   <meta name="viewport" content="initial-scale=1,maximum-scale=1,user-scalable=no" />
   <script src="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.js"></script>
   <link href="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.css" rel="stylesheet" />
@@ -90,12 +90,12 @@
 </header>
 
 <div id="controls">
-<!-- Міні-бар (відображається лише у міні-режимі) -->
+<!-- Міні-бар (відображається лише у міні-режимі)
 <div class="mini-bar">
   <button id="toggleAddMini" class="btn">Маршрут</button>
   <button id="clearRouteMini" class="btn">Очистити</button>
   <button id="saveToDBMini" class="btn">Зберегти</button>
-</div>
+</div> -->
 
 <!-- Перемикач міні-режиму -->
 <!-- <button id="toggleMini" class="btn toggleMini">↔ Згорнути</button> -->
@@ -776,6 +776,44 @@ routeSearch.addEventListener('keydown', (e) => {
   }
 });
 
+// ====== Завантаження маршруту за ID з URL (?rid=...) ======
+async function loadRouteById(rid) {
+  try {
+    const snap = await db.collection('routes').doc(rid).get();
+    if (!snap.exists) {
+      alert('Маршрут з таким ID не знайдено: ' + rid);
+      return;
+    }
+    const data = snap.data();
+
+    // Заповнюємо форму (щоб назви підтягнулись із довідника)
+    document.getElementById('fromName').value = getNameByCode(data.fromCode) || '';
+    document.getElementById('toName').value   = getNameByCode(data.toCode)   || '';
+    document.getElementById('routeType').value = data.routeType || 'Основний';
+    document.getElementById('intermediateText').value = data.intermediateText || '';
+    document.getElementById('routeName').value = formatRouteTitle(data);
+
+    // Точки маршруту та «лінійки»
+    points     = fromObjPoints(data.points || []);
+    startRuler = fromObjPoints(data.startRuler || []);
+    endRuler   = fromObjPoints(data.endRuler || []);
+
+    rebuildMarkers();
+    drawRulers();
+    updateRoute();
+
+    // Зум на весь маршрут (якщо є точки)
+    if (points.length) {
+      const b = new mapboxgl.LngLatBounds(points[0], points[0]);
+      for (const p of points) b.extend(p);
+      map.fitBounds(b, { padding: 40 });
+    }
+  } catch (e) {
+    console.error('loadRouteById error:', e);
+    alert('Не вдалося завантажити маршрут: ' + (e?.message || e));
+  }
+}
+
 function clearForm() {
   // Очистити текстові поля
   document.getElementById('fromName').value = '';
@@ -799,7 +837,18 @@ function clearForm() {
   alert('Форма очищена');
 }
 
-window.addEventListener('load', () => { if (db) { loadDirectory(); } });
+window.addEventListener('load', async () => {
+  if (!db) return;
+  // 1) Підтягнути довідник (для красивих назв у формі)
+  await loadDirectory();
+
+  // 2) Якщо прийшли з посилання /index.html?rid=... — відкрити цей маршрут
+  const rid = new URLSearchParams(location.search).get('rid');
+  if (rid) {
+    await loadRouteById(rid);
+  }
+});
+
 document.getElementById('fromName').addEventListener('change', updateRouteName);
 document.getElementById('toName').addEventListener('change', updateRouteName);
 document.getElementById('routeType').addEventListener('change', updateRouteName);
