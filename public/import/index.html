@@ -4,9 +4,10 @@
   <meta charset="utf-8" />
   <title>Імпорт довідника в Firestore</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <!-- Firebase compat (завантажуються одразу, але ініціалізуємось тільки при реальному імпорті) -->
-  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js" defer></script>
-  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js" defer></script>
+  <!-- Firebase compat -->
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
   <style>
     :root{
       --bg:#f6f7f9; --card:#fff; --text:#1f2328; --muted:#6b7280;
@@ -41,14 +42,35 @@
     /* прогрес */
     .progress-wrap{display:flex; align-items:center; gap:10px; margin-top:8px}
     progress{width:260px; height:14px}
+
+    /* top header with auth */
+    header.top {
+      background:#2563eb;color:#fff;padding:10px;display:flex;gap:16px;align-items:center;justify-content:space-between;
+    }
+    header.top a { color:#fff;text-decoration:none; }
+    .authbar { display:flex; gap:6px; align-items:center; flex-wrap:wrap; }
+    .authbar input { height:30px; padding:4px 8px; border-radius:6px; border:1px solid rgba(255,255,255,.35); background:#fff; color:#111; }
+    .authbar .btn { height:30px; padding:4px 10px; }
+    .role-badge { background:rgba(255,255,255,.2); padding:2px 8px; border-radius:999px; font-size:12px; }
   </style>
 </head>
 <body>
-  <!-- Навігація -->
-  <header style="background:#2563eb;color:#fff;padding:10px;display:flex;gap:16px;">
-    <a href="/" style="color:#fff;text-decoration:none;">🏠 Карта</a>
-    <a href="/export/" style="color:#fff;text-decoration:none;">📤 Експорт</a>
-    <a href="/import/" style="color:#fff;text-decoration:none;">📥 Імпорт</a>
+  <!-- Навігація + Авторизація -->
+  <header class="top">
+    <nav style="display:flex;gap:16px;align-items:center;">
+      <a href="/">🏠 Карта</a>
+      <a href="/export/">📤 Експорт</a>
+      <a href="/import/">📥 Імпорт</a>
+    </nav>
+    <div class="authbar">
+      <span id="authInfo">Не увійшли</span>
+      <span id="authRole" class="role-badge" style="display:none;"></span>
+      <input id="authEmail" type="text" placeholder="email (напр. admin@demo.fake)" autocomplete="username" />
+      <input id="authPass" type="password" placeholder="пароль" autocomplete="current-password" />
+      <button id="btnLogin" class="btn">Увійти</button>
+      <button id="btnLogout" class="btn" style="display:none;">Вийти</button>
+      <span id="statusTop" class="pill">З’єднання…</span>
+    </div>
   </header>
 
   <div class="wrap">
@@ -119,7 +141,7 @@
 
     <div class="toolbar">
       <button class="btn ghost" id="parseBtn">Перевірити дані</button>
-      <button class="btn primary" id="importBtn">Імпорт у Firestore</button>
+      <button class="btn primary" id="importBtn" disabled>Імпорт у Firestore</button>
       <button class="btn warn" id="clearBtn">Очистити поля</button>
     </div>
 
@@ -137,21 +159,25 @@ document.addEventListener('DOMContentLoaded', () => {
   'use strict';
 
   const $ = (id) => document.getElementById(id);
-  function log(msg, type=''){ $('log').textContent += (type ? `[${type}] ` : '') + msg + "\n"; }
+  function log(msg, type=''){ $('log').textContent += (type ? `[${type}] ` : '') + msg + "\\n"; }
   function setStatus(html){ $('status').innerHTML = html; }
   function setProg(pct, label){
     $('prog').value = Math.max(0, Math.min(100, Math.round(pct)));
     $('progLabel').textContent = label || '';
   }
 
-  // Глобальний перехоплювач помилок → у лог
-  window.addEventListener('error', (e) => {
-    log(`${e.message} @ ${e.filename||''}:${e.lineno||''}`, 'err');
-  });
+  // ----- AUTH / FIREBASE -----
+  const statusTop = $('statusTop');
+  const authInfo = $('authInfo');
+  const authRoleBadge = $('authRole');
+  const btnLogin = $('btnLogin');
+  const btnLogout = $('btnLogout');
+  const emailInp = $('authEmail');
+  const passInp  = $('authPass');
+  const importBtn = $('importBtn');
 
-  let db = null;
-  const PREVIEW_ROWS = 5;
-  const SAFE_BATCH = 450; // нижче 500 — ліміт для writeBatch
+  let db = null, auth = null, currentUser = null, currentRole = null;
+  const WRITE_ROLES = new Set(['admin','logist']);
 
   const firebaseConfig = {
     apiKey: "AIzaSyDjDBZkmy-skuDEQF8-AkRma7yw6TugoQc",
@@ -163,23 +189,89 @@ document.addEventListener('DOMContentLoaded', () => {
     measurementId: "G-9LRX1FLTKL"
   };
 
-  function initFirebase(){
-    if (db) return db;
-    if (typeof firebase === 'undefined') {
-      log('Firebase SDK не завантажився (перевір мережу або CDN). Імпорт неможливий.', 'err');
-      alert('Firebase недоступний. Спробуй пізніше.');
-      return null;
+  try{
+    const app = firebase.apps && firebase.apps.length ? firebase.app() : firebase.initializeApp(firebaseConfig);
+    db = firebase.firestore();
+    auth = firebase.auth();
+    statusTop.textContent = 'Підключено';
+    // offline кеш опційно
+    db.enablePersistence({ synchronizeTabs: true }).catch(()=>{});
+  }catch(e){
+    console.error(e);
+    statusTop.textContent = 'Помилка ініціалізації';
+  }
+
+  function updateImportButton(){
+    const dry = $('dryRun').checked;
+    // сухий режим дозволено всім після входу (або навіть без входу?)
+    // але для консистентності — вмикаємо імпорт-кнопку тільки коли є право запису або коли dry
+    if (dry) {
+      importBtn.disabled = false;
+      importBtn.title = 'Dry-run (без запису)';
+    } else {
+      const canWrite = currentUser && WRITE_ROLES.has(currentRole);
+      importBtn.disabled = !canWrite;
+      importBtn.title = canWrite ? '' : 'Потрібна роль admin або logist';
     }
+  }
+
+  $('dryRun').addEventListener('change', updateImportButton);
+
+  btnLogin.addEventListener('click', async () => {
     try{
-      const app = firebase.apps && firebase.apps.length ? firebase.app() : firebase.initializeApp(firebaseConfig);
-      db = firebase.firestore();
-      log('Firebase ініціалізовано. projectId=' + firebaseConfig.projectId, 'ok');
-      return db;
+      btnLogin.disabled = true;
+      await auth.signInWithEmailAndPassword(emailInp.value.trim(), passInp.value);
     }catch(e){
-      log('Помилка ініціалізації Firebase: ' + e.message, 'err');
-      alert('Не вдалося ініціалізувати Firebase.');
-      return null;
+      alert('Помилка входу: ' + (e?.message || e));
+    }finally{
+      btnLogin.disabled = false;
     }
+  });
+  btnLogout.addEventListener('click', async () => {
+    try{ await auth.signOut(); }catch(e){ console.warn(e); }
+  });
+
+  auth?.onAuthStateChanged(async (u) => {
+    currentUser = u || null;
+    if (!u){
+      currentRole = null;
+      authInfo.textContent = 'Не увійшли';
+      authRoleBadge.style.display = 'none';
+      btnLogin.style.display = '';
+      btnLogout.style.display = 'none';
+      statusTop.textContent = 'Увійдіть';
+      updateImportButton();
+      return;
+    }
+    authInfo.textContent = `Увійшли як ${u.email || u.uid}`;
+    btnLogin.style.display = 'none';
+    btnLogout.style.display = '';
+
+    try{
+      const rdoc = await db.collection('roles').doc(u.uid).get();
+      currentRole = rdoc.exists ? (rdoc.data().role || 'viewer') : 'viewer';
+    }catch{ currentRole = 'viewer'; }
+
+    authRoleBadge.textContent = `Роль: ${currentRole}`;
+    authRoleBadge.style.display = '';
+    statusTop.textContent = 'Готово';
+
+    updateImportButton();
+  });
+
+  // Глобальний перехоплювач помилок → у лог
+  window.addEventListener('error', (e) => {
+    log(`${e.message} @ ${e.filename||''}:${e.lineno||''}`, 'err');
+  });
+
+  const PREVIEW_ROWS = 5;
+  const SAFE_BATCH = 450; // нижче 500 — ліміт для writeBatch
+
+  function initFirebaseWrite(){
+    if (!db) { alert('Firebase недоступний.'); return null; }
+    if (!currentUser) { alert('Спершу увійди.'); return null; }
+    if (!WRITE_ROLES.has(currentRole)) { alert('Недостатньо прав. Потрібна роль admin або logist.'); return null; }
+    return db;
   }
 
   // Демо
@@ -272,12 +364,11 @@ document.addEventListener('DOMContentLoaded', () => {
       setStatus(`<span class="muted">Виявлено розділювач: <b>${parsed.sep === '\t' ? 'TAB' : parsed.sep}</b>. Мапінг підібрано за замовчуванням.</span>`);
     }
 
-    // Формуємо entries
     const entries = [];
     let skippedEmptyName = 0, skippedEmptyCode = 0, skippedBlankRow = 0;
 
     for (let i = startIdx; i < rows.length; i++){
-      const r = rows[i]; 
+      const r = rows[i];
       if (!r || !r.length || r.every(c => (c||'').toString().trim()==='')) { skippedBlankRow++; continue; }
       const name = (r[nameIdx]||'').toString().trim();
       const code = (r[codeIdx]||'').toString().trim();
@@ -289,7 +380,7 @@ document.addEventListener('DOMContentLoaded', () => {
       entries.push({ id: sanitizeId(code), data: { name, ...(company?{company}:{}), ...(unit?{unit}:{}) } });
     }
 
-    // ДЕДУПЛІКАЦІЯ за id (остання згадка перемагає)
+    // Дедуп за id
     const map = new Map();
     for (const e of entries) map.set(e.id, e);
     const deduped = Array.from(map.values());
@@ -313,11 +404,11 @@ document.addEventListener('DOMContentLoaded', () => {
   $('importBtn').addEventListener('click', async () => {
     const entries = prepareEntries();
     if (!entries) return;
-    const dry = $('dryRun').checked;
 
-    // ініціалізація Firebase лише якщо НЕ dry run
-    if (!dry) {
-      if (!initFirebase()) return;
+    const dry = $('dryRun').checked;
+    if (!dry){
+      // перевіряємо право запису
+      if (!initFirebaseWrite()) return;
     }
 
     $('importBtn').disabled = true;
@@ -325,6 +416,7 @@ document.addEventListener('DOMContentLoaded', () => {
     $('clearBtn').disabled = true;
 
     const total = entries.length;
+    const SAFE_BATCH = 450;
     const totalBatches = Math.ceil(total / SAFE_BATCH);
     let ok = 0, fail = 0;
 
@@ -344,21 +436,21 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         ok += slice.length;
 
-        // Прогрес + рідший лог (кожен 5-й батч)
         const pct = ((b+1)/totalBatches)*100;
         const elapsed = (Date.now() - startedAt)/1000;
-        const speed = ok / Math.max(elapsed, 0.001); // rows/sec
+        const speed = ok / Math.max(elapsed, 0.001);
         const remain = total - ok;
         const eta = remain / Math.max(speed, 0.001);
 
         setProg(pct, `Виконано ${Math.round(pct)}% • ${ok}/${total} • ETA ~ ${Math.ceil(eta)}с`);
         if ((b % 5) === 0 || b === totalBatches-1){
-          log(`Батч ${b+1}/${totalBatches} завершено. Загалом записано: ${ok}.`, 'ok');
+          log(`Батч ${b+1}/${totalBatches} завершено. Загалом оброблено: ${ok}.`, 'ok');
         }
       }
 
       setStatus(`<span class="ok"><b>Готово.</b> Успішно: ${ok}</span>${fail ? `, <span class="err">Помилок: ${fail}</span>` : ''}`);
       if (!dry) log('Імпорт завершено', 'ok');
+      else log('Dry-run завершено (без запису у Firestore)', 'ok');
       setProg(100, 'Готово');
     }catch(e){
       fail = total - ok;
@@ -369,6 +461,7 @@ document.addEventListener('DOMContentLoaded', () => {
       $('importBtn').disabled = false;
       $('parseBtn').disabled = false;
       $('clearBtn').disabled = false;
+      updateImportButton();
     }
   });
 
@@ -385,7 +478,12 @@ document.addEventListener('DOMContentLoaded', () => {
     $('log').textContent = '';
     setProg(0, 'Готово');
     $('raw').focus();
+    updateImportButton();
   });
+
+  // стартова підказка
+  statusTop.textContent = 'Увійдіть';
+  updateImportButton();
 });
 </script>
 </body>

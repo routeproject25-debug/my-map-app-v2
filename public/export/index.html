@@ -7,6 +7,7 @@
 
   <!-- Firebase compat -->
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
   <!-- SheetJS (Excel) -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
@@ -40,25 +41,48 @@
     th, td { border:1px solid #e5e7eb; padding:6px 8px; font-size:13px; text-align:left; vertical-align: top; }
     th { background:#f1f5f9; }
     .topbar { display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; }
+
     .pill { background:#eef2ff; color:#3730a3; padding:2px 8px; border-radius:999px; font-size:12px; }
     .stats { display:flex; gap:12px; flex-wrap:wrap; font-size:13px; color:#111827; }
     .stats .chip { background:#f3f4f6; border:1px solid #e5e7eb; border-radius:999px; padding:4px 10px; }
+
+    /* auth bar у шапці */
+    header.top {
+      background:#2563eb;color:#fff;padding:10px;display:flex;gap:16px;align-items:center;justify-content:space-between;
+    }
+    header.top a { color:#fff;text-decoration:none; }
+    .authbar { display:flex; gap:6px; align-items:center; flex-wrap:wrap; }
+    .authbar input { height:30px; padding:4px 8px; border-radius:6px; border:1px solid rgba(255,255,255,.35); background:#fff; color:#111; }
+    .authbar .btn { height:30px; padding:4px 10px; }
+    .role-badge { background:rgba(255,255,255,.2); padding:2px 8px; border-radius:999px; font-size:12px; }
   </style>
 </head>
 <body>
-<!-- Кнопка переходу-->
-<header style="background:#2563eb;color:#fff;padding:10px;display:flex;gap:16px;">
-  <a href="/" style="color:#fff;text-decoration:none;">🏠 Карта</a>
-  <a href="/export/" style="color:#fff;text-decoration:none;">📤 Експорт</a>
-  <a href="/import/" style="color:#fff;text-decoration:none;">📥 Імпорт</a>
+<!-- Верхня лінія з навігацією та авторизацією -->
+<header class="top">
+  <nav style="display:flex;gap:16px;align-items:center;">
+    <a href="/">🏠 Карта</a>
+    <a href="/export/">📤 Експорт</a>
+    <a href="/import/">📥 Імпорт</a>
+  </nav>
+
+  <!-- AUTH BAR -->
+  <div class="authbar">
+    <span id="authInfo">Не увійшли</span>
+    <span id="authRole" class="role-badge" style="display:none;"></span>
+    <input id="authEmail" type="text" placeholder="email (напр. user@demo.fake)" autocomplete="username" />
+    <input id="authPass" type="password" placeholder="пароль" autocomplete="current-password" />
+    <button id="btnLogin" class="btn">Увійти</button>
+    <button id="btnLogout" class="btn" style="display:none;">Вийти</button>
+    <span id="status" class="pill">З’єднання…</span>
+  </div>
 </header>
 
   <div class="wrap">
     <div class="topbar">
       <h1>Експорт маршрутів (Firestore → Excel)</h1>
       <div class="bar">
-        <a class="btn" href="index.html">← До карти</a>
-        <span id="status" class="pill">З’єднання…</span>
+        <a class="btn" href="/index.html">← До карти</a>
       </div>
     </div>
 
@@ -114,8 +138,8 @@
       </div>
 
       <div class="bar" style="margin-top:12px;">
-        <button id="btnPreview" class="btn">👁️ Попередній перегляд</button>
-        <button id="btnExport" class="btn primary">📥 Експорт у Excel</button>
+        <button id="btnPreview" class="btn" disabled>👁️ Попередній перегляд</button>
+        <button id="btnExport" class="btn primary" disabled>📥 Експорт у Excel</button>
         <span class="muted">Порожні фільтри = не обмежувати. Якщо Firestore попросить індекс — створіть, за посиланням із консолі.</span>
       </div>
       <datalist id="directoryList"></datalist>
@@ -142,7 +166,7 @@
               <th>Від</th><th>До</th>
               <th>Відстань, км</th><th>Тип</th>
               <th>Оновлено</th><th>ID</th>
-              <th>Карта</th> <!-- нова колонка -->
+              <th>Карта</th>
             </tr>
           </thead>
           <tbody></tbody>
@@ -152,14 +176,14 @@
   </div>
 
 <script>
-/* --- глобальний логер, щоби одразу бачити падіння --- */
+/* --- глобальний логер --- */
 window.addEventListener('error', (e) => {
   console.error('Global error:', e.message, 'at', e.filename, e.lineno);
   try { document.getElementById('status').textContent = 'Помилка скрипта'; } catch(_) {}
 });
 
 /* ---------- Куди відкривати маршрут з таблиці ---------- */
-const MAP_URL = '/index.html'; // зміни шлях, якщо інший
+const MAP_URL = '/index.html';
 
 /* ---------- Firebase config ---------- */
 const firebaseConfig = {
@@ -173,14 +197,17 @@ const firebaseConfig = {
 };
 
 const statusEl = document.getElementById('status');
-let db = null;
+let db = null, auth = null;
+let currentUser = null;
+let currentRole = null; // 'admin' | 'logist' | 'viewer'
 
+/* ---------- Init Firebase ---------- */
 try{
   const app = firebase.apps?.length ? firebase.app() : firebase.initializeApp(firebaseConfig);
   db = firebase.firestore();
+  auth = firebase.auth();
   statusEl.textContent = 'Підключено';
 
-  // офлайновий кеш — не блокує старт, якщо не вдасться
   db.enablePersistence({ synchronizeTabs: true }).catch((e) => {
     console.warn('Persistence off:', e.code || e.message);
   });
@@ -188,6 +215,67 @@ try{
   console.error('Init error:', e);
   statusEl.textContent = 'Помилка ініціалізації';
 }
+
+/* ---------- Auth UI ---------- */
+const authInfo = document.getElementById('authInfo');
+const authRoleBadge = document.getElementById('authRole');
+const btnLogin = document.getElementById('btnLogin');
+const btnLogout = document.getElementById('btnLogout');
+const emailInp = document.getElementById('authEmail');
+const passInp  = document.getElementById('authPass');
+const btnPreview = document.getElementById('btnPreview');
+const btnExport  = document.getElementById('btnExport');
+
+function setBusy(b){
+  btnPreview.disabled = b || !currentUser;
+  btnExport.disabled  = b || !currentUser;
+  statusEl.textContent = b ? 'Виконується…' : (currentUser ? 'Готово' : 'Увійдіть');
+}
+
+btnLogin.addEventListener('click', async () => {
+  try{
+    setBusy(true);
+    await auth.signInWithEmailAndPassword(emailInp.value.trim(), passInp.value);
+  }catch(e){
+    alert('Помилка входу: ' + (e?.message || e));
+  }finally{ setBusy(false); }
+});
+btnLogout.addEventListener('click', async () => {
+  try{ await auth.signOut(); }catch(e){ console.warn(e); }
+});
+
+auth?.onAuthStateChanged(async (u) => {
+  currentUser = u || null;
+  if (!u){
+    currentRole = null;
+    authInfo.textContent = 'Не увійшли';
+    authRoleBadge.style.display = 'none';
+    btnLogin.style.display = '';
+    btnLogout.style.display = 'none';
+    setBusy(false);
+    return;
+  }
+  // показати email
+  authInfo.textContent = `Увійшли як ${u.email || u.uid}`;
+  btnLogin.style.display = 'none';
+  btnLogout.style.display = '';
+
+  // підвантажити роль
+  try{
+    const rs = await db.collection('roles').doc(u.uid).get();
+    currentRole = rs.exists ? (rs.data().role || 'viewer') : 'viewer';
+  }catch{
+    currentRole = 'viewer';
+  }
+  authRoleBadge.textContent = `Роль: ${currentRole}`;
+  authRoleBadge.style.display = '';
+
+  // Усі ролі мають право читати (admin/logist/viewer)
+  setBusy(false);
+
+  // авто-підтягнути довідник після входу
+  try{ await loadDirectory(); }catch(e){ console.warn('Directory load err:', e); }
+});
 
 /* ---------- Довідник (коди → назви/підрозділи) ---------- */
 const dirByCode = {};     // {code:{name,company,unit}}
@@ -225,6 +313,7 @@ function fillDirectoryUI(rows){
 }
 
 async function loadDirectory(){
+  if (!db || !currentUser) return; // чекаємо логін
   // 1) localStorage спершу
   try{
     const raw = localStorage.getItem(DIR_CACHE_KEY);
@@ -285,7 +374,6 @@ function formatDate(dt) {
 let lastQueryKey = '';
 let lastAllRows = null;
 
-// підпис фільтрів (одна версія!)
 function getFiltersSignature(){
   const fromCode = getCodeByNameInput('fromName');
   const toCode   = getCodeByNameInput('toName');
@@ -299,9 +387,11 @@ function getFiltersSignature(){
 }
 
 /* ---------- Вибірка з Firestore ---------- */
-const ROUTES_LIMIT = 1000; // підлаштуй за потреби
+const ROUTES_LIMIT = 1000;
 
 async function queryRoutes(){
+  if (!db || !currentUser) throw new Error('Необхідно увійти');
+
   let q = db.collection('routes');
   const fromCode = getCodeByNameInput('fromName');
   const toCode   = getCodeByNameInput('toName');
@@ -342,7 +432,6 @@ async function queryRoutes(){
   return rows;
 }
 
-/* --- не зчитуємо БД двічі при тих самих фільтрах --- */
 async function getFilteredRows(){
   const key = getFiltersSignature();
   if (lastAllRows && key === lastQueryKey){
@@ -440,7 +529,7 @@ function handleFirestoreError(e){
     if (m && m[0]) {
       const url = m[0];
       try { window.open(url, '_blank'); } catch(_) {}
-      alert('Для цього запиту потрібен індекс у Firestore.\нЯ відкрив сторінку створення індексу у новій вкладці.\n\nПосилання:\n' + url);
+      alert('Для цього запиту потрібен індекс у Firestore.\nЯ відкрив сторінку створення індексу у новій вкладці.\n\nПосилання:\n' + url);
       return;
     }
   }
@@ -448,7 +537,7 @@ function handleFirestoreError(e){
 }
 
 /* ---------- Події ---------- */
-document.getElementById('btnPreview').addEventListener('click', async ()=>{
+btnPreview.addEventListener('click', async ()=>{
   try{
     setBusy(true);
     const rows = await getFilteredRows();
@@ -457,7 +546,7 @@ document.getElementById('btnPreview').addEventListener('click', async ()=>{
   finally{ setBusy(false); }
 });
 
-document.getElementById('btnExport').addEventListener('click', async ()=>{
+btnExport.addEventListener('click', async ()=>{
   try{
     setBusy(true);
     const rows = await getFilteredRows();
@@ -466,22 +555,11 @@ document.getElementById('btnExport').addEventListener('click', async ()=>{
   finally{ setBusy(false); }
 });
 
-function setBusy(b){
-  document.getElementById('btnPreview').disabled=b;
-  document.getElementById('btnExport').disabled=b;
-  statusEl.textContent = b ? 'Виконується…' : 'Готово';
-}
-
 /* ---------- Старт ---------- */
 (async ()=>{
+  // Довідник підвантажується після входу в onAuthStateChanged
   if (!db) return;
-  try{
-    await loadDirectory();
-  } finally {
-    if (statusEl.textContent === 'З’єднання…' || statusEl.textContent === 'Підключено') {
-      statusEl.textContent = 'Готово';
-    }
-  }
+  statusEl.textContent = 'Увійдіть';
 })();
 </script>
 </body>
