@@ -28,14 +28,18 @@
     .btn{padding:10px 14px; border-radius:10px; border:1px solid transparent; cursor:pointer; font-weight:600; min-height:40px}
     .btn.primary{background:var(--brand); color:#fff}
     .btn.primary:hover{background:var(--brand-2)}
-    .btn.ghost{background:#fff; border-color:var(--line)}
+    .btn.ghost{background:#fff; border-color:#line}
     .btn.ghost:hover{border-color:#cbd5e1}
     .btn.warn{background:#fff; border-color:#f59e0b; color:#b45309}
     .grid{display:grid; gap:12px}
     @media(min-width:720px){ .grid.two{grid-template-columns:1fr 1fr} }
     .counter{margin-top:8px; font-size:14px}
     .ok{color:var(--ok)} .err{color:var(--err)}
-    pre#log{background:#0b1020; color:#e2e8f0; padding:12px; border-radius:10px; max-height:260px; overflow:auto; margin-top:8px}
+    /* збільшене лог-вікно */
+    pre#log{
+      background:#0b1020; color:#e2e8f0; padding:12px; border-radius:10px;
+      max-height:60vh; min-height:240px; overflow:auto; resize:vertical; margin-top:8px;
+    }
     code{background:#f1f5f9; padding:2px 6px; border-radius:6px}
     .toolbar{display:flex; gap:10px; flex-wrap:wrap}
     .pill{display:inline-flex; align-items:center; gap:6px; padding:4px 10px; background:#eef6ff; border:1px solid #dbeafe; color:#1e3a8a; border-radius:999px; font-size:12px}
@@ -44,9 +48,7 @@
     progress{width:260px; height:14px}
 
     /* top header with auth */
-    header.top {
-      background:#2563eb;color:#fff;padding:10px;display:flex;gap:16px;align-items:center;justify-content:space-between;
-    }
+    header.top { background:#2563eb;color:#fff;padding:10px;display:flex;gap:16px;align-items:center;justify-content:space-between; }
     header.top a { color:#fff;text-decoration:none; }
     .authbar { display:flex; gap:6px; align-items:center; flex-wrap:wrap; }
     .authbar input { height:30px; padding:4px 8px; border-radius:6px; border:1px solid rgba(255,255,255,.35); background:#fff; color:#111; }
@@ -159,7 +161,11 @@ document.addEventListener('DOMContentLoaded', () => {
   'use strict';
 
   const $ = (id) => document.getElementById(id);
-  function log(msg, type=''){ $('log').textContent += (type ? `[${type}] ` : '') + msg + "\\n"; }
+  function log(msg, type=''){
+    const el = $('log');
+    el.textContent += (type ? '['+type+'] ' : '') + msg + "\\n";
+    el.scrollTop = el.scrollHeight; // автопрокрутка вниз
+  }
   function setStatus(html){ $('status').innerHTML = html; }
   function setProg(pct, label){
     $('prog').value = Math.max(0, Math.min(100, Math.round(pct)));
@@ -194,7 +200,6 @@ document.addEventListener('DOMContentLoaded', () => {
     db = firebase.firestore();
     auth = firebase.auth();
     statusTop.textContent = 'Підключено';
-    // offline кеш опційно
     db.enablePersistence({ synchronizeTabs: true }).catch(()=>{});
   }catch(e){
     console.error(e);
@@ -203,8 +208,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function updateImportButton(){
     const dry = $('dryRun').checked;
-    // сухий режим дозволено всім після входу (або навіть без входу?)
-    // але для консистентності — вмикаємо імпорт-кнопку тільки коли є право запису або коли dry
     if (dry) {
       importBtn.disabled = false;
       importBtn.title = 'Dry-run (без запису)';
@@ -214,7 +217,6 @@ document.addEventListener('DOMContentLoaded', () => {
       importBtn.title = canWrite ? '' : 'Потрібна роль admin або logist';
     }
   }
-
   $('dryRun').addEventListener('change', updateImportButton);
 
   btnLogin.addEventListener('click', async () => {
@@ -255,7 +257,6 @@ document.addEventListener('DOMContentLoaded', () => {
     authRoleBadge.textContent = `Роль: ${currentRole}`;
     authRoleBadge.style.display = '';
     statusTop.textContent = 'Готово';
-
     updateImportButton();
   });
 
@@ -400,6 +401,14 @@ document.addEventListener('DOMContentLoaded', () => {
     entries.slice(0,PREVIEW_ROWS).forEach(e => log(`id="${e.id}"  data=${JSON.stringify(e.data)}`));
   });
 
+  // Порівняння тільки важливих полів
+  function normData(d){ return { name: d?.name || '', company: d?.company || '', unit: d?.unit || '' }; }
+  function equalData(a,b){
+    const x = JSON.stringify(normData(a));
+    const y = JSON.stringify(normData(b));
+    return x === y;
+  }
+
   // Імпорт
   $('importBtn').addEventListener('click', async () => {
     const entries = prepareEntries();
@@ -407,7 +416,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const dry = $('dryRun').checked;
     if (!dry){
-      // перевіряємо право запису
       if (!initFirebaseWrite()) return;
     }
 
@@ -416,9 +424,9 @@ document.addEventListener('DOMContentLoaded', () => {
     $('clearBtn').disabled = true;
 
     const total = entries.length;
-    const SAFE_BATCH = 450;
     const totalBatches = Math.ceil(total / SAFE_BATCH);
     let ok = 0, fail = 0;
+    let newCount = 0, updatedCount = 0, unchangedCount = 0;
 
     const startedAt = Date.now();
     setProg(0, 'Початок…');
@@ -426,14 +434,36 @@ document.addEventListener('DOMContentLoaded', () => {
     try{
       for (let b = 0; b < totalBatches; b++){
         const slice = entries.slice(b*SAFE_BATCH, (b+1)*SAFE_BATCH);
-        if (!dry) {
-          const batch = db.batch();
-          for (const {id, data} of slice){
-            const ref = db.collection('directory').doc(id);
-            batch.set(ref, data, { merge: true });
+
+        // читаємо поточні версії (паралельно)
+        const refs = slice.map(({id}) => db.collection('directory').doc(id));
+        const snaps = await Promise.all(refs.map(r => r.get()));
+
+        let writes = 0;
+        const batch = !dry ? db.batch() : null;
+
+        // вирішуємо що робити з кожним записом
+        for (let i = 0; i < slice.length; i++){
+          const { id, data } = slice[i];
+          const snap = snaps[i];
+          if (!snap.exists){
+            newCount++;
+            if (!dry){ batch.set(refs[i], data, { merge: true }); writes++; }
+          } else {
+            const old = snap.data() || {};
+            if (!equalData(old, data)){
+              updatedCount++;
+              if (!dry){ batch.set(refs[i], data, { merge: true }); writes++; }
+            } else {
+              unchangedCount++;
+            }
           }
+        }
+
+        if (!dry && writes > 0){
           await batch.commit();
         }
+
         ok += slice.length;
 
         const pct = ((b+1)/totalBatches)*100;
@@ -444,13 +474,15 @@ document.addEventListener('DOMContentLoaded', () => {
 
         setProg(pct, `Виконано ${Math.round(pct)}% • ${ok}/${total} • ETA ~ ${Math.ceil(eta)}с`);
         if ((b % 5) === 0 || b === totalBatches-1){
-          log(`Батч ${b+1}/${totalBatches} завершено. Загалом оброблено: ${ok}.`, 'ok');
+          log(`Батч ${b+1}/${totalBatches} завершено. Оброблено: ${ok}. Нових: ${newCount}, Оновлено: ${updatedCount}, Без змін: ${unchangedCount}`, 'ok');
         }
       }
 
-      setStatus(`<span class="ok"><b>Готово.</b> Успішно: ${ok}</span>${fail ? `, <span class="err">Помилок: ${fail}</span>` : ''}`);
-      if (!dry) log('Імпорт завершено', 'ok');
-      else log('Dry-run завершено (без запису у Firestore)', 'ok');
+      setStatus(`
+        <span class="ok"><b>Готово.</b> Оброблено: ${ok}</span>${fail ? `, <span class="err">Помилок: ${fail}</span>` : ''}
+        <br><span class="muted">Додано нових: <b>${newCount}</b> • Оновлено: <b>${updatedCount}</b> • Без змін: <b>${unchangedCount}</b>${dry ? ' (dry-run, без запису)' : ''}</span>
+      `);
+      log(`Підсумок → Нових: ${newCount} | Оновлено: ${updatedCount} | Без змін: ${unchangedCount}${dry ? ' (dry-run)' : ''}`, 'ok');
       setProg(100, 'Готово');
     }catch(e){
       fail = total - ok;
