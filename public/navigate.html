@@ -6,11 +6,7 @@
   <title>Навігація маршрутом</title>
   <link href="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.css" rel="stylesheet" />
   <script src="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.js"></script>
-  <!-- Turf.js для гео-обчислень -->
   <script src="https://unpkg.com/@turf/turf@6.5.0/turf.min.js"></script>
-  <!-- (Не обов'язково) Firebase — якщо хочеш тягнути маршрут по rid з Firestore -->
-  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
   <style>
     :root { --card:#fff; --line:#e5e7eb; --muted:#6b7280; --accent:#2563eb; }
     html, body { height:100%; margin:0; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
@@ -55,10 +51,9 @@
 <script>
 (function(){
   const qs = new URLSearchParams(location.search);
-  const MAPBOX_TOKEN = qs.get('token') || window.MAPBOX_TOKEN || 'pk.eyJ1IjoidGtjaGsiLCJhIjoiY21keTN0bXVlMjN6djJrczZ2NDk5bXRoMiJ9.6n1kuiUJ3EdGUpz5I6-wdg';
-  const PROFILE = qs.get('profile') || 'driving'; // driving, driving-traffic, walking, cycling
-  const SRC_B64 = qs.get('src'); // base64 маршруту {name, points:[[lon,lat],...]}
-  const ROUTE_ID = qs.get('rid'); // якщо хочеш тягнути з Firestore за id
+  const MAPBOX_TOKEN = qs.get('token') || window.MAPBOX_TOKEN || '';
+  const PROFILE = qs.get('profile') || 'driving';
+  const SRC_B64 = qs.get('src'); // лише цей шлях підтримуємо
   const AUTO_START = qs.get('autostart') === '1';
 
   // === UTF‑8 Base64 helpers ===
@@ -76,6 +71,9 @@
     return btoa(bin);
   }
 
+  if (!MAPBOX_TOKEN){
+    alert('Відсутній Mapbox token. Передай ?token=... у посиланні.');
+  }
   mapboxgl.accessToken = MAPBOX_TOKEN;
 
   const map = new mapboxgl.Map({
@@ -96,25 +94,23 @@
   const $toast = document.getElementById('toast');
   const $notice = document.getElementById('notice');
 
-  let routeGeoJSON = null;    // LineString з Directions API
-  let steps = [];             // кроки інструкцій
-  let totalDistance = 0;      // м
-  let totalDuration = 0;      // с
-  let watchId = null;         // геолокація
-  let userMarker = null;      // маркер користувача
-  let lastUserPos = null;     // для азимута
-  let spokenStepIndex = -1;   // що вже озвучили
+  let routeGeoJSON = null;
+  let steps = [];
+  let totalDistance = 0;
+  let totalDuration = 0;
+  let watchId = null;
+  let userMarker = null;
+  let lastUserPos = null;
+  let spokenStepIndex = -1;
 
   function speak(text){
     try{
       const u = new SpeechSynthesisUtterance(text);
       u.lang = 'uk-UA';
       speechSynthesis.speak(u);
-    }catch(e){ /* ignore */ }
+    }catch(e){}
   }
-
   function showToast(msg){ $toast.textContent = msg; $toast.style.display='block'; setTimeout(()=>{$toast.style.display='none'}, 1300); }
-
   function metersToKM(m){ return (m/1000).toFixed(1); }
   function secondsToETA(s){
     const dt = new Date(Date.now() + s*1000);
@@ -124,38 +120,27 @@
   }
 
   async function loadRouteData(){
-    if (SRC_B64){
-      const json = JSON.parse(b64decodeUtf8(SRC_B64)); // UTF‑8 декодування
-      return { name: json.name || 'Маршрут', points: json.points };
-    }
-    if (ROUTE_ID){
-      try{
-        // Очікуємо глобальну змінну window.firebaseConfig. Якщо її немає — пропустимо.
-        if (!window.firebaseConfig) throw new Error('Missing firebaseConfig');
-        const app = firebase.apps.length ? firebase.app() : firebase.initializeApp(window.firebaseConfig);
-        const db = firebase.firestore(app);
-        const doc = await db.collection('routes').doc(ROUTE_ID).get();
-        if (!doc.exists) throw new Error('Маршрут не знайдено');
-        const data = doc.data();
-        return { name: data.name || `Route ${ROUTE_ID}`, points: data.points };
-      }catch(e){ alert('Не вдалось завантажити маршрут: '+e.message); throw e; }
-    }
-    throw new Error('Не передано маршрут. Використай ?src=... або ?rid=...');
+    if (!SRC_B64) throw new Error('Не передано маршрут. Використай ?src=...');
+    const json = JSON.parse(b64decodeUtf8(SRC_B64));
+    return { name: json.name || 'Маршрут', points: json.points };
   }
 
   async function fetchDirections(points){
-    // Формуємо запит до Directions API
     const coords = points.map(p => p.join(',')).join(';');
     const url = `https://api.mapbox.com/directions/v5/mapbox/${PROFILE}/${coords}?alternatives=false&geometries=geojson&overview=full&steps=true&access_token=${MAPBOX_TOKEN}`;
     const res = await fetch(url);
-    if (!res.ok) throw new Error('Directions API error');
+    if (!res.ok){
+      const text = await res.text().catch(()=> '');
+      console.error('Directions API error', res.status, text);
+      throw new Error(`Directions API error (${res.status})`);
+    }
     const json = await res.json();
     if (!json.routes || !json.routes[0]) throw new Error('Маршрут не побудовано');
     const r = json.routes[0];
     routeGeoJSON = { type:'Feature', geometry:r.geometry, properties:{} };
     steps = r.legs.flatMap(l=>l.steps);
-    totalDistance = r.distance; // meters
-    totalDuration = r.duration; // seconds
+    totalDistance = r.distance;
+    totalDuration = r.duration;
     $dist.textContent = `${metersToKM(totalDistance)} км`;
     $eta.textContent = `ETA ${secondsToETA(totalDuration)}`;
     return routeGeoJSON;
@@ -200,31 +185,21 @@
     lastUserPos = curr;
     ensureUserMarker(lng, lat, heading);
 
-    // Прив'язка до лінії маршруту
     if (routeGeoJSON){
-      const snapped = turf.nearestPointOnLine(routeGeoJSON, curr, {units:'meters'});
-      const distToLine = snapped.properties.distance; // m
-
-      // Знаходимо відстань до фінішу
-      const line = routeGeoJSON; // Feature<LineString>
-      const ls = turf.lineSlice(turf.point(curr), turf.point(routeGeoJSON.geometry.coordinates.at(-1)), line);
-      const remain = turf.length(ls, {units:'kilometers'}) * 1000; // m
+      const ls = turf.lineSlice(turf.point(curr), turf.point(routeGeoJSON.geometry.coordinates.at(-1)), routeGeoJSON);
+      const remain = turf.length(ls, {units:'kilometers'}) * 1000;
       $dist.textContent = `${metersToKM(remain)} км`;
 
-      // Пошук наступного кроку
       const next = findNextStep(curr);
       if (next && next._remainMeters!=null){
         const etaSec = (next._remainMeters/ totalDistance) * totalDuration;
         $eta.textContent = `ETA ${secondsToETA(etaSec)}`;
-        // Озвучка за 80м до маневру
         if (next._metersToManeuver < 80 && next._index !== spokenStepIndex){
           const t = stepToSpeech(next);
           speak(t);
           spokenStepIndex = next._index;
         }
       }
-
-      // Автоцентрування
       if (autoCenter) map.easeTo({ center: curr, duration: 500 });
     }
   }
@@ -233,19 +208,16 @@
 
   function findNextStep(curr){
     if (!steps || steps.length===0) return null;
-    // Беремо найближчий крок, що попереду
     let best = null; let min = Infinity; let idx = -1;
     steps.forEach((s, i)=>{
       const p = turf.nearestPointOnLine(s.geometry, curr, {units:'meters'});
-      const d = p.properties.dist; // не завжди є, тому дублюємо нижче
-      const m = p.properties.distance || d || Infinity; // m до лінії кроку
-      // Відстань від точки проєкції до кінця кроку (як груба оцінка)
+      const d = p.properties.dist;
+      const m = p.properties.distance || d || Infinity;
       const segRemain = turf.length(turf.lineSlice(p, turf.point(s.geometry.coordinates.at(-1)), s.geometry), {units:'kilometers'})*1000;
-      const score = m + segRemain; // простий скоринг
+      const score = m + segRemain;
       if (score < min){ min = score; best = s; idx = i; best._metersToManeuver = segRemain; }
     });
     if (!best) return null;
-    // Залишок маршруту від кінця цього кроку до фінішу
     const from = turf.point(best.geometry.coordinates.at(-1));
     const to = turf.point(routeGeoJSON.geometry.coordinates.at(-1));
     const tail = turf.lineSlice(from, to, routeGeoJSON);
@@ -256,10 +228,8 @@
   }
 
   function stepToSpeech(step){
-    // Просте перетворення інструкції; у JSON Mapbox є step.maneuver.instruction англійською
     const man = step.maneuver || {}; const d = Math.round((step.distance||0));
     let text = man.instruction || '';
-    // Проста локалізація деяких слів
     text = text.replace(/Turn right/i, 'Поверніть праворуч')
                .replace(/Turn left/i, 'Поверніть ліворуч')
                .replace(/Continue/i, 'Рухайтесь прямо')
@@ -278,20 +248,19 @@
   function startNav(){
     if (watchId!=null) return;
     if (navigator.geolocation){
-      const $notice = document.getElementById('notice');
       $notice.style.display='block';
       watchId = navigator.geolocation.watchPosition(onPosition, onPositionError, { enableHighAccuracy:true, maximumAge:1000, timeout:10000 });
       speak('Навігацію розпочато');
     } else alert('Геолокація не підтримується браузером');
   }
-  function stopNav(){ if (watchId!=null){ navigator.geolocation.clearWatch(watchId); watchId=null; speak('Навігацію зупинено'); document.getElementById('notice').style.display='none'; } }
+  function stopNav(){ if (watchId!=null){ navigator.geolocation.clearWatch(watchId); watchId=null; speak('Навігацію зупинено'); $notice.style.display='none'; } }
 
   async function shareLink(){
     if (!routeGeoJSON){ showToast('Маршрут ще не готовий'); return; }
-    const name = document.getElementById('routeTitle').textContent || 'Маршрут';
-    const points = routeGeoJSON.geometry.coordinates; // вже узгоджені точки
+    const name = $title.textContent || 'Маршрут';
+    const points = routeGeoJSON.geometry.coordinates;
     const payload = { name, points };
-    const b64 = b64encodeUtf8(payload); // UTF‑8 Base64
+    const b64 = b64encodeUtf8(payload);
     const url = `${location.origin}${location.pathname}?src=${encodeURIComponent(b64)}&profile=${PROFILE}&token=${encodeURIComponent(MAPBOX_TOKEN)}&autostart=1`;
     try{
       if (navigator.share){ await navigator.share({ title:name, url }); }
@@ -299,11 +268,10 @@
     }catch(e){ await navigator.clipboard.writeText(url); showToast('Посилання скопійовано'); }
   }
 
-  // Головний потік
   map.on('load', async ()=>{
     try{
       const { name, points } = await loadRouteData();
-      document.getElementById('routeTitle').textContent = name;
+      $title.textContent = name;
       await fetchDirections(points);
       addRouteToMap();
       if (AUTO_START) startNav();
