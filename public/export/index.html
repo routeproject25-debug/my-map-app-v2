@@ -561,7 +561,7 @@ function buildNavigateURL(payloadB64, profile = DEFAULT_PROFILE){
 }
 
 /* ---------- Шеринг в системний Share/буфер ---------- */
-afunction isMobileUA(){ return /Android|iPhone|iPad|iPod/i.test(navigator.userAgent || ''); }
+function isMobileUA(){ return /Android|iPhone|iPad|iPod/i.test(navigator.userAgent || ''); }
 async function shareURL(url, title){
   if (isMobileUA() && navigator.share){
     try { await navigator.share({ title: title || 'Маршрут', url }); return; } catch{}
