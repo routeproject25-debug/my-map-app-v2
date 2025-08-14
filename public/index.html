@@ -50,7 +50,7 @@
     position:absolute; z-index:3000; top:calc(var(--nav-h) + 8px); left:8px;
     background:var(--card); border:1px solid var(--line); border-radius:12px;
     box-shadow:0 1px 8px rgba(0,0,0,.12); padding:10px;
-    max-width:340px; max-height:90vh; overflow-y:auto; overflow-x:hidden;
+    max-width:360px; max-height:90vh; overflow-y:auto; overflow-x:hidden;
   }
   .controls-hidden #controls{ display:none }
 
@@ -155,7 +155,7 @@
   </div>
   <datalist id="directoryList"></datalist>
 
-  <!-- Тип маршруту + Призначення в одному рядку; "Проміжні пункти" нижче на всю ширину -->
+  <!-- Тип маршруту + Призначення -->
   <div class="row" style="margin-top:6px;">
     <div>
       <label>Тип маршруту</label>
@@ -197,6 +197,15 @@
       </select>
     </div>
   </details>
+
+  <!-- Довідник: керування кешем -->
+  <div id="dirControls" class="section">
+    <div class="btn-row">
+      <button id="refreshDirectory" class="btn xs">🔄 Оновити довідник</button>
+      <button id="clearDirCache" class="btn xs">🧹 Очистити кеш</button>
+    </div>
+    <small class="muted">Не бачиш нові склади/поля? Натисни «Оновити довідник».</small>
+  </div>
 
   <div id="dbControls">
     <div><strong>База (Firestore)</strong></div>
@@ -531,8 +540,13 @@ const dirByCode = {};
 const codeByName = {};
 const routesLookup = {};
 
-const DIR_CACHE_KEY = 'directoryCache.v1';
+/* bump версії кешу, щоб скинути старі дані */
+const DIR_CACHE_KEY = 'directoryCache.v2';
+/* можна залишити довгий TTL, але тепер є кнопка форс-оновлення */
 const DIR_CACHE_TTL_MS = 12 * 60 * 60 * 1000;
+
+/* нормалізація для нечутливого до регістру пошуку */
+function _norm(s){ return String(s||'').trim().toLowerCase(); }
 
 function fillDirectoryUI(rows){
   const list = document.getElementById('directoryList');
@@ -543,6 +557,7 @@ function fillDirectoryUI(rows){
   for (const r of rows){
     const { code, name, company, unit } = r;
     dirByCode[code] = { name, company, unit };
+    /* зберігаємо першу появу назви; дублікати не перетираємо */
     if (!(name in codeByName)) codeByName[name] = code;
 
     const opt = document.createElement('option');
@@ -552,23 +567,26 @@ function fillDirectoryUI(rows){
   }
 }
 
-async function loadDirectory(){
+/* force=true — ігнорувати localStorage і тягнути з сервера */
+async function loadDirectory(force=false){
   try{
-    const raw = localStorage.getItem(DIR_CACHE_KEY);
-    if (raw){
-      const { ts, rows } = JSON.parse(raw);
-      if (Array.isArray(rows) && Date.now() - ts < DIR_CACHE_TTL_MS){
-        fillDirectoryUI(rows);
-        updateRouteName();
-        refreshRoutesList();
-        console.log('📒 Directory from localStorage cache:', rows.length);
-        return;
+    if (!force){
+      const raw = localStorage.getItem(DIR_CACHE_KEY);
+      if (raw){
+        const { ts, rows } = JSON.parse(raw);
+        if (Array.isArray(rows) && Date.now() - ts < DIR_CACHE_TTL_MS){
+          fillDirectoryUI(rows);
+          updateRouteName();
+          refreshRoutesList();
+          console.log('📒 Directory from localStorage cache:', rows.length);
+          return;
+        }
       }
     }
   }catch{}
 
   let snap = null;
-  try { snap = await db.collection('directory').get({ source: 'cache' }); } catch {}
+  try { snap = await db.collection('directory').get({ source: force ? 'default' : 'cache' }); } catch {}
   if (!snap || snap.empty){
     snap = await db.collection('directory').get();
   }
@@ -592,19 +610,36 @@ async function loadDirectory(){
     localStorage.setItem(DIR_CACHE_KEY, JSON.stringify({ ts: Date.now(), rows }));
   }catch{}
 
-  console.log('📒 Directory loaded from Firestore:', rows.length);
+  console.log('📒 Directory loaded from Firestore:', rows.length, 'force=', force);
 }
 
 /* helpers */
 function toObjPoints(arr) { return (arr || []).map(p => ({ lng: p[0], lat: p[1] })); }
 function fromObjPoints(arr) { return (arr || []).map(p => [p.lng, p.lat]); }
+
+/* розумніший пошук коду за введеним текстом */
 function getCodeByInput(inputId) {
-  const name = document.getElementById(inputId).value.trim();
-  return codeByName[name] || null;
+  const raw = document.getElementById(inputId).value;
+  const name = raw.trim();
+  if (!name) return null;
+
+  /* 1) точний збіг */
+  if (codeByName[name]) return codeByName[name];
+
+  /* 2) нечутливий до регістру */
+  const n = _norm(name);
+  for (const [label, code] of Object.entries(codeByName)){
+    if (_norm(label) === n) return code;
+  }
+
+  /* 3) частковий збіг (інклюд) — якщо рівно один кандидат */
+  const candidates = Object.entries(codeByName).filter(([label]) => _norm(label).includes(n));
+  if (candidates.length === 1) return candidates[0][1];
+
+  return null;
 }
-function getNameByCode(code) {
-  return (dirByCode[code]?.name) || '';
-}
+
+function getNameByCode(code) { return (dirByCode[code]?.name) || ''; }
 function formatRouteTitle(data) {
   const from = dirByCode[data.fromCode]?.name || 'невідомо';
   const to   = dirByCode[data.toCode]?.name   || 'невідомо';
@@ -781,6 +816,13 @@ document.getElementById('loadFromDB').onclick = loadFromDB;
 document.getElementById('deleteFromDB').onclick = deleteFromDB;
 document.getElementById('clearForm').onclick = clearForm;
 
+/* нові кнопки для довідника */
+document.getElementById('refreshDirectory').onclick = () => loadDirectory(true);
+document.getElementById('clearDirCache').onclick = () => {
+  try { localStorage.removeItem(DIR_CACHE_KEY); } catch {}
+  loadDirectory(true);
+};
+
 const routeSearch = document.getElementById('routeSearch');
 const remoteRoutesSel = document.getElementById('remoteRoutes');
 routeSearch.addEventListener('input', () => {
@@ -860,7 +902,7 @@ const authHello = document.getElementById('authHello');
 const authEmail = document.getElementById('authEmail');
 const authPass  = document.getElementById('authPass');
 const loginBtn  = document.getElementById('authLogin');
-const logoutBtn = document.getElementById('authLogout');
+const logoutBtn  = document.getElementById('authLogout');
 
 loginBtn.onclick = async () => {
   try{
@@ -895,7 +937,7 @@ auth?.onAuthStateChanged(async (user) => {
 /* ====== Старт ====== */
 window.addEventListener('load', async () => {
   if (!db) return;
-  await loadDirectory();
+  await loadDirectory(true); // перше завантаження — свіжі дані
   const rid = new URLSearchParams(location.search).get('rid');
   if (rid) await loadRouteById(rid);
 });
