@@ -282,6 +282,7 @@ deletePointBtn.onclick = (e) => {
 };
 document.addEventListener('click', () => { contextMenu.style.display = 'none'; });
 
+map.on('load', () => { updateRoute(); drawRulers(); });
 map.on('style.load', () => { updateRoute(); drawRulers(); });
 
 document.getElementById('mapStyle').addEventListener('change', function() {
@@ -381,6 +382,7 @@ function drawRulers() {
   drawRulerSegment(endRuler, 'end', '#33cc33');
 }
 function drawRulerSegment(ruler, prefix, color) {
+  if (!map || !map.isStyleLoaded()) return;
   for (let i = 0; i < ruler.length - 1; i++) {
     const lineId = `${prefix}-ruler-${i}`;
     const geojson = { type: 'Feature', geometry: { type: 'LineString', coordinates: [ruler[i], ruler[i + 1]] } };
@@ -392,7 +394,10 @@ function drawRulerSegment(ruler, prefix, color) {
   }
 }
 
+/* ---- безпечний підрахунок, поки Turf не завантажився ---- */
+let turfReady = false;
 function calculateRulerDistance(ruler) {
+  if (!turfReady || !Array.isArray(ruler) || ruler.length < 2) return 0;
   let dist = 0;
   for (let i = 0; i < ruler.length - 1; i++) {
     dist += turf.distance(turf.point(ruler[i]), turf.point(ruler[i + 1]));
@@ -418,6 +423,8 @@ function clearRouteLayers() {
 }
 
 async function updateRoute() {
+  if (!map || !map.isStyleLoaded()) return;
+
   if (points.length < 2) {
     document.getElementById('distance').textContent =
       (calculateRulerDistance(startRuler) + calculateRulerDistance(endRuler)).toFixed(2);
@@ -456,6 +463,7 @@ async function updateRoute() {
 /* turf */
 const turfScript = document.createElement('script');
 turfScript.src = 'https://cdn.jsdelivr.net/npm/@turf/turf@6.5.0/turf.min.js';
+turfScript.onload = () => { turfReady = true; updateRoute(); drawRulers(); };
 document.head.appendChild(turfScript);
 
 /* =============== Локальне збереження в JSON =============== */
@@ -615,6 +623,26 @@ function updateRouteName() {
 }
 
 /* ===== Firestore: збереження/список/завантаження ===== */
+
+/* Пошук дубліката маршруту за from+to+type */
+async function findDuplicateRoute(fromCode, toCode, routeType){
+  try{
+    const q = await db.collection('routes')
+      .where('fromCode','==', fromCode)
+      .where('toCode','==', toCode)
+      .where('routeType','==', routeType)
+      .limit(1)
+      .get();
+    if (!q.empty){
+      const doc = q.docs[0];
+      return { id: doc.id, data: doc.data() || {} };
+    }
+  }catch(e){
+    console.warn('Не вдалося виконати пошук дубля:', e?.message || e);
+  }
+  return null;
+}
+
 async function saveToDB() {
   try {
     if (!db) { alert('БД не ініціалізована'); return; }
@@ -648,9 +676,27 @@ async function saveToDB() {
       updatedAt: new Date().toISOString()
     };
 
-    console.log('➡️ Зберігаю маршрут:', payload);
-    const safeId = finalName.replace(/[\/\\#?[\]]/g, '_');
-    await db.collection('routes').doc(safeId).set(payload, { merge: true });
+    // === Перевірка дубля ===
+    const duplicate = await findDuplicateRoute(fromCode, toCode, routeType);
+    let targetId;
+    if (duplicate){
+      const existingTitle = formatRouteTitle(duplicate.data);
+      const ok = confirm(
+        `Такий маршрут вже існує:\n“${existingTitle}”.\n\n` +
+        `Натисни “ОК”, щоб ПЕРЕЗАПИСАТИ існуючий маршрут,\n` +
+        `або “Скасувати”, щоб повернутися та відредагувати.`
+      );
+      if (!ok){
+        alert('Зміни не збережено. Відредагуйте тип або назву і спробуйте ще раз.');
+        return;
+      }
+      targetId = duplicate.id;             // перезаписуємо існуючий документ
+    } else {
+      targetId = finalName.replace(/[\/\\#?[\]]/g, '_'); // новий документ
+    }
+
+    console.log('➡️ Зберігаю маршрут у doc:', targetId, payload);
+    await db.collection('routes').doc(targetId).set(payload, { merge: true });
 
     alert('✅ Збережено в БД: ' + finalName);
     await refreshRoutesList();
@@ -659,6 +705,7 @@ async function saveToDB() {
     alert('❌ Не вдалося зберегти в БД: ' + (err?.message || err));
   }
 }
+
 let isRefreshingRoutes = false;
 async function refreshRoutesList(limitNum = 100) {
   if (!db || isRefreshingRoutes) return;
