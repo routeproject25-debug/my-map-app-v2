@@ -547,7 +547,7 @@ function updateStats(rows){
   document.getElementById('statAvg').textContent = `Середня: ${avg.toFixed(3)}`;
   statsBox.style.display='';
 }
-
+const MAPBOX_TOKEN_FOR_NAV = 'sk.eyJ1IjoidGtjaGsiLCJhIjoiY21lYnE4eDAyMWRtZDJ4czhmcXA5ejQ0diJ9.L_Silk-8e7Mbh516oVCpbg'; // ⬅️ твій Mapbox токен
 /* ---------- Будівник URL для navigate.html ---------- */
 function buildNavigateURL(payloadB64, profile = DEFAULT_PROFILE){
   const base = `${location.origin}${NAVIGATE_PAGE}`;
@@ -556,7 +556,7 @@ function buildNavigateURL(payloadB64, profile = DEFAULT_PROFILE){
   q.set('profile', profile);
   q.set('autostart', '1');
   // Якщо хочеш передавати токен у URL:
-  // q.set('token', MAPBOX_TOKEN_FOR_NAV);
+  q.set('token', MAPBOX_TOKEN_FOR_NAV);
   return `${base}?${q.toString()}`;
 }
 
