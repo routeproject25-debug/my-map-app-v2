@@ -35,6 +35,7 @@
     .btn { padding:8px 12px; border:1px solid #cbd5e1; background:#fff; border-radius:8px; cursor:pointer; }
     .btn.primary { background:#2563eb; border-color:#2563eb; color:#fff; }
     .btn:disabled { opacity:.6; cursor:not-allowed; }
+    .btn.sm { padding:4px 8px; font-size:12.5px; }
     .bar { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
     .muted { color:#667085; font-size:12.5px; }
     table { width:100%; border-collapse:collapse; }
@@ -167,6 +168,7 @@
               <th>Відстань, км</th><th>Тип</th>
               <th>Оновлено</th><th>ID</th>
               <th>Карта</th>
+              <th>Навігатор</th>
             </tr>
           </thead>
           <tbody></tbody>
@@ -176,14 +178,19 @@
   </div>
 
 <script>
+/* === Навігаційні константи (налаштовуються) === */
+const MAP_URL = '/index.html';         // куди відкривається маршрут на карті (як було)
+const NAVIGATE_PAGE = '/navigate.html';// сторінка навігатора
+const DEFAULT_PROFILE = 'driving';     // профіль для navigate.html
+/* Якщо хочеш передавати токен у лінку, додай його тут:
+   const MAPBOX_TOKEN_FOR_NAV = 'pk....';
+*/
+
 /* --- глобальний логер --- */
 window.addEventListener('error', (e) => {
   console.error('Global error:', e.message, 'at', e.filename, e.lineno);
   try { document.getElementById('status').textContent = 'Помилка скрипта'; } catch(_) {}
 });
-
-/* ---------- Куди відкривати маршрут з таблиці ---------- */
-const MAP_URL = '/index.html';
 
 /* ---------- Firebase config ---------- */
 const firebaseConfig = {
@@ -370,6 +377,68 @@ function formatDate(dt) {
   return `${pad(d.getDate())}.${pad(d.getMonth()+1)}.${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
 }
 
+/* --- НОВІ ХЕЛПЕРИ ДЛЯ НОРМАЛІЗАЦІЇ ТОЧОК --- */
+function toLonLat(p) {
+  // Масив [a,b]
+  if (Array.isArray(p) && p.length >= 2) {
+    const a = Number(p[0]); const b = Number(p[1]);
+    // якщо виглядає як [lat,lon] -> міняємо місцями
+    if (Math.abs(a) <= 90 && Math.abs(b) <= 180) return [b, a];
+    return [a, b]; // вже [lon,lat]
+  }
+  // Рядок "lat,lon" або "lon,lat"
+  if (typeof p === 'string') {
+    const parts = p.split(/[;, ]+/).map(Number).filter(v => !Number.isNaN(v));
+    if (parts.length >= 2) return toLonLat(parts);
+  }
+  // Об'єкт {lat,lon} / {latitude,longitude}
+  if (p && typeof p === 'object') {
+    const lat = Number(p.lat ?? p.latitude ?? p.Lat ?? p.Latitude);
+    const lon = Number(p.lon ?? p.lng ?? p.longitude ?? p.Lon ?? p.Lng ?? p.Longitude);
+    if (!Number.isNaN(lat) && !Number.isNaN(lon)) return [lon, lat];
+  }
+  return null;
+}
+
+function normalizePoints(raw) {
+  if (!raw) return null;
+
+  // GeoJSON Feature(LineString) або {geometry:{type:'LineString',coordinates:[...]}}
+  if (raw.type === 'Feature' && raw.geometry?.type === 'LineString') {
+    return normalizePoints(raw.geometry.coordinates);
+  }
+  if (raw.geometry?.type === 'LineString' && Array.isArray(raw.geometry.coordinates)) {
+    return normalizePoints(raw.geometry.coordinates);
+  }
+
+  // GeoJSON FeatureCollection → перший LineString
+  if (raw.type === 'FeatureCollection' && Array.isArray(raw.features)) {
+    const f = raw.features.find(f => f.geometry?.type === 'LineString');
+    if (f) return normalizePoints(f.geometry.coordinates);
+  }
+
+  // Масив масивів / рядків / об'єктів
+  if (Array.isArray(raw)) {
+    const out = [];
+    for (const item of raw) {
+      const pt = toLonLat(item);
+      if (pt && Number.isFinite(pt[0]) && Number.isFinite(pt[1])) out.push(pt);
+    }
+    return out.length ? out : null;
+  }
+
+  return null;
+}
+
+/* === UTF‑8 Base64 helper (щоб підтримувались українські символи) === */
+function b64encodeUtf8(objOrString){
+  const s = typeof objOrString === 'string' ? objOrString : JSON.stringify(objOrString);
+  const bytes = new TextEncoder().encode(s);
+  let bin = '';
+  for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+  return btoa(bin);
+}
+
 /* --- мемо стан останньої вибірки --- */
 let lastQueryKey = '';
 let lastAllRows = null;
@@ -479,10 +548,76 @@ function updateStats(rows){
   statsBox.style.display='';
 }
 
+/* ---------- Будівник URL для navigate.html ---------- */
+function buildNavigateURL(payloadB64, profile = DEFAULT_PROFILE){
+  const base = `${location.origin}${NAVIGATE_PAGE}`;
+  const q = new URLSearchParams();
+  q.set('src', payloadB64);
+  q.set('profile', profile);
+  q.set('autostart', '1');
+  // Якщо хочеш передавати токен у URL:
+  // q.set('token', MAPBOX_TOKEN_FOR_NAV);
+  return `${base}?${q.toString()}`;
+}
+
+/* ---------- Шеринг в системний Share/буфер ---------- */
+async function shareURL(url, title){
+  if (navigator.share){
+    try { await navigator.share({ title: title || 'Маршрут', url }); return; }
+    catch(_) { /* fallback to clipboard */ }
+  }
+  try {
+    await navigator.clipboard.writeText(url);
+    alert('Посилання скопійовано у буфер обміну!');
+  } catch {
+    prompt('Скопіюйте посилання вручну:', url);
+  }
+}
+
+/* ---------- ОНОВЛЕНО: Отримати та нормалізувати точки маршруту з Firestore за id ---------- */
+async function fetchRoutePointsById(routeId){
+  const ref = db.collection('routes').doc(routeId);
+  const doc = await ref.get();
+  if (!doc.exists) throw new Error('Маршрут не знайдено');
+  const d = doc.data() || {};
+
+  // Підтримуємо різні варіанти полів:
+  // points / coordinates / route / geojson / geometry
+  let points =
+      normalizePoints(d.points) ||
+      normalizePoints(d.coordinates) ||
+      normalizePoints(d.route) ||
+      normalizePoints(d.geojson) ||
+      normalizePoints(d.geometry);
+
+  // Якщо зберігаються окремо: start, midpoints[], end
+  if (!points) {
+    const parts = [];
+    if (d.start) {
+      const p = toLonLat(d.start); if (p) parts.push(p);
+    }
+    if (Array.isArray(d.midpoints)) {
+      for (const m of d.midpoints) {
+        const p = toLonLat(m); if (p) parts.push(p);
+      }
+    }
+    if (d.end) {
+      const p = toLonLat(d.end); if (p) parts.push(p);
+    }
+    if (parts.length >= 2) points = parts;
+  }
+
+  if (!points || !Array.isArray(points) || points.length < 2) {
+    throw new Error('У маршруті відсутній коректний масив точок (очікується масив [lon,lat])');
+  }
+
+  return points;
+}
+
 /* ---------- Таблиця ---------- */
 function renderTable(rows){
   const tb = document.querySelector('#resTable tbody');
-  tb.innerHTML = rows.map(r=>`<tr>
+  tb.innerHTML = rows.map(r=>`<tr data-id="${r.id}">
     <td>${r.fromCode}</td>
     <td>${r.toCode}</td>
     <td>${r.fromName}</td>
@@ -492,6 +627,7 @@ function renderTable(rows){
     <td>${r.updatedAt}</td>
     <td>${r.id}</td>
     <td><a href="${MAP_URL}?rid=${encodeURIComponent(r.id)}" target="_blank" rel="noopener">Відкрити</a></td>
+    <td><button class="btn sm share-btn" data-id="${r.id}" data-name="${(r.fromName||'') + ' → ' + (r.toName||'')}">🔗 Поділитися</button></td>
   </tr>`).join('');
   document.getElementById('countInfo').textContent = `Записів (після фільтру): ${rows.length}`;
   updateStats(rows);
@@ -500,7 +636,7 @@ function renderTable(rows){
 /* ---------- Експорт у Excel ---------- */
 function exportToExcel(rows){
   const data = [
-    ['Код Від','Код До','Від','До','Відстань, км','Тип','Оновлено','ID','URL'],
+    ['Код Від','Код До','Від','До','Відстань, км','Тип','Оновлено','ID','URL (Карта)'],
     ...rows.map(r => [
       r.fromCode,
       r.toCode,
@@ -553,6 +689,26 @@ btnExport.addEventListener('click', async ()=>{
     exportToExcel(rows);
   }catch(e){ handleFirestoreError(e); }
   finally{ setBusy(false); }
+});
+
+/* Делегування кліку на кнопки "Поділитися" в таблиці */
+document.querySelector('#resTable tbody').addEventListener('click', async (ev)=>{
+  const btn = ev.target.closest('.share-btn');
+  if (!btn) return;
+  const id = btn.getAttribute('data-id');
+  const prettyName = btn.getAttribute('data-name') || 'Маршрут';
+  try{
+    setBusy(true);
+    const points = await fetchRoutePointsById(id);
+    const payload = { name: prettyName, points };
+    const b64 = b64encodeUtf8(payload); // ← UTF‑8 Base64
+    const url = buildNavigateURL(b64, DEFAULT_PROFILE);
+    await shareURL(url, prettyName);
+  }catch(e){
+    alert('Не вдалося створити посилання для навігатора: ' + (e?.message || e));
+  }finally{
+    setBusy(false);
+  }
 });
 
 /* ---------- Старт ---------- */
