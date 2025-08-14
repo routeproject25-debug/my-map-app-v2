@@ -122,13 +122,14 @@
   <div class="panel-head">
     <div class="segment">
       <button id="toggleAdd" class="btn xs">Маршрут</button>
-      <button id="startLineMode" class="btn xs">Лінійка(поч.)</button>
-      <button id="endLineMode" class="btn xs">Лінійка(кін.)</button>
+      <button id="startLineMode" class="btn xs" title="Додавати точки початкової лінійки">Лінійка(поч.)</button>
+      <button id="endLineMode" class="btn xs" title="Додавати точки кінцевої лінійки">Лінійка(кін.)</button>
     </div>
 
     <div class="btn-row">
       <button id="clearRoute" class="btn xs">Очист. марш.</button>
-      <button id="clearRulers" class="btn xs">Очист. лін.</button>
+      <button id="popRulerPoint" class="btn xs" title="Видалити останню точку активної лінійки">← Остання точка (лін.)</button>
+      <button id="clearRulers" class="btn xs" title="Очистити активну лінійку, або обидві якщо режим лінійки вимкнено">Очист. лін.</button>
       <button id="toggleMarkers" class="btn xs">📍 Точки</button>
     </div>
 
@@ -253,6 +254,14 @@ let insertAfterMode = false;
 let points = [], markers = [], startRuler = [], endRuler = [], rulerLines = [], routeLayers = [];
 let selectedMarkerIndex = null;
 
+/* ====== Active ruler tracking ====== */
+let activeRuler = null;       // 'start' | 'end' | null
+let lastActiveRuler = null;   // пам'ятаємо останню використану лінійку
+function setActiveRuler(which){
+  activeRuler = which;
+  if (which) lastActiveRuler = which;
+}
+
 /* ====== Roles ====== */
 let currentRole = 'guest';
 let readOnly    = true;
@@ -262,7 +271,7 @@ function applyRoleUI(role){
   readOnly = (currentRole === 'guest' || currentRole === 'user');
 
   const disableIds = [
-    'toggleAdd','startLineMode','endLineMode','clearRoute','clearRulers',
+    'toggleAdd','startLineMode','endLineMode','clearRoute','popRulerPoint','clearRulers',
     'saveRoute','loadRoute','saveToDB','deleteFromDB','routeName',
     'fromName','toName','routeType','routePurpose','intermediateText'
   ];
@@ -288,7 +297,7 @@ function applyRoleUI(role){
 /* ====== Context menu ====== */
 const contextMenu = document.getElementById('contextMenu');
 const insertAfterBtn = document.getElementById('insertAfter');
-const deletePointBtn = document.getElementById('deletePoint'); // <-- виправлено: без зайвої ]
+const deletePointBtn = document.getElementById('deletePoint');
 
 insertAfterBtn.onclick = (e) => {
   e.preventDefault(); e.stopPropagation();
@@ -326,21 +335,52 @@ function toggleButton(id, flag) {
 document.getElementById('toggleAdd').onclick = () => {
   if (readOnly) return;
   addMode = !addMode; startLineMode = false; endLineMode = false; insertAfterMode = false;
+  setActiveRuler(null);
   toggleButton('toggleAdd', addMode); toggleButton('startLineMode', false); toggleButton('endLineMode', false);
 };
 document.getElementById('startLineMode').onclick = () => {
   if (readOnly) return;
   startLineMode = !startLineMode; endLineMode = false; addMode = false; insertAfterMode = false;
+  setActiveRuler(startLineMode ? 'start' : null);
   toggleButton('startLineMode', startLineMode); toggleButton('endLineMode', false); toggleButton('toggleAdd', false);
 };
 document.getElementById('endLineMode').onclick = () => {
   if (readOnly) return;
   endLineMode = !endLineMode; startLineMode = false; addMode = false; insertAfterMode = false;
+  setActiveRuler(endLineMode ? 'end' : null);
   toggleButton('endLineMode', endLineMode); toggleButton('startLineMode', false); toggleButton('toggleAdd', false);
 };
-document.getElementById('clearRulers').onclick = () => {
-  if (readOnly) return; startRuler = []; endRuler = []; drawRulers(); updateRoute();
+
+/* — НОВЕ: видалення останньої точки активної лінійки — */
+document.getElementById('popRulerPoint').onclick = () => {
+  if (readOnly) return;
+  const choose = () => activeRuler || lastActiveRuler || (startRuler.length >= endRuler.length ? 'start' : 'end');
+  let target = choose();
+  if (target === 'start' && startRuler.length === 0 && endRuler.length > 0) target = 'end';
+  if (target === 'end' && endRuler.length === 0 && startRuler.length > 0) target = 'start';
+
+  let did = false;
+  if (target === 'start' && startRuler.length) { startRuler.pop(); did = true; }
+  if (target === 'end' && endRuler.length) { endRuler.pop(); did = true; }
+
+  if (did){ drawRulers(); updateRoute(); }
 };
+
+/* — ОЧИЩЕННЯ ЛІНІЙОК: активна/обидві — */
+document.getElementById('clearRulers').onclick = () => {
+  if (readOnly) return;
+  if (activeRuler === 'start') {
+    startRuler = [];
+  } else if (activeRuler === 'end') {
+    endRuler = [];
+  } else {
+    if (!startRuler.length && !endRuler.length) return;
+    if (!confirm('Очистити обидві лінійки?')) return;
+    startRuler = []; endRuler = [];
+  }
+  drawRulers(); updateRoute();
+};
+
 document.getElementById('clearRoute').onclick = () => {
   if (readOnly) return;
   points = []; markers.forEach(m => m.remove()); markers = [];
@@ -357,8 +397,8 @@ map.on('click', (e) => {
     points.splice(selectedMarkerIndex + 1, 0, lngLat);
     insertAfterMode = false; rebuildMarkers(); return;
   }
-  if (startLineMode) { startRuler.push(lngLat); drawRulers(); updateRoute(); return; }
-  if (endLineMode)   { endRuler.push(lngLat); drawRulers(); updateRoute(); return; }
+  if (startLineMode) { startRuler.push(lngLat); setActiveRuler('start'); drawRulers(); updateRoute(); return; }
+  if (endLineMode)   { endRuler.push(lngLat); setActiveRuler('end');   drawRulers(); updateRoute(); return; }
   if (addMode)       { points.push(lngLat); addMarker(lngLat); updateRoute(); }
 });
 
@@ -423,11 +463,11 @@ function drawRulerSegment(ruler, prefix, color) {
   }
 }
 
-/* Резервний підрахунок (Гаверсин), якщо turf ще не готовий */
+/* Haversine fallback */
 function haversineKm(a, b){
   const toRad = d => d * Math.PI / 180;
   const [lng1, lat1] = a, [lng2, lat2] = b;
-  const R = 6371; // km
+  const R = 6371;
   const dLat = toRad(lat2 - lat1), dLng = toRad(lng2 - lng1);
   const s1 = Math.sin(dLat/2), s2 = Math.sin(dLng/2);
   const h = s1*s1 + Math.cos(toRad(lat1))*Math.cos(toRad(lat2))*s2*s2;
@@ -513,41 +553,6 @@ turfScript.src = 'https://cdn.jsdelivr.net/npm/@turf/turf@6.5.0/turf.min.js';
 turfScript.onload = () => { updateRoute(); };
 document.head.appendChild(turfScript);
 
-/* =============== Локальне збереження в JSON =============== */
-document.getElementById('saveRoute').onclick = () => {
-  if (readOnly) return;
-  const routeData = {
-    name: (document.getElementById('routeName').value || 'Без назви'),
-    points, startRuler, endRuler,
-    date: new Date().toISOString()
-  };
-  const blob = new Blob([JSON.stringify(routeData, null, 2)], { type: 'application/json' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url; a.download = 'route_' + new Date().toISOString().replace(/[:.]/g, '-') + '.json';
-  document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
-};
-
-const fileInput = document.getElementById('fileInput');
-document.getElementById('loadRoute').onclick = () => { if (readOnly) return; fileInput.value = null; fileInput.click(); };
-fileInput.onchange = (event) => {
-  if (readOnly) return;
-  const file = event.target.files[0]; if (!file) return;
-  const reader = new FileReader();
-  reader.onload = (e) => {
-    try {
-      const routeData = JSON.parse(e.target.result);
-      if (!routeData.points || !Array.isArray(routeData.points)) { alert('Неправильний формат файлу'); return; }
-      points = routeData.points || []; startRuler = routeData.startRuler || []; endRuler = routeData.endRuler || [];
-      document.getElementById('routeName').value = routeData.name || '';
-      rebuildMarkers(); drawRulers(); updateRoute();
-      if (points.length > 0) map.flyTo({ center: points[0], zoom: 12 });
-      alert('Маршрут успішно завантажено з файлу!');
-    } catch (err) { alert('Помилка при завантаженні: ' + err.message); }
-  };
-  reader.readAsText(file);
-};
-
 /* ===================== Firebase ===================== */
 const firebaseConfig = {
   apiKey: "AIzaSyDjDBZkmy-skuDEQF8-AkRma7yw6TugoQc",
@@ -572,7 +577,7 @@ try {
   console.error('❌ Firebase не ініціалізовано:', e);
 }
 
-/* ===== Directory ===== */
+/* ===================== Directory / helpers / UI ===================== */
 const dirByCode = {};
 const codeByName = {};
 const routesLookup = {};
@@ -640,7 +645,6 @@ async function loadDirectory(force=false){
   console.log('📒 Directory loaded from Firestore:', rows.length, 'force=', force);
 }
 
-/* helpers */
 function toObjPoints(arr) { return (arr || []).map(p => ({ lng: p[0], lat: p[1] })); }
 function fromObjPoints(arr) { return (arr || []).map(p => [p.lng, p.lat]); }
 
@@ -683,7 +687,7 @@ function updateRouteName() {
   document.getElementById('routeName').value = `${fromLabel} → ${toLabel} [${parts.join(' • ')}]`;
 }
 
-/* ===== Duplicates ===== */
+/* ===== DUPLICATES ===== */
 function sanitizeId(s){ return String(s||'').replace(/[\/\\#?\[\]]/g,'_'); }
 
 async function findExistingRoute(fromCode, toCode, routeType){
@@ -789,20 +793,17 @@ let isRefreshingRoutes = false;
 async function refreshRoutesList(limitNum = 100) {
   if (!db || isRefreshingRoutes) return;
   isRefreshingRoutes = true;
-  try {
-    const sel  = document.getElementById('remoteRoutes');
-    const list = document.getElementById('routesList');
-    const current = sel.value;
 
+  const sel  = document.getElementById('remoteRoutes');
+  const list = document.getElementById('routesList');
+  const current = sel.value;
+
+  const q = db.collection('routes').orderBy('updatedAt','desc').limit(limitNum);
+
+  const render = (snap) => {
     sel.innerHTML = '<option value="">— вибери маршрут з БД —</option>';
     list.innerHTML = '';
     for (const k in routesLookup) delete routesLookup[k];
-
-    let q = db.collection('routes').orderBy('updatedAt','desc').limit(limitNum);
-
-    let snap = null;
-    try { snap = await q.get({ source: 'cache' }); } catch {}
-    if (!snap || snap.empty) snap = await q.get();
 
     snap.forEach(doc => {
       const d = doc.data();
@@ -824,6 +825,13 @@ async function refreshRoutesList(limitNum = 100) {
     if (Array.from(sel.options).some(o => o.value === current)) {
       sel.value = current;
     }
+  };
+
+  try {
+    const snapCache = await q.get({ source: 'cache' }).catch(()=>null);
+    if (snapCache && !snapCache.empty) render(snapCache);
+    const snapServer = await q.get({ source: 'default' }).catch(()=>null);
+    if (snapServer) render(snapServer);
   } finally {
     isRefreshingRoutes = false;
   }
@@ -1016,6 +1024,7 @@ auth?.onAuthStateChanged(async (user) => {
 window.addEventListener('load', async () => {
   if (!db) return;
   await loadDirectory(true); // свіже завантаження
+  await refreshRoutesList(); // кеш -> сервер
   const rid = new URLSearchParams(location.search).get('rid');
   if (rid) await loadRouteById(rid);
 });
