@@ -256,11 +256,8 @@ let selectedMarkerIndex = null;
 
 /* ====== Active ruler tracking ====== */
 let activeRuler = null;       // 'start' | 'end' | null
-let lastActiveRuler = null;   // пам'ятаємо останню використану лінійку
-function setActiveRuler(which){
-  activeRuler = which;
-  if (which) lastActiveRuler = which;
-}
+let lastActiveRuler = null;
+function setActiveRuler(which){ activeRuler = which; if (which) lastActiveRuler = which; }
 
 /* ====== Roles ====== */
 let currentRole = 'guest';
@@ -730,6 +727,78 @@ function askDuplicateAction(existingName){
     document.addEventListener('keydown', onEsc, { once:false });
   });
 }
+
+/* ===== Local JSON save/load ===== */
+const fileInput = document.getElementById('fileInput');
+
+document.getElementById('saveRoute').onclick = () => {
+  if (readOnly) { alert('⛔ Недостатньо прав'); return; }
+  const fromCode = getCodeByInput('fromName');
+  const toCode   = getCodeByInput('toName');
+  const routeType = document.getElementById('routeType').value;
+  const purpose   = document.getElementById('routePurpose').value;
+  const intermediateText = document.getElementById('intermediateText').value.trim();
+
+  const routeData = {
+    name: (document.getElementById('routeName').value || 'Без назви'),
+    fromCode, toCode, routeType, purpose, intermediateText,
+    points: toObjPoints(points),
+    startRuler: toObjPoints(startRuler),
+    endRuler: toObjPoints(endRuler),
+    distance_km: parseFloat(document.getElementById('distance').textContent) || 0,
+    date: new Date().toISOString()
+  };
+  const blob = new Blob([JSON.stringify(routeData, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  const safe = String(routeData.name || 'route').replace(/[\/\\#?[\]:]/g,'_');
+  a.href = url; a.download = `route_${safe}_${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+};
+
+document.getElementById('loadRoute').onclick = () => {
+  if (readOnly) { alert('⛔ Недостатньо прав'); return; }
+  fileInput.value = null; fileInput.click();
+};
+
+fileInput.onchange = (event) => {
+  if (readOnly) return;
+  const file = event.target.files && event.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    try {
+      const routeData = JSON.parse(e.target.result);
+      // підтримуємо і [{lng,lat}] і [[lng,lat]]
+      const arrFrom = (pts) => {
+        if (!Array.isArray(pts)) return [];
+        if (pts.length && typeof pts[0] === 'object' && pts[0] !== null && 'lng' in pts[0]) {
+          return fromObjPoints(pts);
+        }
+        return pts;
+      };
+
+      points = arrFrom(routeData.points || []);
+      startRuler = arrFrom(routeData.startRuler || []);
+      endRuler = arrFrom(routeData.endRuler || []);
+
+      // поля форми, якщо є коди
+      if (routeData.fromCode) document.getElementById('fromName').value = getNameByCode(routeData.fromCode) || '';
+      if (routeData.toCode)   document.getElementById('toName').value   = getNameByCode(routeData.toCode)   || '';
+      if (routeData.routeType) document.getElementById('routeType').value = routeData.routeType;
+      if (routeData.purpose)   document.getElementById('routePurpose').value = routeData.purpose;
+      document.getElementById('intermediateText').value = routeData.intermediateText || '';
+      document.getElementById('routeName').value = routeData.name || '';
+
+      rebuildMarkers(); drawRulers(); updateRoute();
+      if (points.length > 0) map.flyTo({ center: points[0], zoom: 12 });
+      alert('Маршрут успішно завантажено з файлу!');
+    } catch (err) {
+      alert('Помилка при завантаженні: ' + err.message);
+    }
+  };
+  reader.readAsText(file);
+};
 
 /* ===== Firestore: save/list/load/delete ===== */
 async function saveToDB() {
