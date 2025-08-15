@@ -57,7 +57,7 @@
   }
   #controls textarea{min-height:48px; resize:vertical}
   label{display:block;font-size:12.5px;color:#444;margin:2px 0 4px}
-  small.muted{color:#6b7280}
+  small.muted{color:var(--muted)}
   .row{display:grid;grid-template-columns:1fr 1fr;gap:8px}
   @media(max-width:420px){ .row{grid-template-columns:1fr} }
   .btn{cursor:pointer;border:1px solid var(--line);background:#fff;border-radius:8px;
@@ -140,13 +140,6 @@
     </div>
 
     <div class="km-chip">км: <span id="distance">0</span></div>
-    <!-- ДОДАНО: лічильники точок -->
-    <div class="km-chip">
-      точки: <span id="countRoute">0</span> •
-      лін(поч): <span id="countStart">0</span> •
-      лін(кін): <span id="countEnd">0</span> •
-      всього: <span id="countTotal">0</span>
-    </div>
   </div>
 
   <hr/>
@@ -256,10 +249,14 @@ mapboxgl.accessToken = 'pk.eyJ1IjoidGtjaGsiLCJhIjoiY21keTN0bXVlMjN6djJrczZ2NDk5b
 let currentStyle = 'mapbox://styles/mapbox/streets-v12';
 const map = new mapboxgl.Map({ container: 'map', style: currentStyle, center: [30.5238, 50.4547], zoom: 10 });
 
-/* === УКРАЇНСЬКІ ПІДПИСИ НА КАРТІ === */
+/* === УКРАЇНСЬКІ ПІДПИСИ НА КАРТІ ===
+   Після кожного завантаження стилю підміняємо текстові поля label-шарів,
+   щоб використовувати українські назви, якщо вони присутні у даних. */
 function applyUkrainianLabels(){
   const style = map.getStyle();
   if (!style || !style.layers) return;
+
+  // Вираз: спочатку name_uk / name:uk / name_ua / name:ua, далі локальна / базова назва
   const ukTextExpr = [
     'coalesce',
     ['get','name_uk'],
@@ -269,6 +266,7 @@ function applyUkrainianLabels(){
     ['get','name_local'],
     ['get','name']
   ];
+
   style.layers.forEach(l => {
     if (l.type === 'symbol') {
       const hasTextField = map.getLayoutProperty(l.id, 'text-field') !== undefined;
@@ -332,6 +330,7 @@ insertAfterBtn.onclick = (e) => {
   if (selectedMarkerIndex !== null) insertAfterMode = true;
   contextMenu.style.display = 'none';
 };
+
 deletePointBtn.onclick = (e) => {
   e.preventDefault(); e.stopPropagation();
   if (readOnly) { contextMenu.style.display='none'; return; }
@@ -344,9 +343,9 @@ deletePointBtn.onclick = (e) => {
 };
 document.addEventListener('click', () => { contextMenu.style.display = 'none'; });
 
-/* Застосувати українські підписи після кожного завантаження стилю */
+/* ВАЖЛИВО: застосувати українські підписи після кожного завантаження стилю */
 map.on('style.load', () => {
-  applyUkrainianLabels();
+  applyUkrainianLabels();      // ← додано
   updateRoute();
   drawRulers();
 });
@@ -382,7 +381,7 @@ document.getElementById('endLineMode').onclick = () => {
   toggleButton('endLineMode', endLineMode); toggleButton('startLineMode', false); toggleButton('toggleAdd', false);
 };
 
-/* — видалення останньої точки активної лінійки — */
+/* — НОВЕ: видалення останньої точки активної лінійки — */
 document.getElementById('popRulerPoint').onclick = () => {
   if (readOnly) return;
   const choose = () => activeRuler || lastActiveRuler || (startRuler.length >= endRuler.length ? 'start' : 'end');
@@ -397,7 +396,7 @@ document.getElementById('popRulerPoint').onclick = () => {
   if (did){ drawRulers(); updateRoute(); }
 };
 
-/* — ОЧИЩЕННЯ ЛІНІЙОК — */
+/* — ОЧИЩЕННЯ ЛІНІЙОК: активна/обидві — */
 document.getElementById('clearRulers').onclick = () => {
   if (readOnly) return;
   if (activeRuler === 'start') {
@@ -524,19 +523,6 @@ function calculateRulerDistance(ruler) {
   return dist;
 }
 
-/* ===== ЛІЧИЛЬНИКИ ТОЧОК — ДОДАНО ===== */
-function updateCounters(){
-  const routeCount = points.length;
-  const startCount = startRuler.length;
-  const endCount   = endRuler.length;
-  const total      = routeCount + startCount + endCount;
-  const byId = id => document.getElementById(id);
-  byId('countRoute').textContent = routeCount;
-  byId('countStart').textContent = startCount;
-  byId('countEnd').textContent   = endCount;
-  byId('countTotal').textContent = total;
-}
-
 /* ===== Route (Mapbox Directions chunks) ===== */
 function splitIntoChunks(array, chunkSize) {
   const chunks = [];
@@ -559,9 +545,7 @@ async function updateRoute() {
   if (points.length < 2) {
     document.getElementById('distance').textContent =
       (calculateRulerDistance(startRuler) + calculateRulerDistance(endRuler)).toFixed(2);
-    updateCounters();                // ← ДОДАНО
-    clearRouteLayers();
-    return;
+    clearRouteLayers(); return;
   }
   const chunks = splitIntoChunks(points, 20);
   let totalDistance = 0;
@@ -591,7 +575,6 @@ async function updateRoute() {
 
   totalDistance = (totalDistance / 1000) + calculateRulerDistance(startRuler) + calculateRulerDistance(endRuler);
   document.getElementById('distance').textContent = totalDistance.toFixed(2);
-  updateCounters();                  // ← ДОДАНО
 }
 
 /* turf */
@@ -819,6 +802,7 @@ fileInput.onchange = (event) => {
   reader.onload = (e) => {
     try {
       const routeData = JSON.parse(e.target.result);
+      // підтримуємо і [{lng,lat}] і [[lng,lat]]
       const arrFrom = (pts) => {
         if (!Array.isArray(pts)) return [];
         if (pts.length && typeof pts[0] === 'object' && pts[0] !== null && 'lng' in pts[0]) {
@@ -831,6 +815,7 @@ fileInput.onchange = (event) => {
       startRuler = arrFrom(routeData.startRuler || []);
       endRuler = arrFrom(routeData.endRuler || []);
 
+      // поля форми, якщо є коди
       if (routeData.fromCode) document.getElementById('fromName').value = getNameByCode(routeData.fromCode) || '';
       if (routeData.toCode)   document.getElementById('toName').value   = getNameByCode(routeData.toCode)   || '';
       if (routeData.routeType) document.getElementById('routeType').value = routeData.routeType;
@@ -1140,11 +1125,12 @@ auth?.onAuthStateChanged(async (user) => {
 /* ===== Start ===== */
 window.addEventListener('load', async () => {
   if (!db) return;
-  await loadDirectory(true);
-  await refreshRoutesList();
+  await loadDirectory(true); // свіже завантаження
+  await refreshRoutesList(); // кеш -> сервер
   const rid = new URLSearchParams(location.search).get('rid');
   if (rid) await loadRouteById(rid);
 });
+
 document.getElementById('fromName').addEventListener('change', updateRouteName);
 document.getElementById('toName').addEventListener('change', updateRouteName);
 document.getElementById('routeType').addEventListener('change', updateRouteName);
