@@ -153,14 +153,28 @@
     out.push(clean[clean.length - 1]);
     return out;
   }
+// === Вибір українського голосу для TTS ===
+let uaVoice = null;
+function pickUkrainianVoice() {
+  const voices = window.speechSynthesis?.getVoices?.() || [];
+  const ua = voices.filter(v => (v.lang || '').toLowerCase().startsWith('uk'));
+  // спробуємо популярні системні/хмарні голоси спочатку
+  uaVoice = ua.find(v => /google|microsoft|apple/i.test(v.name)) || ua[0] || null;
+}
+if ('speechSynthesis' in window) {
+  pickUkrainianVoice();
+  window.speechSynthesis.onvoiceschanged = pickUkrainianVoice;
+}
 
   function speak(text){
-    try{
-      const u = new SpeechSynthesisUtterance(text);
-      u.lang = 'uk-UA';
-      speechSynthesis.speak(u);
-    }catch(e){}
-  }
+  try{
+    const u = new SpeechSynthesisUtterance(text);
+    u.lang = 'uk-UA';
+    if (uaVoice) u.voice = uaVoice; // фіксуємо саме укр. голос
+    window.speechSynthesis.speak(u);
+  }catch(e){}
+}
+
   function showToast(msg){ $toast.textContent = msg; $toast.style.display='block'; setTimeout(()=>{$toast.style.display='none'}, 1300); }
   function metersToKM(m){ return (m/1000).toFixed(1); }
   function secondsToETA(s){
@@ -177,25 +191,27 @@
   }
 
   async function fetchDirections(points){
-    const coords = points.map(p => p.join(',')).join(';');
-    const url = `https://api.mapbox.com/directions/v5/mapbox/${PROFILE}/${coords}?alternatives=false&geometries=geojson&overview=full&steps=true&access_token=${MAPBOX_TOKEN}`;
-    const res = await fetch(url);
-    if (!res.ok){
-      const text = await res.text().catch(()=> '');
-      console.error('Directions API error', res.status, text);
-      throw new Error(`Directions API error (${res.status})`);
-    }
-    const json = await res.json();
-    if (!json.routes || !json.routes[0]) throw new Error('Маршрут не побудовано');
-    const r = json.routes[0];
-    routeGeoJSON = { type:'Feature', geometry:r.geometry, properties:{} };
-    steps = r.legs.flatMap(l=>l.steps);
-    totalDistance = r.distance;
-    totalDuration = r.duration;
-    $dist.textContent = `${metersToKM(totalDistance)} км`;
-    $eta.textContent = `ETA ${secondsToETA(totalDuration)}`;
-    return routeGeoJSON;
+  const coords = points.map(p => p.join(',')).join(';');
+  // ⬇️ ДОДАНО language=uk та voice_units=metric
+  const url = `https://api.mapbox.com/directions/v5/mapbox/${PROFILE}/${coords}?alternatives=false&geometries=geojson&overview=full&steps=true&language=uk&voice_units=metric&access_token=${MAPBOX_TOKEN}`;
+
+  const res = await fetch(url);
+  if (!res.ok){
+    const text = await res.text().catch(()=> '');
+    console.error('Directions API error', res.status, text);
+    throw new Error(`Directions API error (${res.status})`);
   }
+  const json = await res.json();
+  if (!json.routes || !json.routes[0]) throw new Error('Маршрут не побудовано');
+  const r = json.routes[0];
+  routeGeoJSON = { type:'Feature', geometry:r.geometry, properties:{} };
+  steps = r.legs.flatMap(l=>l.steps);
+  totalDistance = r.distance;
+  totalDuration = r.duration;
+  $dist.textContent = `${metersToKM(totalDistance)} км`;
+  $eta.textContent = `ETA ${secondsToETA(totalDuration)}`;
+  return routeGeoJSON;
+}
 
   function addRouteToMap(){
     if (!routeGeoJSON) return;
