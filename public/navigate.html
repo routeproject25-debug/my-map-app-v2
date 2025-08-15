@@ -86,6 +86,32 @@
   });
   map.addControl(new mapboxgl.NavigationControl({visualizePitch:true}), 'bottom-left');
 
+  /* === УКРАЇНСЬКІ ПІДПИСИ НА КАРТІ ===
+     Після завантаження стилю замінюємо text-field у символ-шарах на coalesce(name_uk, name:uk, name_ua, name:ua, name_local, name) */
+  function applyUkrainianLabels(){
+    const style = map.getStyle();
+    if (!style || !style.layers) return;
+
+    const ukExpr = [
+      'coalesce',
+      ['get','name_uk'],
+      ['get','name:uk'],
+      ['get','name_ua'],
+      ['get','name:ua'],
+      ['get','name_local'],
+      ['get','name']
+    ];
+
+    style.layers.forEach(l=>{
+      if (l.type === 'symbol') {
+        const has = map.getLayoutProperty(l.id, 'text-field') !== undefined;
+        if (has) {
+          try { map.setLayoutProperty(l.id, 'text-field', ukExpr); } catch(_){}
+        }
+      }
+    });
+  }
+
   // UI
   document.getElementById('statMode').textContent = PROFILE;
   const $title = document.getElementById('routeTitle');
@@ -328,6 +354,9 @@
       else { await navigator.clipboard.writeText(url); showToast('Посилання скопійовано'); }
     }catch(e){ await navigator.clipboard.writeText(url); showToast('Посилання скопійовано'); }
   }
+
+  // Застосовуємо українські підписи щоразу, коли стиль повністю завантажено
+  map.on('style.load', applyUkrainianLabels);
 
   map.on('load', async ()=>{
     try{
