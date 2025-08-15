@@ -249,6 +249,34 @@ mapboxgl.accessToken = 'pk.eyJ1IjoidGtjaGsiLCJhIjoiY21keTN0bXVlMjN6djJrczZ2NDk5b
 let currentStyle = 'mapbox://styles/mapbox/streets-v12';
 const map = new mapboxgl.Map({ container: 'map', style: currentStyle, center: [30.5238, 50.4547], zoom: 10 });
 
+/* === УКРАЇНСЬКІ ПІДПИСИ НА КАРТІ ===
+   Після кожного завантаження стилю підміняємо текстові поля label-шарів,
+   щоб використовувати українські назви, якщо вони присутні у даних. */
+function applyUkrainianLabels(){
+  const style = map.getStyle();
+  if (!style || !style.layers) return;
+
+  // Вираз: спочатку name_uk / name:uk / name_ua / name:ua, далі локальна / базова назва
+  const ukTextExpr = [
+    'coalesce',
+    ['get','name_uk'],
+    ['get','name:uk'],
+    ['get','name_ua'],
+    ['get','name:ua'],
+    ['get','name_local'],
+    ['get','name']
+  ];
+
+  style.layers.forEach(l => {
+    if (l.type === 'symbol') {
+      const hasTextField = map.getLayoutProperty(l.id, 'text-field') !== undefined;
+      if (hasTextField) {
+        try { map.setLayoutProperty(l.id, 'text-field', ukTextExpr); } catch(_) {}
+      }
+    }
+  });
+}
+
 let addMode = false, startLineMode = false, endLineMode = false;
 let insertAfterMode = false;
 let points = [], markers = [], startRuler = [], endRuler = [], rulerLines = [], routeLayers = [];
@@ -315,7 +343,12 @@ deletePointBtn.onclick = (e) => {
 };
 document.addEventListener('click', () => { contextMenu.style.display = 'none'; });
 
-map.on('style.load', () => { updateRoute(); drawRulers(); });
+/* ВАЖЛИВО: застосувати українські підписи після кожного завантаження стилю */
+map.on('style.load', () => {
+  applyUkrainianLabels();      // ← додано
+  updateRoute();
+  drawRulers();
+});
 
 document.getElementById('mapStyle').addEventListener('change', function() {
   currentStyle = this.value;
