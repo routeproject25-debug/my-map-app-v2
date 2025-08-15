@@ -140,6 +140,7 @@
     </div>
 
     <div class="km-chip">км: <span id="distance">0</span></div>
+    <!-- ДОДАНО: лічильники точок -->
     <div class="km-chip">
       точки: <span id="countRoute">0</span> •
       лін(поч): <span id="countStart">0</span> •
@@ -183,18 +184,6 @@
       <input id="intermediateText" type="text" placeholder="Напр.: Немирів; Гайсин; Тульчин">
     </div>
   </div>
-
-  <!-- ЛОГІСТ -->
-  <div class="row" style="margin-top:6px;">
-    <div style="grid-column:1 / -1">
-      <label>Логіст (хто створює)</label>
-      <input id="logistInput" type="text" placeholder="Почни вводити прізвище..." list="logistsList" autocomplete="off">
-      <datalist id="logistsList"></datalist>
-      <small class="muted">Список береться з колекції <b>logists</b> (активні). Обери себе зі списку.</small>
-      <div id="logistsMsg" style="display:none;font-size:12px;color:#b91c1c;margin-top:4px"></div>
-    </div>
-  </div>
-
   <small class="muted">У БД зберігаються <b>коди</b> “Від/До”. Назва маршруту генерується з актуальних назв довідника.</small>
 
   <details>
@@ -220,12 +209,7 @@
       <button id="refreshDirectory" class="btn xs">🔄 Оновити довідник</button>
       <button id="clearDirCache" class="btn xs">🧹 Очистити кеш</button>
     </div>
-
-    <div class="btn-row" style="margin-top:6px;">
-      <button id="refreshLogists" class="btn xs">🔄 Оновити логістів</button>
-      <button id="clearLogistsCache" class="btn xs">🧹 Кеш логістів</button>
-    </div>
-    <small class="muted">Дані логістів оновлюються з Firestore. Адмін змінює їх у колекції <b>logists</b>.</small>
+    <small class="muted">Не бачиш нові склади/поля? Натисни «Оновити довідник».</small>
   </div>
 
   <div id="dbControls">
@@ -313,7 +297,6 @@ function applyRoleUI(role){
   currentRole = role || 'guest';
   readOnly = (currentRole === 'guest' || currentRole === 'user');
 
-  // logistInput НЕ блокуємо
   const disableIds = [
     'toggleAdd','startLineMode','endLineMode','clearRoute','popRulerPoint','clearRulers',
     'saveRoute','loadRoute','saveToDB','deleteFromDB','routeName',
@@ -541,7 +524,7 @@ function calculateRulerDistance(ruler) {
   return dist;
 }
 
-/* ===== ЛІЧИЛЬНИКИ ТОЧОК ===== */
+/* ===== ЛІЧИЛЬНИКИ ТОЧОК — ДОДАНО ===== */
 function updateCounters(){
   const routeCount = points.length;
   const startCount = startRuler.length;
@@ -576,7 +559,7 @@ async function updateRoute() {
   if (points.length < 2) {
     document.getElementById('distance').textContent =
       (calculateRulerDistance(startRuler) + calculateRulerDistance(endRuler)).toFixed(2);
-    updateCounters();
+    updateCounters();                // ← ДОДАНО
     clearRouteLayers();
     return;
   }
@@ -608,7 +591,7 @@ async function updateRoute() {
 
   totalDistance = (totalDistance / 1000) + calculateRulerDistance(startRuler) + calculateRulerDistance(endRuler);
   document.getElementById('distance').textContent = totalDistance.toFixed(2);
-  updateCounters();
+  updateCounters();                  // ← ДОДАНО
 }
 
 /* turf */
@@ -619,7 +602,7 @@ document.head.appendChild(turfScript);
 
 /* ===================== Firebase ===================== */
 const firebaseConfig = {
-  apiKey: "AIzaSyDjDBZkmy-skuDEQF8-AкRma7yw6TugoQc",
+  apiKey: "AIzaSyDjDBZkmy-skuDEQF8-AkRma7yw6TugoQc",
   authDomain: "my-map-app-58312.firebaseapp.com",
   projectId: "my-map-app-58312",
   storageBucket: "my-map-app-58312.firebasestorage.app",
@@ -646,19 +629,11 @@ const dirByCode = {};
 const codeByName = {};
 const routesLookup = {};
 
-/* === ЛОГІСТИ === */
-const logistById = {};
-const logistIdByName = {};
-
 const DIR_CACHE_KEY = 'directoryCache.v2';
 const DIR_CACHE_TTL_MS = 12 * 60 * 60 * 1000;
 
-const LOGISTS_CACHE_KEY = 'logistsCache.v1';
-const LOGISTS_CACHE_TTL_MS = 12 * 60 * 60 * 1000;
-
 function _norm(s){ return String(s||'').trim().toLowerCase(); }
 
-/* ---- Directory ---- */
 function fillDirectoryUI(rows){
   const list = document.getElementById('directoryList');
   list.innerHTML = '';
@@ -717,102 +692,6 @@ async function loadDirectory(force=false){
   console.log('📒 Directory loaded from Firestore:', rows.length, 'force=', force);
 }
 
-/* ---- Logists ---- */
-function fillLogistsUI(rows){
-  const list = document.getElementById('logistsList');
-  list.innerHTML = '';
-  Object.keys(logistById).forEach(k=> delete logistById[k]);
-  Object.keys(logistIdByName).forEach(k=> delete logistIdByName[k]);
-
-  rows.forEach(r=>{
-    logistById[r.id] = r;
-    logistIdByName[r.name] = r.id;
-    const opt = document.createElement('option');
-    opt.value = r.name;
-    list.appendChild(opt);
-  });
-
-  if (rows.length === 0) {
-    console.warn('👥 Logists: пусто (можливо, немає доступу/документів).');
-  }
-}
-
-async function loadLogists(allowServer=true){
-  const msg = document.getElementById('logistsMsg');
-  const showMsg = (t) => { msg.textContent = t || ''; msg.style.display = t ? 'block' : 'none'; };
-
-  try{
-    // 1) Кеш
-    const raw = localStorage.getItem(LOGISTS_CACHE_KEY);
-    if(raw){
-      const { ts, rows } = JSON.parse(raw);
-      if (Array.isArray(rows) && Date.now() - ts < LOGISTS_CACHE_TTL_MS){
-        fillLogistsUI(rows);
-        showMsg('');
-        console.log('👥 Logists from cache:', rows.length);
-        return;
-      }
-    }
-
-    // 2) Firestore (за потреби)
-    if (!allowServer) {
-      showMsg('Увійдіть, щоб побачити список логістів.');
-      return;
-    }
-
-    let snap = null;
-    try {
-      snap = await db.collection('logists').get({ source: 'default' });
-    } catch (e) {
-      if (e && (e.code === 'permission-denied' || /insufficient permissions/i.test(e.message))) {
-        console.warn('permission-denied для logists');
-        showMsg('Увійдіть, щоб побачити список логістів.');
-        return;
-      }
-      throw e;
-    }
-
-    let rows = [];
-    snap.forEach(doc=>{
-      const d = doc.data() || {};
-      rows.push({
-        id: doc.id,
-        name: d.name || doc.id,
-        active: d.active !== false,
-        sort: typeof d.sort === 'number' ? d.sort : 0
-      });
-    });
-
-    rows = rows.filter(r=>r.active)
-               .sort((a,b)=> (a.sort-b.sort) || a.name.localeCompare(b.name,'uk'));
-
-    fillLogistsUI(rows);
-    try{ localStorage.setItem(LOGISTS_CACHE_KEY, JSON.stringify({ ts: Date.now(), rows })); }catch{}
-    showMsg('');
-    console.log('👥 Logists loaded from Firestore:', rows.length);
-  } catch (e) {
-    console.error('❌ Logists load error:', e);
-    // Тихо показуємо повідомлення, без alert
-    showMsg('Не вдалось завантажити логістів.');
-  }
-}
-
-function getLogistIdByInput(inputId){
-  const name = (document.getElementById(inputId).value || '').trim();
-  if(!name) return null;
-  if (logistIdByName[name]) return logistIdByName[name];
-
-  const n = _norm(name);
-  for (const [label, id] of Object.entries(logistIdByName)){
-    if (_norm(label) === n) return id;
-  }
-  const candidates = Object.entries(logistIdByName).filter(([label])=> _norm(label).includes(n));
-  if (candidates.length === 1) return candidates[0][1];
-  return null;
-}
-function getLogistNameById(id){ return (logistById[id]?.name) || ''; }
-
-/* Helpers for route points */
 function toObjPoints(arr) { return (arr || []).map(p => ({ lng: p[0], lat: p[1] })); }
 function fromObjPoints(arr) { return (arr || []).map(p => [p.lng, p.lat]); }
 
@@ -909,8 +788,6 @@ document.getElementById('saveRoute').onclick = () => {
   const routeType = document.getElementById('routeType').value;
   const purpose   = document.getElementById('routePurpose').value;
   const intermediateText = document.getElementById('intermediateText').value.trim();
-  const logistId = getLogistIdByInput('logistInput');
-  const logistName = logistId ? getLogistNameById(logistId) : '';
 
   const routeData = {
     name: (document.getElementById('routeName').value || 'Без назви'),
@@ -918,8 +795,6 @@ document.getElementById('saveRoute').onclick = () => {
     points: toObjPoints(points),
     startRuler: toObjPoints(startRuler),
     endRuler: toObjPoints(endRuler),
-    logisticId: logistId || null,
-    logisticName: logistName || '',
     distance_km: parseFloat(document.getElementById('distance').textContent) || 0,
     date: new Date().toISOString()
   };
@@ -963,9 +838,6 @@ fileInput.onchange = (event) => {
       document.getElementById('intermediateText').value = routeData.intermediateText || '';
       document.getElementById('routeName').value = routeData.name || '';
 
-      document.getElementById('logistInput').value =
-        routeData.logisticName || (routeData.logisticId ? getLogistNameById(routeData.logisticId) : '');
-
       rebuildMarkers(); drawRulers(); updateRoute();
       if (points.length > 0) map.flyTo({ center: points[0], zoom: 12 });
       alert('Маршрут успішно завантажено з файлу!');
@@ -990,9 +862,7 @@ async function saveToDB() {
     const routeType = document.getElementById('routeType').value;
     const purpose   = document.getElementById('routePurpose').value;
     const intermediateText = document.getElementById('intermediateText').value.trim();
-    const logistId = getLogistIdByInput('logistInput');
     if (!fromCode || !toCode) { alert('Оберіть значення “Від” та “До” зі списку довідника.'); return; }
-    if (!logistId) { alert('Оберіть логіста зі списку.'); return; }
 
     const from = dirByCode[fromCode] || {};
     const to   = dirByCode[toCode] || {};
@@ -1003,18 +873,12 @@ async function saveToDB() {
     const manual = (document.getElementById('routeName').value || '').trim();
     const finalName = manual || generatedName;
 
-    const user = auth?.currentUser || null;
-
     const payload = {
       name: finalName,
       fromCode, toCode, routeType, purpose, intermediateText,
       points: toObjPoints(points),
       startRuler: toObjPoints(startRuler),
       endRuler: toObjPoints(endRuler),
-      logisticId: logistId,
-      logisticName: getLogistNameById(logistId),
-      createdByUid: user?.uid || null,
-      createdByEmail: user?.email || null,
       distance_km: parseFloat(document.getElementById('distance').textContent) || 0,
       updatedAt: new Date().toISOString()
     };
@@ -1110,9 +974,6 @@ async function loadFromDB() {
     document.getElementById('intermediateText').value = data.intermediateText || '';
     document.getElementById('routeName').value = formatRouteTitle(data);
 
-    document.getElementById('logistInput').value =
-      data.logisticName || (data.logisticId ? getLogistNameById(data.logisticId) : '');
-
     points = fromObjPoints(data.points || []);
     startRuler = fromObjPoints(data.startRuler || []);
     endRuler = fromObjPoints(data.endRuler || []);
@@ -1166,17 +1027,6 @@ document.getElementById('clearDirCache').onclick = () => {
   loadDirectory(true);
 };
 
-/* Logists buttons */
-document.getElementById('refreshLogists').onclick = async () => {
-  const isLogged = !!(auth && auth.currentUser);
-  await loadLogists(isLogged);
-};
-document.getElementById('clearLogistsCache').onclick = () => {
-  try { localStorage.removeItem(LOGISTS_CACHE_KEY); } catch {}
-  const isLogged = !!(auth && auth.currentUser);
-  loadLogists(isLogged);
-};
-
 /* Search helper */
 const routeSearch = document.getElementById('routeSearch');
 const remoteRoutesSel = document.getElementById('remoteRoutes');
@@ -1210,10 +1060,6 @@ async function loadRouteById(rid) {
     document.getElementById('routePurpose').value = data.purpose || 'Зерно';
     document.getElementById('intermediateText').value = data.intermediateText || '';
     document.getElementById('routeName').value = formatRouteTitle(data);
-
-    document.getElementById('logistInput').value =
-      data.logisticName || (data.logisticId ? getLogistNameById(data.logisticId) : '');
-
     points     = fromObjPoints(data.points || []);
     startRuler = fromObjPoints(data.startRuler || []);
     endRuler   = fromObjPoints(data.endRuler || []);
@@ -1236,7 +1082,6 @@ function clearForm() {
   document.getElementById('routePurpose').value = 'Зерно';
   document.getElementById('intermediateText').value = '';
   document.getElementById('routeName').value = '';
-  document.getElementById('logistInput').value = '';
   document.getElementById('distance').textContent = '0';
   points = []; startRuler = []; endRuler = [];
   rebuildMarkers(); drawRulers(); updateRoute();
@@ -1284,34 +1129,22 @@ auth?.onAuthStateChanged(async (user) => {
       if (r.exists && r.data()?.role) role = String(r.data().role);
     }catch{}
     applyRoleUI(role);
-
-    // після входу — тягнемо логістів із сервера
-    await loadLogists(true);
   } else {
     authHello.textContent = 'Гість';
     loginBtn.style.display='inline-block'; authEmail.style.display='inline-block'; authPass.style.display='inline-block';
     logoutBtn.style.display='none';
     applyRoleUI('guest');
-
-    // для гостей — лише кеш, без алертів
-    await loadLogists(false);
   }
 });
 
 /* ===== Start ===== */
 window.addEventListener('load', async () => {
   if (!db) return;
-  await loadDirectory(true);   // довідник
-  await refreshRoutesList();   // кеш -> сервер
+  await loadDirectory(true);
+  await refreshRoutesList();
   const rid = new URLSearchParams(location.search).get('rid');
   if (rid) await loadRouteById(rid);
 });
-
-// Автовідкриття підказок у полі логіста
-document.getElementById('logistInput').addEventListener('focus', function(){
-  try { this.dispatchEvent(new KeyboardEvent('keydown', {key:'ArrowDown'})); } catch {}
-});
-
 document.getElementById('fromName').addEventListener('change', updateRouteName);
 document.getElementById('toName').addEventListener('change', updateRouteName);
 document.getElementById('routeType').addEventListener('change', updateRouteName);
