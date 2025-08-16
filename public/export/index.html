@@ -23,9 +23,13 @@
     .row { display:grid; gap:12px; }
     .row.cols-2 { grid-template-columns: 1fr 1fr; }
     .row.cols-3 { grid-template-columns: 1fr 1fr 1fr; }
+    .row.cols-4 { grid-template-columns: 1fr 1fr 1fr 1fr; }
     .row.dates { grid-template-columns: minmax(180px,1fr) minmax(180px,1fr); gap:10px; }
+    @media (max-width: 860px) {
+      .row.cols-4 { grid-template-columns: 1fr 1fr; }
+    }
     @media (max-width: 640px) {
-      .row.cols-2, .row.cols-3, .row.dates { grid-template-columns: 1fr; }
+      .row.cols-2, .row.cols-3, .row.cols-4, .row.dates { grid-template-columns: 1fr; }
     }
 
     label { display:block; font-size:13px; color:#555; margin:4px 0; }
@@ -38,6 +42,7 @@
     .btn.sm { padding:4px 8px; font-size:12.5px; }
     .bar { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
     .muted { color:#667085; font-size:12.5px; }
+    .warn { color:#b91c1c; font-size:12px; }
     table { width:100%; border-collapse:collapse; }
     th, td { border:1px solid #e5e7eb; padding:6px 8px; font-size:13px; text-align:left; vertical-align: top; }
     th { background:#f1f5f9; }
@@ -120,8 +125,8 @@
         </div>
       </div>
 
-      <!-- 3 ряд: Підрозділ + Відстань -->
-      <div class="row cols-3" style="margin-top:12px;">
+      <!-- 3 ряд: Підрозділ + Відстань + Логіст -->
+      <div class="row cols-4" style="margin-top:12px;">
         <div>
           <label>Виробничий підрозділ (у Від або До)</label>
           <select id="unitFilter">
@@ -135,6 +140,12 @@
         <div>
           <label>Відстань, км — до</label>
           <input id="distMax" type="number" step="0.001" placeholder="макс.">
+        </div>
+        <div>
+          <label>Логіст</label>
+          <input id="logistFilter" type="text" placeholder="Почни вводити..." list="logistsList" autocomplete="off">
+          <datalist id="logistsList"></datalist>
+          <div id="logistsMsg" class="warn" style="display:none;margin-top:4px"></div>
         </div>
       </div>
 
@@ -166,6 +177,7 @@
               <th>Код Від</th><th>Код До</th>
               <th>Від</th><th>До</th>
               <th>Відстань, км</th><th>Тип</th>
+              <th>Логіст</th>
               <th>Оновлено</th><th>ID</th>
               <th>Карта</th>
               <th>Навігатор</th>
@@ -179,12 +191,9 @@
 
 <script>
 /* === Навігаційні константи (налаштовуються) === */
-const MAP_URL = '/index.html';         // куди відкривається маршрут на карті (як було)
-const NAVIGATE_PAGE = '/navigate.html';// сторінка навігатора
-const DEFAULT_PROFILE = 'driving';     // профіль для navigate.html
-/* Якщо хочеш передавати токен у лінку, додай його тут:
-   const MAPBOX_TOKEN_FOR_NAV = 'pk....';
-*/
+const MAP_URL = '/index.html';
+const NAVIGATE_PAGE = '/navigate.html';
+const DEFAULT_PROFILE = 'driving';
 
 /* --- глобальний логер --- */
 window.addEventListener('error', (e) => {
@@ -206,7 +215,7 @@ const firebaseConfig = {
 const statusEl = document.getElementById('status');
 let db = null, auth = null;
 let currentUser = null;
-let currentRole = null; // 'admin' | 'logist' | 'viewer'
+let currentRole = null; // 'admin' | 'logist' | 'user' | 'viewer'
 
 /* ---------- Init Firebase ---------- */
 try{
@@ -277,11 +286,10 @@ auth?.onAuthStateChanged(async (u) => {
   authRoleBadge.textContent = `Роль: ${currentRole}`;
   authRoleBadge.style.display = '';
 
-  // Усі ролі мають право читати (admin/logist/viewer)
   setBusy(false);
 
-  // авто-підтягнути довідник після входу
-  try{ await loadDirectory(); }catch(e){ console.warn('Directory load err:', e); }
+  // після входу — довідник та логісти
+  try{ await Promise.all([loadDirectory(), loadLogists(true)]); }catch(e){ console.warn(e); }
 });
 
 /* ---------- Довідник (коди → назви/підрозділи) ---------- */
@@ -320,8 +328,7 @@ function fillDirectoryUI(rows){
 }
 
 async function loadDirectory(){
-  if (!db || !currentUser) return; // чекаємо логін
-  // 1) localStorage спершу
+  if (!db || !currentUser) return;
   try{
     const raw = localStorage.getItem(DIR_CACHE_KEY);
     if (raw){
@@ -334,7 +341,6 @@ async function loadDirectory(){
     }
   }catch{}
 
-  // 2) Firestore cache-first
   let snap = null;
   try { snap = await db.collection('directory').get({ source: 'cache' }); } catch {}
   if (!snap || snap.empty) { snap = await db.collection('directory').get(); }
@@ -351,11 +357,98 @@ async function loadDirectory(){
   });
 
   fillDirectoryUI(rows);
-
-  // 3) оновити localStorage
   try{ localStorage.setItem(DIR_CACHE_KEY, JSON.stringify({ ts: Date.now(), rows })); }catch{}
-
   console.log('📒 Directory loaded from Firestore:', rows.length);
+}
+
+/* ---------- ЛОГІСТИ (для фільтру) ---------- */
+const logistById = {};
+const logistIdByName = {};
+const LOGISTS_CACHE_KEY = 'export.logistsCache.v1';
+const LOGISTS_CACHE_TTL_MS = 12 * 60 * 60 * 1000;
+
+function _norm(s){ return String(s||'').trim().toLowerCase(); }
+
+function fillLogistsUI(rows){
+  const list = document.getElementById('logistsList');
+  list.innerHTML = '';
+  for (const k in logistById) delete logistById[k];
+  for (const k in logistIdByName) delete logistIdByName[k];
+
+  rows.forEach(r=>{
+    logistById[r.id] = r;
+    logistIdByName[r.name] = r.id;
+    const opt = document.createElement('option');
+    opt.value = r.name;
+    list.appendChild(opt);
+  });
+}
+
+async function loadLogists(allowServer){
+  const msg = document.getElementById('logistsMsg');
+  const show = t => { msg.textContent = t || ''; msg.style.display = t ? 'block' : 'none'; };
+
+  try{
+    // 1) cache
+    const raw = localStorage.getItem(LOGISTS_CACHE_KEY);
+    if (raw){
+      const { ts, rows } = JSON.parse(raw);
+      if (Array.isArray(rows) && Date.now() - ts < LOGISTS_CACHE_TTL_MS){
+        fillLogistsUI(rows);
+        show('');
+        console.log('👥 Logists from cache:', rows.length);
+        return;
+      }
+    }
+
+    // 2) server (if allowed)
+    if (!allowServer){ show('Увійдіть, щоб побачити список логістів.'); return; }
+
+    let snap = null;
+    try { snap = await db.collection('logists').get({ source: 'default' }); }
+    catch(e){
+      if (e && (e.code === 'permission-denied' || /insufficient permissions/i.test(e.message))){
+        show('Увійдіть, щоб побачити список логістів.');
+        return;
+      }
+      throw e;
+    }
+
+    let rows = [];
+    snap.forEach(doc=>{
+      const d = doc.data()||{};
+      rows.push({
+        id: doc.id,
+        name: d.name || doc.id,
+        active: d.active !== false,
+        sort: typeof d.sort === 'number' ? d.sort : 0
+      });
+    });
+    rows = rows.filter(r=>r.active)
+               .sort((a,b)=> (a.sort-b.sort) || a.name.localeCompare(b.name,'uk'));
+
+    fillLogistsUI(rows);
+    try{ localStorage.setItem(LOGISTS_CACHE_KEY, JSON.stringify({ ts: Date.now(), rows })); }catch{}
+    show('');
+    console.log('👥 Logists loaded:', rows.length);
+  }catch(e){
+    console.error('logists load error:', e);
+    show('Не вдалось завантажити логістів.');
+  }
+}
+
+function getLogistIdByInput(inputId){
+  const name = (document.getElementById(inputId).value || '').trim();
+  if (!name) return null;
+  if (logistIdByName[name]) return logistIdByName[name];
+
+  const n = _norm(name);
+  for (const [label, id] of Object.entries(logistIdByName)){
+    if (_norm(label) === n) return id;
+  }
+  const cand = Object.entries(logistIdByName).filter(([label])=> _norm(label).includes(n));
+  if (cand.length === 1) return cand[0][1];
+  return null; // не знайшли точного відповідника
 }
 
 /* ---------- Хелпери ---------- */
@@ -377,21 +470,17 @@ function formatDate(dt) {
   return `${pad(d.getDate())}.${pad(d.getMonth()+1)}.${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
 }
 
-/* --- НОВІ ХЕЛПЕРИ ДЛЯ НОРМАЛІЗАЦІЇ ТОЧОК --- */
+/* --- нормалізація точок (для «Поділитися») --- */
 function toLonLat(p) {
-  // Масив [a,b]
   if (Array.isArray(p) && p.length >= 2) {
     const a = Number(p[0]); const b = Number(p[1]);
-    // якщо виглядає як [lat,lon] -> міняємо місцями
     if (Math.abs(a) <= 90 && Math.abs(b) <= 180) return [b, a];
-    return [a, b]; // вже [lon,lat]
+    return [a, b];
   }
-  // Рядок "lat,lon" або "lon,lat"
   if (typeof p === 'string') {
     const parts = p.split(/[;, ]+/).map(Number).filter(v => !Number.isNaN(v));
     if (parts.length >= 2) return toLonLat(parts);
   }
-  // Об'єкт {lat,lon} / {latitude,longitude}
   if (p && typeof p === 'object') {
     const lat = Number(p.lat ?? p.latitude ?? p.Lat ?? p.Latitude);
     const lon = Number(p.lon ?? p.lng ?? p.longitude ?? p.Lon ?? p.Lng ?? p.Longitude);
@@ -402,22 +491,16 @@ function toLonLat(p) {
 
 function normalizePoints(raw) {
   if (!raw) return null;
-
-  // GeoJSON Feature(LineString) або {geometry:{type:'LineString',coordinates:[...]}}
   if (raw.type === 'Feature' && raw.geometry?.type === 'LineString') {
     return normalizePoints(raw.geometry.coordinates);
   }
   if (raw.geometry?.type === 'LineString' && Array.isArray(raw.geometry.coordinates)) {
     return normalizePoints(raw.geometry.coordinates);
   }
-
-  // GeoJSON FeatureCollection → перший LineString
   if (raw.type === 'FeatureCollection' && Array.isArray(raw.features)) {
     const f = raw.features.find(f => f.geometry?.type === 'LineString');
     if (f) return normalizePoints(f.geometry.coordinates);
   }
-
-  // Масив масивів / рядків / об'єктів
   if (Array.isArray(raw)) {
     const out = [];
     for (const item of raw) {
@@ -426,11 +509,10 @@ function normalizePoints(raw) {
     }
     return out.length ? out : null;
   }
-
   return null;
 }
 
-/* === UTF‑8 Base64 helper (щоб підтримувались українські символи) === */
+/* === UTF-8 Base64 helper === */
 function b64encodeUtf8(objOrString){
   const s = typeof objOrString === 'string' ? objOrString : JSON.stringify(objOrString);
   const bytes = new TextEncoder().encode(s);
@@ -452,7 +534,8 @@ function getFiltersSignature(){
   const unit     = document.getElementById('unitFilter')?.value || '';
   const dmin     = document.getElementById('distMin')?.value || '';
   const dmax     = document.getElementById('distMax')?.value || '';
-  return JSON.stringify({ fromCode, toCode, type, df, dt, unit, dmin, dmax });
+  const logist   = document.getElementById('logistFilter')?.value || '';
+  return JSON.stringify({ fromCode, toCode, type, df, dt, unit, dmin, dmax, logist });
 }
 
 /* ---------- Вибірка з Firestore ---------- */
@@ -468,15 +551,18 @@ async function queryRoutes(){
   const df       = document.getElementById('dateFrom')?.value;
   const dt       = document.getElementById('dateTo')?.value;
 
+  // фільтр логіста — через logisticId
+  const logistId = getLogistIdByInput('logistFilter');
+
   if (fromCode) q = q.where('fromCode','==',fromCode);
   if (toCode)   q = q.where('toCode','==',toCode);
   if (type)     q = q.where('routeType','==',type);
+  if (logistId) q = q.where('logisticId','==',logistId);
 
   q = q.orderBy('updatedAt','desc');
   if (df) q = q.where('updatedAt','>=', dayStartISO(df));
   if (dt) q = q.where('updatedAt','<=', dayEndISO(dt));
 
-  // cache-first
   let snap = null;
   try { snap = await q.limit(ROUTES_LIMIT).get({ source: 'cache' }); } catch {}
   if (!snap || snap.empty) { snap = await q.limit(ROUTES_LIMIT).get(); }
@@ -494,6 +580,8 @@ async function queryRoutes(){
       toUnit: unitByCode(d.toCode)||'',
       distance_km: (typeof d.distance_km==='number')? d.distance_km : NaN,
       type: d.routeType||'',
+      logisticName: d.logisticName || '',
+      logisticId: d.logisticId || '',
       updatedAtRaw: d.updatedAt || null,
       updatedAt: formatDate(d.updatedAt)
     });
@@ -518,6 +606,9 @@ function applyClientFilters(rows){
   const dmin = parseFloat(document.getElementById('distMin')?.value);
   const dmax = parseFloat(document.getElementById('distMax')?.value);
 
+  const logistText = (document.getElementById('logistFilter')?.value || '').trim();
+  const logistId = getLogistIdByInput('logistFilter');
+
   return rows.filter(r=>{
     if (unit && !(r.fromUnit === unit || r.toUnit === unit)) return false;
 
@@ -525,6 +616,12 @@ function applyClientFilters(rows){
     if (!Number.isFinite(dist)) return false;
     if (!Number.isNaN(dmin) && isFinite(dmin) && dist < dmin) return false;
     if (!Number.isNaN(dmax) && isFinite(dmax) && dist > dmax) return false;
+
+    // якщо користувач ввів довільний текст (без точного збігу з довідником) — фільтруємо по імені
+    if (logistText && !logistId) {
+      const n = _norm(logistText);
+      if (!_norm(r.logisticName).includes(n)) return false;
+    }
 
     return true;
   });
@@ -547,20 +644,19 @@ function updateStats(rows){
   document.getElementById('statAvg').textContent = `Середня: ${avg.toFixed(3)}`;
   statsBox.style.display='';
 }
-const MAPBOX_TOKEN_FOR_NAV = 'pk.eyJ1IjoidGtjaGsiLCJhIjoiY21lYnIzcmcxMGQ3eTJrc2NpOTRkNHdwZCJ9.tHlbdCp9fCoZC3X5HYGLMw'; // ⬅️ твій Mapbox токен
-/* ---------- Будівник URL для navigate.html ---------- */
+
+const MAPBOX_TOKEN_FOR_NAV = 'pk.eyJ1IjoidGtjaGsiLCJhIjoiY21lYnIzcmcxMGQ3eTJrc2NpOTRkNHdwZCJ9.tHlbdCp9fCoZC3X5HYGLMw';
 function buildNavigateURL(payloadB64, profile = DEFAULT_PROFILE){
   const base = `${location.origin}${NAVIGATE_PAGE}`;
   const q = new URLSearchParams();
   q.set('src', payloadB64);
   q.set('profile', profile);
   q.set('autostart', '1');
-  // Якщо хочеш передавати токен у URL:
   q.set('token', MAPBOX_TOKEN_FOR_NAV);
   return `${base}?${q.toString()}`;
 }
 
-/* ---------- Шеринг в системний Share/буфер ---------- */
+/* ---------- Шеринг ---------- */
 function isMobileUA(){ return /Android|iPhone|iPad|iPod/i.test(navigator.userAgent || ''); }
 async function shareURL(url, title){
   if (isMobileUA() && navigator.share){
@@ -570,15 +666,13 @@ async function shareURL(url, title){
   catch { prompt('Скопіюйте посилання вручну:', url); }
 }
 
-/* ---------- ОНОВЛЕНО: Отримати та нормалізувати точки маршруту з Firestore за id ---------- */
+/* ---------- Отримати та нормалізувати точки маршруту ---------- */
 async function fetchRoutePointsById(routeId){
   const ref = db.collection('routes').doc(routeId);
   const doc = await ref.get();
   if (!doc.exists) throw new Error('Маршрут не знайдено');
   const d = doc.data() || {};
 
-  // Підтримуємо різні варіанти полів:
-  // points / coordinates / route / geojson / geometry
   let points =
       normalizePoints(d.points) ||
       normalizePoints(d.coordinates) ||
@@ -586,27 +680,14 @@ async function fetchRoutePointsById(routeId){
       normalizePoints(d.geojson) ||
       normalizePoints(d.geometry);
 
-  // Якщо зберігаються окремо: start, midpoints[], end
   if (!points) {
     const parts = [];
-    if (d.start) {
-      const p = toLonLat(d.start); if (p) parts.push(p);
-    }
-    if (Array.isArray(d.midpoints)) {
-      for (const m of d.midpoints) {
-        const p = toLonLat(m); if (p) parts.push(p);
-      }
-    }
-    if (d.end) {
-      const p = toLonLat(d.end); if (p) parts.push(p);
-    }
+    if (d.start) { const p = toLonLat(d.start); if (p) parts.push(p); }
+    if (Array.isArray(d.midpoints)) for (const m of d.midpoints){ const p=toLonLat(m); if (p) parts.push(p); }
+    if (d.end) { const p = toLonLat(d.end); if (p) parts.push(p); }
     if (parts.length >= 2) points = parts;
   }
-
-  if (!points || !Array.isArray(points) || points.length < 2) {
-    throw new Error('У маршруті відсутній коректний масив точок (очікується масив [lon,lat])');
-  }
-
+  if (!points || points.length < 2) throw new Error('У маршруті відсутній коректний масив точок');
   return points;
 }
 
@@ -620,6 +701,7 @@ function renderTable(rows){
     <td>${r.toName}</td>
     <td>${Number.isFinite(r.distance_km) ? r.distance_km.toFixed(3) : ''}</td>
     <td>${r.type}</td>
+    <td>${r.logisticName || ''}</td>
     <td>${r.updatedAt}</td>
     <td>${r.id}</td>
     <td><a href="${MAP_URL}?rid=${encodeURIComponent(r.id)}" target="_blank" rel="noopener">Відкрити</a></td>
@@ -629,10 +711,10 @@ function renderTable(rows){
   updateStats(rows);
 }
 
-/* ---------- Експорт у Excel ---------- */
+/* ---------- Експорт у Excel (з логістом) ---------- */
 function exportToExcel(rows){
   const data = [
-    ['Код Від','Код До','Від','До','Відстань, км','Тип','Оновлено','ID','URL (Карта)'],
+    ['Код Від','Код До','Від','До','Відстань, км','Тип','Логіст','Оновлено','ID','URL (Карта)'],
     ...rows.map(r => [
       r.fromCode,
       r.toCode,
@@ -640,13 +722,14 @@ function exportToExcel(rows){
       r.toName,
       Number.isFinite(r.distance_km) ? Number(r.distance_km.toFixed(3)) : '',
       r.type,
+      r.logisticName || '',
       r.updatedAt,
       r.id,
       `${location.origin}${MAP_URL}?rid=${encodeURIComponent(r.id)}`
     ])
   ];
   const ws = XLSX.utils.aoa_to_sheet(data);
-  ws['!cols'] = [12,12,28,28,12,16,22,36,40].map(w => ({ wch: w }));
+  ws['!cols'] = [12,12,28,28,12,16,22,22,36,40].map(w => ({ wch: w }));
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Маршрути');
   XLSX.writeFile(wb, 'routes_export.xlsx');
@@ -697,7 +780,7 @@ document.querySelector('#resTable tbody').addEventListener('click', async (ev)=>
     setBusy(true);
     const points = await fetchRoutePointsById(id);
     const payload = { name: prettyName, points };
-    const b64 = b64encodeUtf8(payload); // ← UTF‑8 Base64
+    const b64 = b64encodeUtf8(payload);
     const url = buildNavigateURL(b64, DEFAULT_PROFILE);
     await shareURL(url, prettyName);
   }catch(e){
@@ -709,9 +792,15 @@ document.querySelector('#resTable tbody').addEventListener('click', async (ev)=>
 
 /* ---------- Старт ---------- */
 (async ()=>{
-  // Довідник підвантажується після входу в onAuthStateChanged
   if (!db) return;
   statusEl.textContent = 'Увійдіть';
+
+  // якщо користувач уже залогінений і сторінку перезавантажили — підстрахуємо завантаження логістів
+  if (auth?.currentUser) {
+    await Promise.all([loadDirectory(), loadLogists(true)]);
+  } else {
+    await loadLogists(false); // покаже "Увійдіть, щоб побачити..."
+  }
 })();
 </script>
 </body>
