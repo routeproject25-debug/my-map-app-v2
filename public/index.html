@@ -7,32 +7,23 @@
   <script src="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.js"></script>
   <link href="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.css" rel="stylesheet" />
 
-  <!-- Firebase (core + firestore + auth, compat) -->
+  <!-- Firebase (compat) -->
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 
   <style>
   :root { --nav-h:48px; --card:#fff; --line:#e5e7eb; --muted:#6b7280; }
-
   body{margin:0;padding:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
-
-  header.topbar{
-    position:sticky; top:0; z-index:1500;
-    height:var(--nav-h);
-    display:flex; align-items:center; justify-content:space-between;
-    gap:12px; padding:6px 10px;
-    background:#2563eb; color:#fff;
-  }
+  header.topbar{position:sticky; top:0; z-index:1500; height:var(--nav-h);
+    display:flex; align-items:center; justify-content:space-between; gap:12px; padding:6px 10px;
+    background:#2563eb; color:#fff;}
   header.topbar a{ color:#fff; text-decoration:none; margin-right:12px; white-space:nowrap; }
   header .left, header .right{ display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
   header .spacer{ flex:1 1 auto; }
-
   #authBar{ display:flex; align-items:center; gap:6px; flex-wrap:wrap; }
-  #authBar input{
-    height:28px; padding:4px 8px; border-radius:6px; border:1px solid rgba(255,255,255,.35);
-    background:rgba(255,255,255,.15); color:#fff; outline:none; width:180px;
-  }
+  #authBar input{ height:28px; padding:4px 8px; border-radius:6px; border:1px solid rgba(255,255,255,.35);
+    background:rgba(255,255,255,.15); color:#fff; outline:none; width:180px; }
   #authBar input::placeholder{ color:rgba(255,255,255,.8) }
   #authBar input[type="password"]{ width:120px }
   #authBar .chip{ font-size:12px; background:rgba(255,255,255,.15); border:1px solid rgba(255,255,255,.3);
@@ -93,6 +84,9 @@
   .mapboxgl-canvas{z-index:0!important}
   .mapboxgl-control-container{z-index:1!important}
   .mapboxgl-marker{z-index:2!important}
+
+  /* help message under logistInput */
+  #logistsMsg{display:none;font-size:12px;color:#b91c1c;margin-top:4px}
   </style>
 </head>
 <body>
@@ -191,7 +185,7 @@
       <input id="logistInput" type="text" placeholder="Почни вводити прізвище..." list="logistsList" autocomplete="off">
       <datalist id="logistsList"></datalist>
       <small class="muted">Список береться з колекції <b>logists</b> (активні). Обери себе зі списку.</small>
-      <div id="logistsMsg" style="display:none;font-size:12px;color:#b91c1c;margin-top:4px"></div>
+      <div id="logistsMsg"></div>
     </div>
   </div>
 
@@ -277,20 +271,12 @@ function applyUkrainianLabels(){
   const style = map.getStyle();
   if (!style || !style.layers) return;
   const ukTextExpr = [
-    'coalesce',
-    ['get','name_uk'],
-    ['get','name:uk'],
-    ['get','name_ua'],
-    ['get','name:ua'],
-    ['get','name_local'],
-    ['get','name']
+    'coalesce',['get','name_uk'],['get','name:uk'],['get','name_ua'],['get','name:ua'],['get','name_local'],['get','name']
   ];
   style.layers.forEach(l => {
     if (l.type === 'symbol') {
       const hasTextField = map.getLayoutProperty(l.id, 'text-field') !== undefined;
-      if (hasTextField) {
-        try { map.setLayoutProperty(l.id, 'text-field', ukTextExpr); } catch(_) {}
-      }
+      if (hasTextField) { try { map.setLayoutProperty(l.id, 'text-field', ukTextExpr); } catch(_) {} }
     }
   });
 }
@@ -362,15 +348,10 @@ deletePointBtn.onclick = (e) => {
 document.addEventListener('click', () => { contextMenu.style.display = 'none'; });
 
 /* Застосувати українські підписи після кожного завантаження стилю */
-map.on('style.load', () => {
-  applyUkrainianLabels();
-  updateRoute();
-  drawRulers();
-});
+map.on('style.load', () => { applyUkrainianLabels(); updateRoute(); drawRulers(); });
 
 document.getElementById('mapStyle').addEventListener('change', function() {
-  currentStyle = this.value;
-  map.setStyle(currentStyle);
+  currentStyle = this.value; map.setStyle(currentStyle);
 });
 
 /* ===== Buttons state ===== */
@@ -406,22 +387,18 @@ document.getElementById('popRulerPoint').onclick = () => {
   let target = choose();
   if (target === 'start' && startRuler.length === 0 && endRuler.length > 0) target = 'end';
   if (target === 'end' && endRuler.length === 0 && startRuler.length > 0) target = 'start';
-
   let did = false;
   if (target === 'start' && startRuler.length) { startRuler.pop(); did = true; }
   if (target === 'end' && endRuler.length) { endRuler.pop(); did = true; }
-
   if (did){ drawRulers(); updateRoute(); }
 };
 
 /* — ОЧИЩЕННЯ ЛІНІЙОК — */
 document.getElementById('clearRulers').onclick = () => {
   if (readOnly) return;
-  if (activeRuler === 'start') {
-    startRuler = [];
-  } else if (activeRuler === 'end') {
-    endRuler = [];
-  } else {
+  if (activeRuler === 'start') { startRuler = []; }
+  else if (activeRuler === 'end') { endRuler = []; }
+  else {
     if (!startRuler.length && !endRuler.length) return;
     if (!confirm('Очистити обидві лінійки?')) return;
     startRuler = []; endRuler = [];
@@ -451,10 +428,7 @@ map.on('click', (e) => {
 });
 
 function addMarker(lngLat, index = points.length - 1) {
-  const marker = new mapboxgl.Marker({ draggable: !readOnly })
-    .setLngLat(lngLat)
-    .addTo(map);
-
+  const marker = new mapboxgl.Marker({ draggable: !readOnly }).setLngLat(lngLat).addTo(map);
   marker.getElement().addEventListener('contextmenu', (e) => {
     e.preventDefault(); e.stopPropagation();
     if (readOnly) return;
@@ -463,24 +437,19 @@ function addMarker(lngLat, index = points.length - 1) {
     contextMenu.style.top  = e.pageY + 'px';
     contextMenu.style.display = 'block';
   });
-
   marker.on('dragend', () => {
     if (readOnly) return;
     const ll = marker.getLngLat();
     points[index] = [ll.lng, ll.lat];
     updateRoute();
   });
-
   markers.push(marker);
 }
 
 function rebuildMarkers() {
-  markers.forEach(m => m.remove());
-  markers = [];
+  markers.forEach(m => m.remove()); markers = [];
   points.forEach((pt, idx) => addMarker(pt, idx));
-  selectedMarkerIndex = null;
-  insertAfterMode = false;
-  contextMenu.style.display = 'none';
+  selectedMarkerIndex = null; insertAfterMode = false; contextMenu.style.display = 'none';
   updateRoute();
 }
 
@@ -488,8 +457,7 @@ let markersVisible = true;
 document.getElementById('toggleMarkers').onclick = () => {
   markersVisible = !markersVisible;
   markers.forEach(m => m.getElement().style.display = markersVisible ? 'block' : 'none');
-  document.getElementById('toggleMarkers').textContent =
-    markersVisible ? '📍 Приховати точки' : '📍 Показати точки';
+  document.getElementById('toggleMarkers').textContent = markersVisible ? '📍 Приховати точки' : '📍 Показати точки';
 };
 
 /* ===== Rulers (draw + distance) ===== */
@@ -527,16 +495,10 @@ function calculateRulerDistance(ruler) {
   let dist = 0;
   if (window.turf && typeof turf.distance === 'function'){
     for (let i = 0; i < ruler.length - 1; i++) {
-      dist += turf.distance(
-        turf.point(ruler[i]),
-        turf.point(ruler[i + 1]),
-        { units: 'kilometers' }
-      );
+      dist += turf.distance(turf.point(ruler[i]), turf.point(ruler[i + 1]), { units: 'kilometers' });
     }
   } else {
-    for (let i = 0; i < ruler.length - 1; i++) {
-      dist += haversineKm(ruler[i], ruler[i + 1]);
-    }
+    for (let i = 0; i < ruler.length - 1; i++) { dist += haversineKm(ruler[i], ruler[i + 1]); }
   }
   return dist;
 }
@@ -576,9 +538,7 @@ async function updateRoute() {
   if (points.length < 2) {
     document.getElementById('distance').textContent =
       (calculateRulerDistance(startRuler) + calculateRulerDistance(endRuler)).toFixed(2);
-    updateCounters();
-    clearRouteLayers();
-    return;
+    updateCounters(); clearRouteLayers(); return;
   }
   const chunks = splitIntoChunks(points, 20);
   let totalDistance = 0;
@@ -619,7 +579,7 @@ document.head.appendChild(turfScript);
 
 /* ===================== Firebase ===================== */
 const firebaseConfig = {
-  apiKey: "AIzaSyDjDBZkmy-skuDEQF8-AkRma7yw6TugoQc", // ← лише латиниця
+  apiKey: "AIzaSyDjDBZkmy-skuDEQF8-AkRma7yw6TugoQc", // Перевірте, щоб не було зайвих символів/пробілів
   authDomain: "my-map-app-58312.firebaseapp.com",
   projectId: "my-map-app-58312",
   storageBucket: "my-map-app-58312.firebasestorage.app",
@@ -684,9 +644,7 @@ async function loadDirectory(force=false){
       if (raw){
         const { ts, rows } = JSON.parse(raw);
         if (Array.isArray(rows) && Date.now() - ts < DIR_CACHE_TTL_MS){
-          fillDirectoryUI(rows);
-          updateRouteName();
-          refreshRoutesList();
+          fillDirectoryUI(rows); updateRouteName(); refreshRoutesList();
           console.log('📒 Directory from localStorage cache:', rows.length);
           return;
         }
@@ -701,12 +659,7 @@ async function loadDirectory(force=false){
   const rows = [];
   snap.forEach(doc => {
     const d = doc.data() || {};
-    rows.push({
-      code: doc.id,
-      name: d.name || doc.id,
-      company: d.company || '',
-      unit: d.unit || ''
-    });
+    rows.push({ code: doc.id, name: d.name || doc.id, company: d.company || '', unit: d.unit || '' });
   });
 
   fillDirectoryUI(rows);
@@ -725,16 +678,11 @@ function fillLogistsUI(rows){
   Object.keys(logistIdByName).forEach(k=> delete logistIdByName[k]);
 
   rows.forEach(r=>{
-    logistById[r.id] = r;
-    logistIdByName[r.name] = r.id;
-    const opt = document.createElement('option');
-    opt.value = r.name;
-    list.appendChild(opt);
+    logistById[r.id] = r; logistIdByName[r.name] = r.id;
+    const opt = document.createElement('option'); opt.value = r.name; list.appendChild(opt);
   });
 
-  if (rows.length === 0) {
-    console.warn('👥 Logists: пусто (можливо, немає доступу/документів).');
-  }
+  if (rows.length === 0) { console.warn('👥 Logists: пусто (можливо, немає доступу/документів).'); }
 }
 
 async function loadLogists(allowServer=true){
@@ -747,23 +695,18 @@ async function loadLogists(allowServer=true){
     if(raw){
       const { ts, rows } = JSON.parse(raw);
       if (Array.isArray(rows) && Date.now() - ts < LOGISTS_CACHE_TTL_MS){
-        fillLogistsUI(rows);
-        showMsg('');
+        fillLogistsUI(rows); showMsg('');
         console.log('👥 Logists from cache:', rows.length);
         return;
       }
     }
 
     // 2) Firestore (за потреби)
-    if (!allowServer) {
-      showMsg('Увійдіть, щоб побачити список логістів.');
-      return;
-    }
+    if (!allowServer) { showMsg('Увійдіть, щоб побачити список логістів.'); return; }
 
     let snap = null;
-    try {
-      snap = await db.collection('logists').get({ source: 'default' });
-    } catch (e) {
+    try { snap = await db.collection('logists').get({ source: 'default' }); }
+    catch (e) {
       if (e && (e.code === 'permission-denied' || /insufficient permissions/i.test(e.message))) {
         console.warn('permission-denied для logists');
         showMsg('Увійдіть, щоб побачити список логістів.');
@@ -775,24 +718,16 @@ async function loadLogists(allowServer=true){
     let rows = [];
     snap.forEach(doc=>{
       const d = doc.data() || {};
-      rows.push({
-        id: doc.id,
-        name: d.name || doc.id,
-        active: d.active !== false,
-        sort: typeof d.sort === 'number' ? d.sort : 0
-      });
+      rows.push({ id: doc.id, name: d.name || doc.id, active: d.active !== false, sort: typeof d.sort === 'number' ? d.sort : 0 });
     });
 
-    rows = rows.filter(r=>r.active)
-               .sort((a,b)=> (a.sort-b.sort) || a.name.localeCompare(b.name,'uk'));
-
+    rows = rows.filter(r=>r.active).sort((a,b)=> (a.sort-b.sort) || a.name.localeCompare(b.name,'uk'));
     fillLogistsUI(rows);
     try{ localStorage.setItem(LOGISTS_CACHE_KEY, JSON.stringify({ ts: Date.now(), rows })); }catch{}
     showMsg('');
     console.log('👥 Logists loaded from Firestore:', rows.length);
   } catch (e) {
     console.error('❌ Logists load error:', e);
-    // Тихо показуємо повідомлення, без alert
     showMsg('Не вдалось завантажити логістів.');
   }
 }
@@ -801,11 +736,8 @@ function getLogistIdByInput(inputId){
   const name = (document.getElementById(inputId).value || '').trim();
   if(!name) return null;
   if (logistIdByName[name]) return logistIdByName[name];
-
   const n = _norm(name);
-  for (const [label, id] of Object.entries(logistIdByName)){
-    if (_norm(label) === n) return id;
-  }
+  for (const [label, id] of Object.entries(logistIdByName)){ if (_norm(label) === n) return id; }
   const candidates = Object.entries(logistIdByName).filter(([label])=> _norm(label).includes(n));
   if (candidates.length === 1) return candidates[0][1];
   return null;
@@ -821,11 +753,8 @@ function getCodeByInput(inputId) {
   const name = raw.trim();
   if (!name) return null;
   if (codeByName[name]) return codeByName[name];
-
   const n = _norm(name);
-  for (const [label, code] of Object.entries(codeByName)){
-    if (_norm(label) === n) return code;
-  }
+  for (const [label, code] of Object.entries(codeByName)){ if (_norm(label) === n) return code; }
   const candidates = Object.entries(codeByName).filter(([label]) => _norm(label).includes(n));
   if (candidates.length === 1) return candidates[0][1];
   return null;
@@ -836,8 +765,7 @@ function formatRouteTitle(data) {
   const from = dirByCode[data.fromCode]?.name || 'невідомо';
   const to   = dirByCode[data.toCode]?.name   || 'невідомо';
   const type = data.routeType || 'Основний';
-  const parts = [type];
-  if (data.purpose) parts.push(data.purpose);
+  const parts = [type]; if (data.purpose) parts.push(data.purpose);
   return `${from} → ${to} [${parts.join(' • ')}]`;
 }
 function updateRouteName() {
@@ -850,8 +778,7 @@ function updateRouteName() {
   const to   = dirByCode[toCode] || {};
   const fromLabel = [from.name, from.unit, from.company].filter(Boolean).join(' • ');
   const toLabel   = [to.name, to.unit, to.company].filter(Boolean).join(' • ');
-  const parts = [routeType];
-  if (routePurpose) parts.push(routePurpose);
+  const parts = [routeType]; if (routePurpose) parts.push(routePurpose);
   document.getElementById('routeName').value = `${fromLabel} → ${toLabel} [${parts.join(' • ')}]`;
 }
 
@@ -861,18 +788,11 @@ function sanitizeId(s){ return String(s||'').replace(/[\/\\#?\[\]]/g,'_'); }
 async function findExistingRoute(fromCode, toCode, routeType){
   try{
     const snap = await db.collection('routes')
-      .where('fromCode','==',fromCode)
-      .where('toCode','==',toCode)
-      .where('routeType','==',routeType)
-      .limit(1)
-      .get();
-    let found = null;
-    snap.forEach(doc => { if (!found) found = doc; });
+      .where('fromCode','==',fromCode).where('toCode','==',toCode).where('routeType','==',routeType)
+      .limit(1).get();
+    let found = null; snap.forEach(doc => { if (!found) found = doc; });
     return found;
-  }catch(e){
-    console.warn('findExistingRoute error:', e?.message || e);
-    return null;
-  }
+  }catch(e){ console.warn('findExistingRoute error:', e?.message || e); return null; }
 }
 function makeCopyId(baseSafeId){ return `${baseSafeId}__${Date.now()}`; }
 
@@ -887,10 +807,7 @@ function askDuplicateAction(existingName){
     $dupText.textContent = `Маршрут із такими параметрами вже існує:\n“${existingName}”.\nОберіть дію:`;
     $dupModal.classList.add('show');
     const onEsc = (e)=>{ if(e.key==='Escape'){ cleanup(); resolve('cancel'); } };
-    function cleanup(){
-      document.removeEventListener('keydown', onEsc);
-      $dupModal.classList.remove('show');
-    }
+    function cleanup(){ document.removeEventListener('keydown', onEsc); $dupModal.classList.remove('show'); }
     $dupOverwrite.onclick = ()=>{ cleanup(); resolve('overwrite'); };
     $dupCopy.onclick = ()=>{ cleanup(); resolve('copy'); };
     $dupCancel.onclick = ()=>{ cleanup(); resolve('cancel'); };
@@ -946,9 +863,7 @@ fileInput.onchange = (event) => {
       const routeData = JSON.parse(e.target.result);
       const arrFrom = (pts) => {
         if (!Array.isArray(pts)) return [];
-        if (pts.length && typeof pts[0] === 'object' && pts[0] !== null && 'lng' in pts[0]) {
-          return fromObjPoints(pts);
-        }
+        if (pts.length && typeof pts[0] === 'object' && pts[0] !== null && 'lng' in pts[0]) { return fromObjPoints(pts); }
         return pts;
       };
 
@@ -969,9 +884,7 @@ fileInput.onchange = (event) => {
       rebuildMarkers(); drawRulers(); updateRoute();
       if (points.length > 0) map.flyTo({ center: points[0], zoom: 12 });
       alert('Маршрут успішно завантажено з файлу!');
-    } catch (err) {
-      alert('Помилка при завантаженні: ' + err.message);
-    }
+    } catch (err) { alert('Помилка при завантаженні: ' + err.message); }
   };
   reader.readAsText(file);
 };
@@ -981,9 +894,7 @@ async function saveToDB() {
   try {
     if (!db) { alert('БД не ініціалізована'); return; }
     if (readOnly) { alert('⛔ Недостатньо прав'); return; }
-    if (points.length === 0 && startRuler.length === 0 && endRuler.length === 0) {
-      alert('Немає що зберігати'); return;
-    }
+    if (points.length === 0 && startRuler.length === 0 && endRuler.length === 0) { alert('Немає що зберігати'); return; }
 
     const fromCode = getCodeByInput('fromName');
     const toCode   = getCodeByInput('toName');
@@ -1065,19 +976,13 @@ async function refreshRoutesList(limitNum = 100) {
       const label = labelNow + km;
 
       const opt = document.createElement('option');
-      opt.value = doc.id;
-      opt.textContent = label;
-      sel.appendChild(opt);
+      opt.value = doc.id; opt.textContent = label; sel.appendChild(opt);
 
       routesLookup[label] = doc.id;
-      const sOpt = document.createElement('option');
-      sOpt.value = label;
-      list.appendChild(sOpt);
+      const sOpt = document.createElement('option'); sOpt.value = label; list.appendChild(sOpt);
     });
 
-    if (Array.from(sel.options).some(o => o.value === current)) {
-      sel.value = current;
-    }
+    if (Array.from(sel.options).some(o => o.value === current)) { sel.value = current; }
   };
 
   try {
@@ -1085,9 +990,7 @@ async function refreshRoutesList(limitNum = 100) {
     if (snapCache && !snapCache.empty) render(snapCache);
     const snapServer = await q.get({ source: 'default' }).catch(()=>null);
     if (snapServer) render(snapServer);
-  } finally {
-    isRefreshingRoutes = false;
-  }
+  } finally { isRefreshingRoutes = false; }
 }
 
 async function loadFromDB() {
@@ -1117,9 +1020,7 @@ async function loadFromDB() {
     startRuler = fromObjPoints(data.startRuler || []);
     endRuler = fromObjPoints(data.endRuler || []);
 
-    rebuildMarkers();
-    drawRulers();
-    updateRoute();
+    rebuildMarkers(); drawRulers(); updateRoute();
     if (points.length > 0) map.flyTo({ center: points[0], zoom: 12 });
     alert('Маршрут завантажено з БД: ' + id);
   } catch (err) {
@@ -1185,9 +1086,7 @@ routeSearch.addEventListener('input', () => {
   let matched = false;
   for (const opt of remoteRoutesSel.options) {
     const text = (opt.textContent || '').toLowerCase();
-    if (text.includes(q) && opt.value) {
-      remoteRoutesSel.value = opt.value; matched = true; break;
-    }
+    if (text.includes(q) && opt.value) { remoteRoutesSel.value = opt.value; matched = true; break; }
   }
   if (!matched) remoteRoutesSel.value = '';
 });
@@ -1252,8 +1151,7 @@ function updatePanelToggleLabel(){
   if (typeof map?.resize === 'function') requestAnimationFrame(() => map.resize());
 }
 panelToggleBtn.addEventListener('click', () => {
-  document.body.classList.toggle('controls-hidden');
-  updatePanelToggleLabel();
+  document.body.classList.toggle('controls-hidden'); updatePanelToggleLabel();
 });
 updatePanelToggleLabel();
 
@@ -1265,11 +1163,8 @@ const loginBtn  = document.getElementById('authLogin');
 const logoutBtn  = document.getElementById('authLogout');
 
 loginBtn.onclick = async () => {
-  try{
-    await auth.signInWithEmailAndPassword(authEmail.value.trim(), authPass.value);
-  }catch(e){
-    alert('🚫 Вхід не виконано: ' + (e?.message || e));
-  }
+  try{ await auth.signInWithEmailAndPassword(authEmail.value.trim(), authPass.value); }
+  catch(e){ alert('🚫 Вхід не виконано: ' + (e?.message || e)); }
 };
 logoutBtn.onclick = async () => { try{ await auth.signOut(); }catch(e){} };
 
@@ -1284,17 +1179,13 @@ auth?.onAuthStateChanged(async (user) => {
       if (r.exists && r.data()?.role) role = String(r.data().role);
     }catch{}
     applyRoleUI(role);
-
-    // після входу — тягнемо логістів із сервера
-    await loadLogists(true);
+    await loadLogists(true);  // після входу — тягнемо логістів
   } else {
     authHello.textContent = 'Гість';
     loginBtn.style.display='inline-block'; authEmail.style.display='inline-block'; authPass.style.display='inline-block';
     logoutBtn.style.display='none';
     applyRoleUI('guest');
-
-    // для гостей — лише кеш, без алертів
-    await loadLogists(false);
+    await loadLogists(false); // для гостей — лише кеш
   }
 });
 
@@ -1307,8 +1198,10 @@ window.addEventListener('load', async () => {
   if (rid) await loadRouteById(rid);
 });
 
-// Автовідкриття підказок у полі логіста
+/* На фокус у полі логіста — пробуємо підвантажити список */
 document.getElementById('logistInput').addEventListener('focus', function(){
+  const isLogged = !!(auth && auth.currentUser);
+  loadLogists(isLogged);
   try { this.dispatchEvent(new KeyboardEvent('keydown', {key:'ArrowDown'})); } catch {}
 });
 

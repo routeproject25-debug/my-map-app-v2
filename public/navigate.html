@@ -56,6 +56,12 @@
   const SRC_B64 = qs.get('src'); // лише цей шлях підтримуємо
   const AUTO_START = qs.get('autostart') === '1';
 
+  // === Параметри режиму "track-up" (рух вгору екрана) ===
+  const NAV_TRACK_UP   = true; // завжди тримаємо курс вгору
+  const NAV_PITCH_DEG  = 60;   // нахил карти під час руху
+  const NAV_OFFSET_PX  = 180;  // зсув центра вниз, щоб бачити більше попереду
+  const NAV_MIN_ZOOM   = 13;   // мінімальний зум у стеженні
+
   // === UTF-8 Base64 helpers ===
   function b64decodeUtf8(b64){
     const bin = atob(b64);
@@ -86,12 +92,10 @@
   });
   map.addControl(new mapboxgl.NavigationControl({visualizePitch:true}), 'bottom-left');
 
-  /* === УКРАЇНСЬКІ ПІДПИСИ НА КАРТІ ===
-     Після завантаження стилю замінюємо text-field у символ-шарах на coalesce(name_uk, name:uk, name_ua, name:ua, name_local, name) */
+  /* === УКРАЇНСЬКІ ПІДПИСИ НА КАРТІ === */
   function applyUkrainianLabels(){
     const style = map.getStyle();
     if (!style || !style.layers) return;
-
     const ukExpr = [
       'coalesce',
       ['get','name_uk'],
@@ -101,13 +105,10 @@
       ['get','name_local'],
       ['get','name']
     ];
-
     style.layers.forEach(l=>{
       if (l.type === 'symbol') {
         const has = map.getLayoutProperty(l.id, 'text-field') !== undefined;
-        if (has) {
-          try { map.setLayoutProperty(l.id, 'text-field', ukExpr); } catch(_){}
-        }
+        if (has) { try { map.setLayoutProperty(l.id, 'text-field', ukExpr); } catch(_){ } }
       }
     });
   }
@@ -127,15 +128,21 @@
   let watchId = null;
   let userMarker = null;
   let lastUserPos = null;
-  let spokenStepIndex = -1;
 
-  // === Нові параметри згладжування/фільтрації GPS ===
+  // === Фільтрація/згладжування GPS ===
   const GPS_ACCURACY_MAX = 50;   // ігноруємо GPS гірший за 50 м
-  const SMOOTH_ALPHA_POS = 0.25; // 0..1 (менше — плавніше)
-  const SMOOTH_ALPHA_HD  = 0.30;
+  const SMOOTH_ALPHA_POS = 0.35; // швидше реагуємо (було 0.25)
+  const SMOOTH_ALPHA_HD  = 0.40;
 
-  let filteredPos = null;        // згладжена [lng,lat]
-  let filteredHeading = null;    // згладжений курс
+  let filteredPos = null;
+  let filteredHeading = null;
+
+  // === Оцінка швидкості для завчасних підказок ===
+  let lastTs = null;
+  let lastSpeedPos = null;
+  let speedMps = 0; // м/с (фільтроване)
+  const SPEED_ALPHA = 0.4; // чим більше — тим швидше реакція
+  const MAX_SPEED_MPS = 55/3.6; // ~55 км/год як «здорова» межа в населених
 
   // === Даунсемплінг (≤25 точок) для Directions, щоб уникати 422 ===
   function clampWaypoints(points, maxWaypoints = 25){
@@ -153,27 +160,29 @@
     out.push(clean[clean.length - 1]);
     return out;
   }
-// === Вибір українського голосу для TTS ===
-let uaVoice = null;
-function pickUkrainianVoice() {
-  const voices = window.speechSynthesis?.getVoices?.() || [];
-  const ua = voices.filter(v => (v.lang || '').toLowerCase().startsWith('uk'));
-  // спробуємо популярні системні/хмарні голоси спочатку
-  uaVoice = ua.find(v => /google|microsoft|apple/i.test(v.name)) || ua[0] || null;
-}
-if ('speechSynthesis' in window) {
-  pickUkrainianVoice();
-  window.speechSynthesis.onvoiceschanged = pickUkrainianVoice;
-}
+
+  // === Вибір українського голосу для TTS ===
+  let uaVoice = null;
+  function pickUkrainianVoice() {
+    const voices = window.speechSynthesis?.getVoices?.() || [];
+    const ua = voices.filter(v => (v.lang || '').toLowerCase().startsWith('uk'));
+    uaVoice = ua.find(v => /google|microsoft|apple/i.test(v.name)) || ua[0] || null;
+  }
+  if ('speechSynthesis' in window) {
+    pickUkrainianVoice();
+    window.speechSynthesis.onvoiceschanged = pickUkrainianVoice;
+  }
 
   function speak(text){
-  try{
-    const u = new SpeechSynthesisUtterance(text);
-    u.lang = 'uk-UA';
-    if (uaVoice) u.voice = uaVoice; // фіксуємо саме укр. голос
-    window.speechSynthesis.speak(u);
-  }catch(e){}
-}
+    try{
+      // обриваємо застарілі репліки, щоб не було «черги»
+      if (window.speechSynthesis.speaking) window.speechSynthesis.cancel();
+      const u = new SpeechSynthesisUtterance(text);
+      u.lang = 'uk-UA';
+      if (uaVoice) u.voice = uaVoice;
+      window.speechSynthesis.speak(u);
+    }catch(e){}
+  }
 
   function showToast(msg){ $toast.textContent = msg; $toast.style.display='block'; setTimeout(()=>{$toast.style.display='none'}, 1300); }
   function metersToKM(m){ return (m/1000).toFixed(1); }
@@ -191,27 +200,26 @@ if ('speechSynthesis' in window) {
   }
 
   async function fetchDirections(points){
-  const coords = points.map(p => p.join(',')).join(';');
-  // ⬇️ ДОДАНО language=uk та voice_units=metric
-  const url = `https://api.mapbox.com/directions/v5/mapbox/${PROFILE}/${coords}?alternatives=false&geometries=geojson&overview=full&steps=true&language=uk&voice_units=metric&access_token=${MAPBOX_TOKEN}`;
-
-  const res = await fetch(url);
-  if (!res.ok){
-    const text = await res.text().catch(()=> '');
-    console.error('Directions API error', res.status, text);
-    throw new Error(`Directions API error (${res.status})`);
+    const coords = points.map(p => p.join(',')).join(';');
+    // мова/одиниці — укр./метричні
+    const url = `https://api.mapbox.com/directions/v5/mapbox/${PROFILE}/${coords}?alternatives=false&geometries=geojson&overview=full&steps=true&language=uk&voice_units=metric&access_token=${MAPBOX_TOKEN}`;
+    const res = await fetch(url);
+    if (!res.ok){
+      const text = await res.text().catch(()=> '');
+      console.error('Directions API error', res.status, text);
+      throw new Error(`Directions API error (${res.status})`);
+    }
+    const json = await res.json();
+    if (!json.routes || !json.routes[0]) throw new Error('Маршрут не побудовано');
+    const r = json.routes[0];
+    routeGeoJSON = { type:'Feature', geometry:r.geometry, properties:{} };
+    steps = r.legs.flatMap(l=>l.steps);
+    totalDistance = r.distance;
+    totalDuration = r.duration;
+    $dist.textContent = `${metersToKM(totalDistance)} км`;
+    $eta.textContent = `ETA ${secondsToETA(totalDuration)}`;
+    return routeGeoJSON;
   }
-  const json = await res.json();
-  if (!json.routes || !json.routes[0]) throw new Error('Маршрут не побудовано');
-  const r = json.routes[0];
-  routeGeoJSON = { type:'Feature', geometry:r.geometry, properties:{} };
-  steps = r.legs.flatMap(l=>l.steps);
-  totalDistance = r.distance;
-  totalDuration = r.duration;
-  $dist.textContent = `${metersToKM(totalDistance)} км`;
-  $eta.textContent = `ETA ${secondsToETA(totalDuration)}`;
-  return routeGeoJSON;
-}
 
   function addRouteToMap(){
     if (!routeGeoJSON) return;
@@ -225,7 +233,7 @@ if ('speechSynthesis' in window) {
     map.fitBounds(bbox, { padding:{top:80, right:20, bottom:20, left:20} });
   }
 
-  function ensureUserMarker(lng, lat, heading){
+  function ensureUserMarker(lng, lat){
     if (!userMarker){
       const el = document.createElement('div');
       el.style.width='18px'; el.style.height='18px'; el.style.borderRadius='50%'; el.style.background='#10b981'; el.style.border='2px solid #fff'; el.style.boxShadow='0 0 0 2px rgba(16,185,129,.4)';
@@ -233,9 +241,6 @@ if ('speechSynthesis' in window) {
         .setLngLat([lng, lat]).addTo(map);
     } else {
       userMarker.setLngLat([lng, lat]);
-    }
-    if (heading!=null && !Number.isNaN(heading)){
-      map.rotateTo(heading, {duration:500});
     }
   }
 
@@ -245,23 +250,68 @@ if ('speechSynthesis' in window) {
     return (bearing+360)%360;
   }
 
-  // === ОНОВЛЕНО: фільтрація/снап/згладжування позиції ===
-  function onPosition(pos){
-    // 1) ігноруємо дуже неточні фікси
-    if (Number.isFinite(pos.coords.accuracy) && pos.coords.accuracy > GPS_ACCURACY_MAX) {
-      return;
+  // === Керування камерою "track-up" ===
+  function updateCamera(centerLL, bearingDeg){
+    if (!centerLL) return;
+    const opts = { center: centerLL, duration: 600, essential: true };
+    if (NAV_TRACK_UP && bearingDeg != null && !Number.isNaN(bearingDeg)){
+      opts.bearing = bearingDeg;
+      opts.pitch   = NAV_PITCH_DEG;
+      opts.offset  = [0, NAV_OFFSET_PX];
     }
+    if (map.getZoom() < NAV_MIN_ZOOM) opts.zoom = NAV_MIN_ZOOM;
+    map.easeTo(opts);
+  }
+
+  // === Стан озвучок для кроків (щоб не дублювати) ===
+  // early — «скоро», now — «зараз»
+  const SPEAK_LOOKAHEAD_SEC = 8;
+  const SPEAK_MIN_DIST = 60;   // м
+  const SPEAK_MAX_DIST = 800;  // м
+  const SPEAK_NOW_DIST = 25;   // м
+
+  let spoken = { idx: -1, early: false, now: false };
+
+  function resetSpokenFor(idx){
+    spoken = { idx, early: false, now: false };
+  }
+
+  function stepToSpeech(step, mode='soon', overrideMeters=null){
+    const man = step.maneuver || {};
+    let text = man.instruction || '';
+
+    // якщо інструкція англійською — підміняємо ключові фрази
+    text = text.replace(/Turn right/i, 'Поверніть праворуч')
+               .replace(/Turn left/i, 'Поверніть ліворуч')
+               .replace(/Continue/i, 'Рухайтесь прямо')
+               .replace(/At the roundabout/i, 'На колі')
+               .replace(/Take the exit/i, 'Зʼїжджайте на виїзд');
+
+    if (mode === 'now'){
+      // «зараз» без дистанції
+      return 'Зараз: ' + text.replace(/\. За .+$/,'');
+    }
+
+    const d = Math.round(overrideMeters ?? (step.distance||0));
+    const add = d < 1000 ? `${d} м` : `${(d/1000).toFixed(1)} км`;
+    if (!/м|km|км/.test(text)) return `${text}. За ${add}`;
+    return text; // якщо вбудована дистанція вже є — не дублюємо
+  }
+
+  // === ОНОВЛЕНО: фільтрація/снап/згладжування позиції + завчасні підказки ===
+  function onPosition(pos){
+    if (Number.isFinite(pos.coords.accuracy) && pos.coords.accuracy > GPS_ACCURACY_MAX) return;
 
     const raw = [pos.coords.longitude, pos.coords.latitude];
 
-    // 2) снап до маршруту (якщо є)
+    // снап до маршруту (якщо є)
     let onLine = raw;
     if (routeGeoJSON){
       const snapped = turf.nearestPointOnLine(routeGeoJSON, raw, { units: 'meters' });
       onLine = snapped.geometry.coordinates;
     }
 
-    // 3) згладжування координат
+    // згладжування координат
     if (filteredPos){
       filteredPos = [
         filteredPos[0] + (onLine[0] - filteredPos[0]) * SMOOTH_ALPHA_POS,
@@ -271,7 +321,7 @@ if ('speechSynthesis' in window) {
       filteredPos = onLine;
     }
 
-    // 4) курс/азимут (із згладжуванням)
+    // курс/азимут (згладжений)
     const headingInstant = lastUserPos ? computeHeading(lastUserPos, filteredPos) : null;
     if (headingInstant != null){
       filteredHeading = (filteredHeading == null)
@@ -280,28 +330,51 @@ if ('speechSynthesis' in window) {
     }
     lastUserPos = filteredPos;
 
-    // 5) малюємо маркер і крутимо карту
-    ensureUserMarker(filteredPos[0], filteredPos[1], filteredHeading);
-    if (autoCenter) map.easeTo({ center: filteredPos, duration: 500 });
+    // оцінка швидкості
+    const ts = (typeof pos.timestamp === 'number' ? pos.timestamp : Date.now());
+    if (lastSpeedPos && lastTs){
+      const dM = turf.distance(turf.point(lastSpeedPos), turf.point(filteredPos), {units:'kilometers'})*1000;
+      const dt = Math.max(0.2, (ts - lastTs)/1000);
+      const inst = Math.min(dM/dt, MAX_SPEED_MPS);
+      speedMps = (1 - SPEED_ALPHA)*speedMps + SPEED_ALPHA*inst;
+    }
+    lastSpeedPos = filteredPos;
+    lastTs = ts;
 
-    // 6) оновлюємо залишок/ETA від згладженої точки
+    // маркер + камера
+    ensureUserMarker(filteredPos[0], filteredPos[1]);
+    if (autoCenter) updateCamera(filteredPos, filteredHeading);
+
+    // залишок/ETA + ПІДКАЗКИ
     if (routeGeoJSON){
       const ls = turf.lineSlice(
         turf.point(filteredPos),
         turf.point(routeGeoJSON.geometry.coordinates.at(-1)),
         routeGeoJSON
       );
-      const remain = turf.length(ls, { units:'kilometers' }) * 1000; // m
+      const remain = turf.length(ls, { units:'kilometers' }) * 1000;
       $dist.textContent = `${(remain/1000).toFixed(1)} км`;
 
       const next = findNextStep(filteredPos);
       if (next && next._remainMeters != null){
         const etaSec = (next._remainMeters / totalDistance) * totalDuration;
         $eta.textContent = `ETA ${secondsToETA(etaSec)}`;
-        if (next._metersToManeuver < 80 && next._index !== spokenStepIndex){
-          const t = stepToSpeech(next);
-          speak(t);
-          spokenStepIndex = next._index;
+
+        // динамічний поріг попередження (8 с наперед, у межах 60–800 м)
+        const lead = Math.min(SPEAK_MAX_DIST, Math.max(SPEAK_MIN_DIST, speedMps * SPEAK_LOOKAHEAD_SEC));
+
+        if (spoken.idx !== next._index) resetSpokenFor(next._index);
+
+        // «скоро …» (разово на кроці)
+        if (!spoken.early && next._metersToManeuver <= lead && next._metersToManeuver > SPEAK_NOW_DIST){
+          speak(stepToSpeech(next, 'soon', next._metersToManeuver));
+          spoken.early = true;
+        }
+
+        // «зараз …» (разово на кроці)
+        if (!spoken.now && next._metersToManeuver <= SPEAK_NOW_DIST){
+          speak(stepToSpeech(next, 'now'));
+          spoken.now = true;
         }
       }
     }
@@ -316,7 +389,10 @@ if ('speechSynthesis' in window) {
       const p = turf.nearestPointOnLine(s.geometry, curr, {units:'meters'});
       const d = p.properties.dist;
       const m = p.properties.distance || d || Infinity;
-      const segRemain = turf.length(turf.lineSlice(p, turf.point(s.geometry.coordinates.at(-1)), s.geometry), {units:'kilometers'})*1000;
+      const segRemain = turf.length(
+        turf.lineSlice(p, turf.point(s.geometry.coordinates.at(-1)), s.geometry),
+        {units:'kilometers'}
+      )*1000;
       const score = m + segRemain;
       if (score < min){ min = score; best = s; idx = i; best._metersToManeuver = segRemain; }
     });
@@ -330,20 +406,17 @@ if ('speechSynthesis' in window) {
     return best;
   }
 
-  function stepToSpeech(step){
-    const man = step.maneuver || {}; const d = Math.round((step.distance||0));
-    let text = man.instruction || '';
-    text = text.replace(/Turn right/i, 'Поверніть праворуч')
-               .replace(/Turn left/i, 'Поверніть ліворуч')
-               .replace(/Continue/i, 'Рухайтесь прямо')
-               .replace(/At the roundabout/i, 'На колі')
-               .replace(/Take the exit/i, 'Зʼїжджайте на виїзд');
-    if (!/м|km|км/.test(text)) text += `. За ${d<1000? d+" м" : (d/1000).toFixed(1)+" км"}`;
-    return text;
-  }
-
   let autoCenter = true;
-  document.getElementById('btnRecenter').onclick = ()=>{ autoCenter = true; if (lastUserPos) map.easeTo({center:lastUserPos, duration:300}); };
+
+  // призупиняти автоцентр при ручних жестах
+  map.on('dragstart',   ()=> autoCenter = false);
+  map.on('rotatestart', ()=> autoCenter = false);
+  map.on('pitchstart',  ()=> autoCenter = false);
+
+  document.getElementById('btnRecenter').onclick = ()=>{
+    autoCenter = true;
+    if (lastUserPos) updateCamera(lastUserPos, filteredHeading);
+  };
   document.getElementById('btnStart').onclick = startNav;
   document.getElementById('btnStop').onclick = stopNav;
   document.getElementById('btnShare').onclick = shareLink;
@@ -352,11 +425,23 @@ if ('speechSynthesis' in window) {
     if (watchId!=null) return;
     if (navigator.geolocation){
       $notice.style.display='block';
-      watchId = navigator.geolocation.watchPosition(onPosition, onPositionError, { enableHighAccuracy:true, maximumAge:1000, timeout:10000 });
+      // частіші та точніші оновлення
+      watchId = navigator.geolocation.watchPosition(
+        onPosition,
+        onPositionError,
+        { enableHighAccuracy:true, maximumAge:0, timeout:8000 }
+      );
       speak('Навігацію розпочато');
     } else alert('Геолокація не підтримується браузером');
   }
-  function stopNav(){ if (watchId!=null){ navigator.geolocation.clearWatch(watchId); watchId=null; speak('Навігацію зупинено'); $notice.style.display='none'; } }
+  function stopNav(){
+    if (watchId!=null){
+      navigator.geolocation.clearWatch(watchId);
+      watchId=null;
+      speak('Навігацію зупинено');
+      $notice.style.display='none';
+    }
+  }
 
   async function shareLink(){
     if (!routeGeoJSON){ showToast('Маршрут ще не готовий'); return; }
@@ -371,7 +456,6 @@ if ('speechSynthesis' in window) {
     }catch(e){ await navigator.clipboard.writeText(url); showToast('Посилання скопійовано'); }
   }
 
-  // Застосовуємо українські підписи щоразу, коли стиль повністю завантажено
   map.on('style.load', applyUkrainianLabels);
 
   map.on('load', async ()=>{
@@ -379,7 +463,6 @@ if ('speechSynthesis' in window) {
       const { name, points } = await loadRouteData();
       $title.textContent = name;
 
-      // Даунсемплінг + безпечний fallback
       const waypoints = clampWaypoints(points, 25);
       try {
         await fetchDirections(waypoints);
