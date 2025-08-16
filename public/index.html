@@ -13,7 +13,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 
   <style>
-  :root { --nav-h:56px; --card:#fff; --line:#e5e7eb; --muted:#6b7280; }
+  :root { --nav-h:56px; --nav-real:56px; --card:#fff; --line:#e5e7eb; --muted:#6b7280; }
 
   /* base */
   *{box-sizing:border-box}
@@ -21,7 +21,7 @@
 
   /* top bar */
   header.topbar{
-    position:sticky; top:0; z-index:1500; height:var(--nav-h);
+    position:sticky; top:0; z-index:5000; min-height:var(--nav-h); /* було height + нижчий z-index */
     display:flex; align-items:center; justify-content:space-between; gap:10px; padding:8px;
     background:#2563eb; color:#fff;
   }
@@ -60,12 +60,12 @@
     #authBar.collapsed #authLogout{ display:none !important; }
   }
 
-  /* map */
-  #map{position:absolute; top:var(--nav-h); bottom:0; width:100%}
+  /* map — топ від реальної, а не фіксованої висоти шапки */
+  #map{position:absolute; top:var(--nav-real); bottom:0; width:100%}
 
-  /* side panel */
+  /* side panel — теж від реальної висоти */
   #controls{
-    position:absolute; z-index:3000; top:calc(var(--nav-h) + 8px); left:8px;
+    position:absolute; z-index:3000; top:calc(var(--nav-real) + 8px); left:8px;
     background:var(--card); border:1px solid var(--line); border-radius:12px;
     box-shadow:0 1px 8px rgba(0,0,0,.12); padding:12px;
     max-width:380px; max-height:90vh; overflow-y:auto; overflow-x:hidden;
@@ -314,6 +314,16 @@
 mapboxgl.accessToken = 'pk.eyJ1IjoidGtjaGsiLCJhIjoiY21keTN0bXVlMjN6djJrczZ2NDk5bXRoMiJ9.6n1kuiUJ3EdGUpz5I6-wdg';
 let currentStyle = 'mapbox://styles/mapbox/streets-v12';
 const map = new mapboxgl.Map({ container: 'map', style: currentStyle, center: [30.5238, 50.4547], zoom: 10 });
+
+/* === Динамічна висота шапки (щоб кнопка входу не ховалась) === */
+const topbarEl = document.querySelector('header.topbar');
+function updateLayoutHeights(){
+  const h = (topbarEl?.offsetHeight || 56);
+  document.documentElement.style.setProperty('--nav-real', h + 'px');
+  try { map.resize(); } catch(_) {}
+}
+window.addEventListener('resize', updateLayoutHeights);
+updateLayoutHeights();
 
 /* === УКРАЇНСЬКІ ПІДПИСИ НА КАРТІ === */
 function applyUkrainianLabels(){
@@ -1213,6 +1223,7 @@ const logoutBtn  = document.getElementById('authLogout');
 
 document.getElementById('mobileAuthToggle').addEventListener('click', () => {
   document.getElementById('authBar').classList.toggle('collapsed');
+  requestAnimationFrame(updateLayoutHeights); // важливо на мобільному
 });
 
 loginBtn.onclick = async () => {
@@ -1230,6 +1241,7 @@ auth?.onAuthStateChanged(async (user) => {
     if (window.matchMedia('(max-width: 640px)').matches) {
       document.getElementById('authBar').classList.add('collapsed');
     }
+    requestAnimationFrame(updateLayoutHeights);
     let role = 'user';
     try{
       const r = await db.collection('roles').doc(user.uid).get();
@@ -1241,6 +1253,7 @@ auth?.onAuthStateChanged(async (user) => {
     authHello.textContent = 'Гість';
     loginBtn.style.display='inline-block'; authEmail.style.display='inline-block'; authPass.style.display='inline-block';
     logoutBtn.style.display='none';
+    requestAnimationFrame(updateLayoutHeights);
     applyRoleUI('guest');
     await loadLogists(false); // для гостей — лише кеш
   }
@@ -1253,6 +1266,7 @@ window.addEventListener('load', async () => {
   await refreshRoutesList();   // кеш -> сервер
   const rid = new URLSearchParams(location.search).get('rid');
   if (rid) await loadRouteById(rid);
+  requestAnimationFrame(updateLayoutHeights);
 });
 
 /* На фокус у полі логіста — пробуємо підвантажити список */
