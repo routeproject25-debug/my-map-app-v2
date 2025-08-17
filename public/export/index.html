@@ -521,6 +521,68 @@ function b64encodeUtf8(objOrString){
   return btoa(bin);
 }
 
+/* --- NEW: нормалізація "лінійок"/домальованих сегментів з документа --- */
+function normalizeSegments(source){
+  const segments = [];
+
+  function pushLine(arr){
+    if (!Array.isArray(arr)) return;
+    const pts = arr.map(toLonLat).filter(Boolean);
+    if (pts.length >= 2) segments.push(pts);
+  }
+
+  function scan(val, keyHint=''){
+    if (!val) return;
+
+    // GeoJSON гілки
+    if (val.type === 'FeatureCollection' && Array.isArray(val.features)){
+      val.features.forEach(f=>{
+        if (f?.geometry?.type === 'LineString') pushLine(f.geometry.coordinates);
+        if (f?.geometry?.type === 'MultiLineString') (f.geometry.coordinates||[]).forEach(pushLine);
+      });
+      return;
+    }
+    if (val.type === 'Feature' && val.geometry){
+      scan(val.geometry, keyHint); return;
+    }
+    if (val.type === 'LineString' && Array.isArray(val.coordinates)){
+      pushLine(val.coordinates); return;
+    }
+    if (val.type === 'MultiLineString' && Array.isArray(val.coordinates)){
+      val.coordinates.forEach(pushLine); return;
+    }
+
+    // Масиви
+    if (Array.isArray(val)){
+      if (val.length && Array.isArray(val[0])){
+        // або сам лайн, або масив лайнів
+        const looksLikePoint = val[0].length >= 2 && Number.isFinite(+val[0][0]) && Number.isFinite(+val[0][1]);
+        if (looksLikePoint){ pushLine(val); return; }
+        val.forEach(v=>scan(v, keyHint)); return;
+      }
+      if (val.length && typeof val[0] === 'object'){
+        // масив об’єктів точок
+        const pts = val.map(toLonLat).filter(Boolean);
+        if (pts.length >= 2){ segments.push(pts); return; }
+        val.forEach(v=>scan(v, keyHint)); return;
+      }
+      if (val.length && typeof val[0] === 'string'){
+        pushLine(val); return;
+      }
+    }
+
+    // Об’єкти: беремо тільки полі, схожі на лінійки
+    if (typeof val === 'object'){
+      for (const [k,v] of Object.entries(val)){
+        if (/(ruler|manual|line|path|segment|polyline|draw)/i.test(k)) scan(v, k);
+      }
+    }
+  }
+
+  scan(source);
+  return segments;
+}
+
 /* --- мемо стан останньої вибірки --- */
 let lastQueryKey = '';
 let lastAllRows = null;
@@ -691,6 +753,23 @@ async function fetchRoutePointsById(routeId){
   return points;
 }
 
+/* ---------- NEW: зібрати payload для навігатора (включно з лінійками) ---------- */
+async function buildNavigatePayloadById(routeId, prettyName){
+  const ref = db.collection('routes').doc(routeId);
+  const doc = await ref.get();
+  if (!doc.exists) throw new Error('Маршрут не знайдено');
+  const d = doc.data() || {};
+
+  // основна лінія
+  const points = await fetchRoutePointsById(routeId);
+
+  // домальовані лінії (лінійки)
+  const manualSegments = normalizeSegments(d);
+
+  console.log('🔎 manualSegments found:', manualSegments.length);
+  return { name: prettyName || 'Маршрут', points, manualSegments };
+}
+
 /* ---------- Таблиця ---------- */
 function renderTable(rows){
   const tb = document.querySelector('#resTable tbody');
@@ -778,8 +857,8 @@ document.querySelector('#resTable tbody').addEventListener('click', async (ev)=>
   const prettyName = btn.getAttribute('data-name') || 'Маршрут';
   try{
     setBusy(true);
-    const points = await fetchRoutePointsById(id);
-    const payload = { name: prettyName, points };
+    // NEW: будуємо payload з лінійками
+    const payload = await buildNavigatePayloadById(id, prettyName);
     const b64 = b64encodeUtf8(payload);
     const url = buildNavigateURL(b64, DEFAULT_PROFILE);
     await shareURL(url, prettyName);
