@@ -30,6 +30,19 @@
       font-size:13px; line-height:1.35; display:none; z-index:20;
       pointer-events:none;
     }
+    /* ===== marker: truck icon ===== */
+    .car-marker{
+      width:40px;height:40px;
+      display:grid;place-items:center;
+      transform: translate(-50%, -50%);
+      filter: drop-shadow(0 1px 2px rgba(0,0,0,.35));
+      pointer-events:none;
+    }
+    .car-marker .icon{
+      width:32px;height:32px;
+      transition: transform .18s linear;
+      transform-origin:center center;
+    }
   </style>
 </head>
 <body>
@@ -262,15 +275,36 @@
     map.fitBounds(bbox, { padding:{top:80, right:20, bottom:20, left:20} });
   }
 
+  // === КАСТОМНИЙ маркер «вантажівка» ===
   function ensureUserMarker(lng, lat){
     if (!userMarker){
       const el = document.createElement('div');
-      el.style.width='18px'; el.style.height='18px'; el.style.borderRadius='50%'; el.style.background='#10b981'; el.style.border='2px solid #fff'; el.style.boxShadow='0 0 0 2px rgba(16,185,129,.4)';
-      userMarker = new mapboxgl.Marker({element:el, rotationAlignment:'map'})
-        .setLngLat([lng, lat]).addTo(map);
+      el.className = 'car-marker';
+      el.innerHTML = `
+        <div class="icon">
+          <svg viewBox="0 0 64 64" width="32" height="32" aria-hidden="true">
+            <rect x="18" y="6" width="28" height="30" rx="6" fill="#10b981" stroke="#ffffff" stroke-width="2"/>
+            <rect x="24" y="36" width="16" height="10" rx="3" fill="#10b981" stroke="#ffffff" stroke-width="2"/>
+            <rect x="26" y="38" width="12" height="6" rx="2" fill="#34d399"/>
+            <circle cx="22" cy="56" r="4.2" fill="#111827" stroke="#ffffff" stroke-width="1.6"/>
+            <circle cx="42" cy="56" r="4.2" fill="#111827" stroke="#ffffff" stroke-width="1.6"/>
+          </svg>
+        </div>`;
+      userMarker = new mapboxgl.Marker({
+        element: el,
+        anchor: 'center',
+        rotationAlignment: 'viewport'
+      }).setLngLat([lng, lat]).addTo(map);
     } else {
       userMarker.setLngLat([lng, lat]);
     }
+  }
+  function updateUserMarkerRotation(headingDeg){
+    if (!userMarker) return;
+    const icon = userMarker.getElement().querySelector('.icon');
+    if (!icon) return;
+    const rot = (followHard ? 0 : (Number.isFinite(headingDeg) ? headingDeg : 0));
+    icon.style.transform = `rotate(${rot}deg)`;
   }
 
   function computeHeading(prev, curr){
@@ -356,6 +390,7 @@
     autoCenter = followHard; // в «замку» завжди true
     setFollowUI();
     if (followHard && lastUserPos) updateCamera(lastUserPos, filteredHeading);
+    updateUserMarkerRotation(filteredHeading);
   };
 
   // === Основний обробник позиції ===
@@ -400,8 +435,9 @@
     lastSpeedPos = filteredPos;
     lastTs = ts;
 
-    // маркер + камера (УВАГА: під час навігації при followHard камера ОНОВЛЮЄТЬСЯ ЗАВЖДИ)
+    // маркер + камера
     ensureUserMarker(filteredPos[0], filteredPos[1]);
+    updateUserMarkerRotation(filteredHeading);
     if (followHard || autoCenter) updateCamera(filteredPos, filteredHeading);
 
     // залишок/ETA + підказки
