@@ -27,12 +27,8 @@
     .row.cols-3 { grid-template-columns: 1fr 1fr 1fr; }
     .row.cols-4 { grid-template-columns: 1fr 1fr 1fr 1fr; }
     .row.dates { grid-template-columns: minmax(180px,1fr) minmax(180px,1fr); gap:10px; }
-    @media (max-width: 860px) {
-      .row.cols-4 { grid-template-columns: 1fr 1fr; }
-    }
-    @media (max-width: 640px) {
-      .row.cols-2, .row.cols-3, .row.cols-4, .row.dates { grid-template-columns: 1fr; }
-    }
+    @media (max-width: 860px) { .row.cols-4 { grid-template-columns: 1fr 1fr; } }
+    @media (max-width: 640px) { .row.cols-2, .row.cols-3, .row.cols-4, .row.dates { grid-template-columns: 1fr; } }
 
     label { display:block; font-size:13px; color:#555; margin:4px 0; }
     input[type="text"], input[type="date"], input[type="number"], select {
@@ -45,7 +41,9 @@
     .bar { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
     .muted { color:#667085; font-size:12.5px; }
     .warn { color:#b91c1c; font-size:12px; }
-    table { width:100%; border-collapse:collapse; }
+
+    /* таблиця */
+    table { width:100%; border-collapse:collapse; table-layout: fixed; } /* EDGE: фіксована сітка + 100% */
     th, td { border:1px solid #e5e7eb; padding:6px 8px; font-size:13px; text-align:left; vertical-align: top; }
     th { background:#f1f5f9; }
     .topbar { display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; }
@@ -63,6 +61,21 @@
     .authbar input { height:30px; padding:4px 8px; border-radius:6px; border:1px solid rgba(255,255,255,.35); background:#fff; color:#111; }
     .authbar .btn { height:30px; padding:4px 10px; }
     .role-badge { background:rgba(255,255,255,.2); padding:2px 8px; border-radius:999px; font-size:12px; }
+
+    /* EDGE: картка з таблицею на повну ширину вікна */
+    .card.edge {
+      width: 100vw;
+      margin-left: calc(50% - 50vw);
+      margin-right: calc(50% - 50vw);
+      border-radius: 0;
+    }
+
+    /* EDGE: службові стилі для кодів та ID */
+    .col-code { width: 120px; }
+    .cell-code { word-break: break-all; overflow-wrap: anywhere; white-space: normal; line-height:1.25; }
+
+    .col-id { width: clamp(120px, 18vw, 220px); }
+    .cell-id { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } /* один рядок з обрізанням */
   </style>
 </head>
 <body>
@@ -159,7 +172,8 @@
       <datalist id="directoryList"></datalist>
     </div>
 
-    <div class="card">
+    <!-- EDGE: ця картка розтягується на всю ширину вікна -->
+    <div class="card edge">
       <div class="bar" style="justify-content:space-between; margin-bottom:8px;">
         <strong>Результати</strong>
         <span class="muted" id="countInfo">Натисніть «Попередній перегляд»</span>
@@ -174,6 +188,18 @@
 
       <div style="overflow:auto;">
         <table id="resTable">
+          <colgroup>
+            <col class="col-code"><col class="col-code">
+            <col><!-- Від -->
+            <col><!-- До -->
+            <col><!-- Відстань -->
+            <col><!-- Тип -->
+            <col><!-- Логіст -->
+            <col><!-- Оновлено -->
+            <col class="col-id"><!-- ID -->
+            <col><!-- Карта -->
+            <col><!-- Навігатор -->
+          </colgroup>
           <thead>
             <tr>
               <th>Код Від</th><th>Код До</th>
@@ -540,7 +566,7 @@ function normalizeSegments(source){
   function scan(val, keyHint=''){
     if (!val) return;
 
-    // GeoJSON гілки
+    // GeoJSON
     if (val.type === 'FeatureCollection' && Array.isArray(val.features)){
       val.features.forEach(f=>{
         if (f?.geometry?.type === 'LineString') pushLine(f.geometry.coordinates);
@@ -554,11 +580,7 @@ function normalizeSegments(source){
 
     // Масиви
     if (Array.isArray(val)){
-      if (val.length && Array.isArray(val[0])){
-        const looksLikePoint = val[0].length >= 2 && Number.isFinite(+val[0][0]) && Number.isFinite(+val[0][1]);
-        if (looksLikePoint){ pushLine(val); return; }
-        val.forEach(v=>scan(v, keyHint)); return;
-      }
+      if (val.length && Array.isArray(val[0])){ pushLine(val); return; }
       if (val.length && typeof val[0] === 'object'){
         const pts = val.map(toLonLat).filter(Boolean);
         if (pts.length >= 2){ segments.push(pts); return; }
@@ -567,7 +589,7 @@ function normalizeSegments(source){
       if (val.length && typeof val[0] === 'string'){ pushLine(val); return; }
     }
 
-    // Об’єкти: беремо тільки поля, схожі на «ручні» лінії
+    // Об’єкти
     if (typeof val === 'object'){
       for (const [k,v] of Object.entries(val)){
         if (/(ruler|manual|line|path|segment|polyline|draw)/i.test(k)) scan(v, k);
@@ -756,7 +778,7 @@ function buildNavigateURLFromPayload(payloadObj){
   // 2) Fallback: старий base64-параметр src (для сумісності зі старими navigate.html)
   try { q.set('src', b64encodeUtf8(payloadObj)); } catch(e){}
 
-  // НЕ додаємо profile/token/autostart — їх обробляє navigate.html
+  // НЕ додаємо profile/token/autостart — їх обробляє navigate.html
   return `${base}?${q.toString()}`;
 }
 
@@ -774,15 +796,15 @@ async function shareURL(url, title){
 function renderTable(rows){
   const tb = document.querySelector('#resTable tbody');
   tb.innerHTML = rows.map(r=>`<tr data-id="${r.id}">
-    <td>${r.fromCode}</td>
-    <td>${r.toCode}</td>
+    <td class="cell-code" title="${r.fromCode}">${r.fromCode}</td>
+    <td class="cell-code" title="${r.toCode}">${r.toCode}</td>
     <td>${r.fromName}</td>
     <td>${r.toName}</td>
     <td>${Number.isFinite(r.distance_km) ? r.distance_km.toFixed(3) : ''}</td>
     <td>${r.type}</td>
     <td>${r.logisticName || ''}</td>
     <td>${r.updatedAt}</td>
-    <td>${r.id}</td>
+    <td class="cell-id" title="${r.id}">${r.id}</td> <!-- EDGE: один рядок + підказка -->
     <td><a href="${MAP_URL}?rid=${encodeURIComponent(r.id)}" target="_blank" rel="noopener">Відкрити</a></td>
     <td><button class="btn sm share-btn" data-id="${r.id}" data-name="${(r.fromName||'') + ' → ' + (r.toName||'')}">🔗 Поділитися</button></td>
   </tr>`).join('');
