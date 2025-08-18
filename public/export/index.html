@@ -11,7 +11,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
   <!-- SheetJS (Excel) -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-  <!-- LZ-String для стиснення payload у URL (srcz) -->
+  <!-- LZ-String (srcz) -->
   <script src="https://cdn.jsdelivr.net/npm/lz-string@1.5.0/libs/lz-string.min.js"></script>
 
   <style>
@@ -43,7 +43,7 @@
     .warn { color:#b91c1c; font-size:12px; }
 
     /* таблиця */
-    table { width:100%; border-collapse:collapse; table-layout: fixed; } /* EDGE: фіксована сітка + 100% */
+    table { width:100%; border-collapse:collapse; table-layout: fixed; }
     th, td { border:1px solid #e5e7eb; padding:6px 8px; font-size:13px; text-align:left; vertical-align: top; }
     th { background:#f1f5f9; }
     .topbar { display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; }
@@ -52,42 +52,34 @@
     .stats { display:flex; gap:12px; flex-wrap:wrap; font-size:13px; color:#111827; }
     .stats .chip { background:#f3f4f6; border:1px solid #e5e7eb; border-radius:999px; padding:4px 10px; }
 
-    /* auth bar у шапці */
-    header.top {
-      background:#2563eb;color:#fff;padding:10px;display:flex;gap:16px;align-items:center;justify-content:space-between;
-    }
+    /* шапка */
+    header.top { background:#2563eb;color:#fff;padding:10px;display:flex;gap:16px;align-items:center;justify-content:space-between; }
     header.top a { color:#fff;text-decoration:none; }
     .authbar { display:flex; gap:6px; align-items:center; flex-wrap:wrap; }
     .authbar input { height:30px; padding:4px 8px; border-radius:6px; border:1px solid rgba(255,255,255,.35); background:#fff; color:#111; }
     .authbar .btn { height:30px; padding:4px 10px; }
     .role-badge { background:rgba(255,255,255,.2); padding:2px 8px; border-radius:999px; font-size:12px; }
 
-    /* EDGE: картка з таблицею на повну ширину вікна */
-    .card.edge {
-      width: 100vw;
-      margin-left: calc(50% - 50vw);
-      margin-right: calc(50% - 50vw);
-      border-radius: 0;
-    }
+    /* картка з таблицею на всю ширину */
+    .card.edge { width: 100vw; margin-left: calc(50% - 50vw); margin-right: calc(50% - 50vw); border-radius: 0; }
 
-    /* EDGE: службові стилі для кодів та ID */
+    /* ширини/поведінка комірок */
     .col-code { width: 120px; }
     .cell-code { word-break: break-all; overflow-wrap: anywhere; white-space: normal; line-height:1.25; }
 
     .col-id { width: clamp(120px, 18vw, 220px); }
-    .cell-id { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } /* один рядок з обрізанням */
+    .cell-id { position:relative; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-right:28px; }
+    .copy-id { position:absolute; right:6px; top:50%; transform:translateY(-50%); border:0; background:transparent; cursor:pointer; font-size:14px; opacity:.75; }
+    .copy-id:hover { opacity:1; }
   </style>
 </head>
 <body>
-<!-- Верхня лінія з навігацією та авторизацією -->
 <header class="top">
   <nav style="display:flex;gap:16px;align-items:center;">
     <a href="/">🏠 Карта</a>
     <a href="/export/">📤 Експорт</a>
     <a href="/import/">📥 Імпорт</a>
   </nav>
-
-  <!-- AUTH BAR -->
   <div class="authbar">
     <span id="authInfo">Не увійшли</span>
     <span id="authRole" class="role-badge" style="display:none;"></span>
@@ -102,13 +94,10 @@
   <div class="wrap">
     <div class="topbar">
       <h1>Експорт маршрутів (Firestore → Excel)</h1>
-      <div class="bar">
-        <a class="btn" href="/index.html">← До карти</a>
-      </div>
+      <div class="bar"><a class="btn" href="/index.html">← До карти</a></div>
     </div>
 
     <div class="card" style="margin-bottom:12px;">
-      <!-- 1 ряд: Від/До -->
       <div class="row cols-2">
         <div>
           <label>Фільтр: Від</label>
@@ -120,7 +109,6 @@
         </div>
       </div>
 
-      <!-- 2 ряд: Тип + Дати -->
       <div class="row cols-2" style="margin-top:12px;">
         <div>
           <label>Тип</label>
@@ -140,13 +128,10 @@
         </div>
       </div>
 
-      <!-- 3 ряд: Підрозділ + Відстань + Логіст -->
       <div class="row cols-4" style="margin-top:12px;">
         <div>
           <label>Виробничий підрозділ (у Від або До)</label>
-          <select id="unitFilter">
-            <option value="">— будь-який —</option>
-          </select>
+          <select id="unitFilter"><option value="">— будь-який —</option></select>
         </div>
         <div>
           <label>Відстань, км — від</label>
@@ -172,14 +157,12 @@
       <datalist id="directoryList"></datalist>
     </div>
 
-    <!-- EDGE: ця картка розтягується на всю ширину вікна -->
     <div class="card edge">
       <div class="bar" style="justify-content:space-between; margin-bottom:8px;">
         <strong>Результати</strong>
         <span class="muted" id="countInfo">Натисніть «Попередній перегляд»</span>
       </div>
 
-      <!-- Статистика -->
       <div class="stats" id="statsInfo" style="display:none; margin-bottom:8px;">
         <div class="chip" id="statMax">Найбільша: —</div>
         <div class="chip" id="statMin">Найменша: —</div>
@@ -190,15 +173,9 @@
         <table id="resTable">
           <colgroup>
             <col class="col-code"><col class="col-code">
-            <col><!-- Від -->
-            <col><!-- До -->
-            <col><!-- Відстань -->
-            <col><!-- Тип -->
-            <col><!-- Логіст -->
-            <col><!-- Оновлено -->
-            <col class="col-id"><!-- ID -->
-            <col><!-- Карта -->
-            <col><!-- Навігатор -->
+            <col><col><col><col><col><col>
+            <col class="col-id">
+            <col><col>
           </colgroup>
           <thead>
             <tr>
@@ -218,7 +195,7 @@
   </div>
 
 <script>
-/* === Навігаційні константи (налаштовуються) === */
+/* === Навігаційні константи === */
 const MAP_URL = '/index.html';
 const NAVIGATE_PAGE = '/navigate.html';
 const DEFAULT_PROFILE = 'driving';
@@ -243,15 +220,13 @@ const firebaseConfig = {
 const statusEl = document.getElementById('status');
 let db = null, auth = null;
 let currentUser = null;
-let currentRole = null; // 'admin' | 'logist' | 'user' | 'viewer'
+let currentRole = null;
 
-/* ---------- Init Firebase ---------- */
 try{
   const app = firebase.apps?.length ? firebase.app() : firebase.initializeApp(firebaseConfig);
   db = firebase.firestore();
   auth = firebase.auth();
   statusEl.textContent = 'Підключено';
-
   db.enablePersistence({ synchronizeTabs: true }).catch((e) => {
     console.warn('Persistence off:', e.code || e.message);
   });
@@ -277,16 +252,11 @@ function setBusy(b){
 }
 
 btnLogin.addEventListener('click', async () => {
-  try{
-    setBusy(true);
-    await auth.signInWithEmailAndPassword(emailInp.value.trim(), passInp.value);
-  }catch(e){
-    alert('Помилка входу: ' + (e?.message || e));
-  }finally{ setBusy(false); }
+  try{ setBusy(true); await auth.signInWithEmailAndPassword(emailInp.value.trim(), passInp.value); }
+  catch(e){ alert('Помилка входу: ' + (e?.message || e)); }
+  finally{ setBusy(false); }
 });
-btnLogout.addEventListener('click', async () => {
-  try{ await auth.signOut(); }catch(e){ console.warn(e); }
-});
+btnLogout.addEventListener('click', async () => { try{ await auth.signOut(); }catch(e){ console.warn(e); } });
 
 auth?.onAuthStateChanged(async (u) => {
   currentUser = u || null;
@@ -299,39 +269,29 @@ auth?.onAuthStateChanged(async (u) => {
     setBusy(false);
     return;
   }
-  // показати email
   authInfo.textContent = `Увійшли як ${u.email || u.uid}`;
   btnLogin.style.display = 'none';
   btnLogout.style.display = '';
 
-  // підвантажити роль
   try{
     const rs = await db.collection('roles').doc(u.uid).get();
     currentRole = rs.exists ? (rs.data().role || 'viewer') : 'viewer';
-  }catch{
-    currentRole = 'viewer';
-  }
+  }catch{ currentRole = 'viewer'; }
   authRoleBadge.textContent = `Роль: ${currentRole}`;
   authRoleBadge.style.display = '';
-
   setBusy(false);
 
-  // після входу — довідник та логісти
   try{ await Promise.all([loadDirectory(), loadLogists(true)]); }catch(e){ console.warn(e); }
 });
 
-/* ---------- Довідник (коди → назви/підрозділи) ---------- */
-const dirByCode = {};     // {code:{name,company,unit}}
-const codeByName = {};    // {name:code}
-const unitsSet = new Set();
-
+/* ---------- Довідник ---------- */
+const dirByCode = {}, codeByName = {}; const unitsSet = new Set();
 const DIR_CACHE_KEY = 'export.directoryCache.v1';
-const DIR_CACHE_TTL_MS = 12 * 60 * 60 * 1000; // 12 год
+const DIR_CACHE_TTL_MS = 12 * 60 * 60 * 1000;
 
 function fillDirectoryUI(rows){
   const list = document.getElementById('directoryList');
   const unitSelect = document.getElementById('unitFilter');
-
   list.innerHTML = '';
   unitSelect.querySelectorAll('option:not([value=""])').forEach(o=>o.remove());
   unitsSet.clear();
@@ -343,13 +303,10 @@ function fillDirectoryUI(rows){
     dirByCode[code] = { name, company, unit };
     if(!(name in codeByName)) codeByName[name]=code;
     if (unit) unitsSet.add(unit);
-
     const opt = document.createElement('option');
-    opt.value = name;
-    opt.label = [name, unit, company].filter(Boolean).join(' • ');
+    opt.value = name; opt.label = [name, unit, company].filter(Boolean).join(' • ');
     list.appendChild(opt);
   }
-
   Array.from(unitsSet).sort((a,b)=>a.localeCompare(b,'uk')).forEach(u=>{
     const o=document.createElement('option'); o.value=u; o.textContent=u; unitSelect.appendChild(o);
   });
@@ -361,249 +318,129 @@ async function loadDirectory(){
     const raw = localStorage.getItem(DIR_CACHE_KEY);
     if (raw){
       const { ts, rows } = JSON.parse(raw);
-      if (Array.isArray(rows) && Date.now() - ts < DIR_CACHE_TTL_MS){
-        fillDirectoryUI(rows);
-        console.log('📒 Directory from localStorage cache:', rows.length);
-        return;
-      }
+      if (Array.isArray(rows) && Date.now() - ts < DIR_CACHE_TTL_MS){ fillDirectoryUI(rows); return; }
     }
   }catch{}
-
   let snap = null;
   try { snap = await db.collection('directory').get({ source: 'cache' }); } catch {}
   if (!snap || snap.empty) { snap = await db.collection('directory').get(); }
-
   const rows = [];
   snap.forEach(doc=>{
     const d = doc.data()||{};
-    rows.push({
-      code: doc.id,
-      name: d.name || doc.id,
-      company: d.company || '',
-      unit: d.unit || ''
-    });
+    rows.push({ code: doc.id, name: d.name || doc.id, company: d.company || '', unit: d.unit || '' });
   });
-
   fillDirectoryUI(rows);
   try{ localStorage.setItem(DIR_CACHE_KEY, JSON.stringify({ ts: Date.now(), rows })); }catch{}
-  console.log('📒 Directory loaded from Firestore:', rows.length);
 }
 
-/* ---------- ЛОГІСТИ (для фільтру) ---------- */
-const logistById = {};
-const logistIdByName = {};
+/* ---------- Логісти ---------- */
+const logistById = {}, logistIdByName = {};
 const LOGISTS_CACHE_KEY = 'export.logistsCache.v1';
 const LOGISTS_CACHE_TTL_MS = 12 * 60 * 60 * 1000;
-
-function _norm(s){ return String(s||'').trim().toLowerCase(); }
+const _norm = s => String(s||'').trim().toLowerCase();
 
 function fillLogistsUI(rows){
   const list = document.getElementById('logistsList');
   list.innerHTML = '';
   for (const k in logistById) delete logistById[k];
   for (const k in logistIdByName) delete logistIdByName[k];
-
-  rows.forEach(r=>{
-    logistById[r.id] = r;
-    logistIdByName[r.name] = r.id;
-    const opt = document.createElement('option');
-    opt.value = r.name;
-    list.appendChild(opt);
+  rows.forEach(r=>{ logistById[r.id]=r; logistIdByName[r.name]=r.id;
+    const opt=document.createElement('option'); opt.value=r.name; list.appendChild(opt);
   });
 }
 
 async function loadLogists(allowServer){
   const msg = document.getElementById('logistsMsg');
   const show = t => { msg.textContent = t || ''; msg.style.display = t ? 'block' : 'none'; };
-
   try{
-    // 1) cache
     const raw = localStorage.getItem(LOGISTS_CACHE_KEY);
     if (raw){
       const { ts, rows } = JSON.parse(raw);
-      if (Array.isArray(rows) && Date.now() - ts < LOGISTS_CACHE_TTL_MS){
-        fillLogistsUI(rows);
-        show('');
-        console.log('👥 Logists from cache:', rows.length);
-        return;
-      }
+      if (Array.isArray(rows) && Date.now() - ts < LOGISTS_CACHE_TTL_MS){ fillLogistsUI(rows); show(''); return; }
     }
-
-    // 2) server (if allowed)
     if (!allowServer){ show('Увійдіть, щоб побачити список логістів.'); return; }
-
     let snap = null;
     try { snap = await db.collection('logists').get({ source: 'default' }); }
     catch(e){
-      if (e && (e.code === 'permission-denied' || /insufficient permissions/i.test(e.message))){
-        show('Увійдіть, щоб побачити список логістів.');
-        return;
-      }
+      if (e && (e.code === 'permission-denied' || /insufficient permissions/i.test(e.message))){ show('Увійдіть, щоб побачити список логістів.'); return; }
       throw e;
     }
-
     let rows = [];
     snap.forEach(doc=>{
       const d = doc.data()||{};
-      rows.push({
-        id: doc.id,
-        name: d.name || doc.id,
-        active: d.active !== false,
-        sort: typeof d.sort === 'number' ? d.sort : 0
-      });
+      rows.push({ id: doc.id, name: d.name || doc.id, active: d.active !== false, sort: typeof d.sort === 'number' ? d.sort : 0 });
     });
-    rows = rows.filter(r=>r.active)
-               .sort((a,b)=> (a.sort-b.sort) || a.name.localeCompare(b.name,'uk'));
-
+    rows = rows.filter(r=>r.active).sort((a,b)=>(a.sort-b.sort)||a.name.localeCompare(b.name,'uk'));
     fillLogistsUI(rows);
     try{ localStorage.setItem(LOGISTS_CACHE_KEY, JSON.stringify({ ts: Date.now(), rows })); }catch{}
     show('');
-    console.log('👥 Logists loaded:', rows.length);
-  }catch(e){
-    console.error('logists load error:', e);
-    show('Не вдалось завантажити логістів.');
-  }
+  }catch(e){ console.error('logists load error:', e); show('Не вдалось завантажити логістів.'); }
 }
 
 function getLogistIdByInput(inputId){
   const name = (document.getElementById(inputId).value || '').trim();
   if (!name) return null;
   if (logistIdByName[name]) return logistIdByName[name];
-
   const n = _norm(name);
-  for (const [label, id] of Object.entries(logistIdByName)){
-    if (_norm(label) === n) return id;
-  }
+  for (const [label, id] of Object.entries(logistIdByName)){ if (_norm(label) === n) return id; }
   const cand = Object.entries(logistIdByName).filter(([label])=> _norm(label).includes(n));
   if (cand.length === 1) return cand[0][1];
-  return null; // не знайшли точного відповідника
+  return null;
 }
 
 /* ---------- Хелпери ---------- */
-function getCodeByNameInput(id){
-  const name = (document.getElementById(id).value||'').trim();
-  return codeByName[name] || '';
-}
+function getCodeByNameInput(id){ const name=(document.getElementById(id).value||'').trim(); return codeByName[name] || ''; }
 function nameByCode(code){ return (dirByCode[code]?.name)||''; }
 function unitByCode(code){ return (dirByCode[code]?.unit)||''; }
-
 function dayStartISO(d){ const x=new Date(d); x.setHours(0,0,0,0); return x.toISOString(); }
 function dayEndISO(d){ const x=new Date(d); x.setHours(23,59,59,999); return x.toISOString(); }
+function formatDate(dt){ if (!dt) return ''; const d=new Date(dt); if (isNaN(d)) return ''; const pad=n=>String(n).padStart(2,'0'); return `${pad(d.getDate())}.${pad(d.getMonth()+1)}.${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`; }
 
-function formatDate(dt) {
-  if (!dt) return '';
-  const d = new Date(dt);
-  if (isNaN(d)) return '';
-  const pad = n => String(n).padStart(2, '0');
-  return `${pad(d.getDate())}.${pad(d.getMonth()+1)}.${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
-}
-
-/* --- нормалізація точок (для «Поділитися») --- */
-function toLonLat(p) {
-  if (Array.isArray(p) && p.length >= 2) {
-    const a = Number(p[0]); const b = Number(p[1]);
-    if (Math.abs(a) <= 90 && Math.abs(b) <= 180) return [b, a];
-    return [a, b];
-  }
-  if (typeof p === 'string') {
-    const parts = p.split(/[;, ]+/).map(Number).filter(v => !Number.isNaN(v));
-    if (parts.length >= 2) return toLonLat(parts);
-  }
-  if (p && typeof p === 'object') {
-    const lat = Number(p.lat ?? p.latitude ?? p.Lat ?? p.Latitude);
-    const lon = Number(p.lon ?? p.lng ?? p.longitude ?? p.Lon ?? p.Lng ?? p.Longitude);
-    if (!Number.isNaN(lat) && !Number.isNaN(lon)) return [lon, lat];
-  }
+/* --- нормалізація точок --- */
+function toLonLat(p){
+  if (Array.isArray(p) && p.length>=2){ const a=Number(p[0]); const b=Number(p[1]); return (Math.abs(a)<=90 && Math.abs(b)<=180)?[b,a]:[a,b]; }
+  if (typeof p==='string'){ const parts=p.split(/[;, ]+/).map(Number).filter(v=>!Number.isNaN(v)); if (parts.length>=2) return toLonLat(parts); }
+  if (p && typeof p==='object'){ const lat=Number(p.lat ?? p.latitude ?? p.Lat ?? p.Latitude); const lon=Number(p.lon ?? p.lng ?? p.longitude ?? p.Lon ?? p.Lng ?? p.Longitude); if (!Number.isNaN(lat)&&!Number.isNaN(lon)) return [lon,lat]; }
   return null;
 }
-
-function normalizePoints(raw) {
+function normalizePoints(raw){
   if (!raw) return null;
-  if (raw.type === 'Feature' && raw.geometry?.type === 'LineString') {
-    return normalizePoints(raw.geometry.coordinates);
-  }
-  if (raw.geometry?.type === 'LineString' && Array.isArray(raw.geometry.coordinates)) {
-    return normalizePoints(raw.geometry.coordinates);
-  }
-  if (raw.type === 'FeatureCollection' && Array.isArray(raw.features)) {
-    const f = raw.features.find(f => f.geometry?.type === 'LineString');
-    if (f) return normalizePoints(f.geometry.coordinates);
-  }
-  if (Array.isArray(raw)) {
-    const out = [];
-    for (const item of raw) {
-      const pt = toLonLat(item);
-      if (pt && Number.isFinite(pt[0]) && Number.isFinite(pt[1])) out.push(pt);
-    }
-    return out.length ? out : null;
-  }
+  if (raw.type==='Feature' && raw.geometry?.type==='LineString') return normalizePoints(raw.geometry.coordinates);
+  if (raw.geometry?.type==='LineString' && Array.isArray(raw.geometry.coordinates)) return normalizePoints(raw.geometry.coordinates);
+  if (raw.type==='FeatureCollection' && Array.isArray(raw.features)){ const f=raw.features.find(f=>f.geometry?.type==='LineString'); if (f) return normalizePoints(f.geometry.coordinates); }
+  if (Array.isArray(raw)){ const out=[]; for (const item of raw){ const pt=toLonLat(item); if (pt && Number.isFinite(pt[0]) && Number.isFinite(pt[1])) out.push(pt); } return out.length?out:null; }
   return null;
 }
 
-/* === UTF-8 Base64 helper === */
+/* === UTF-8 Base64 === */
 function b64encodeUtf8(objOrString){
   const s = typeof objOrString === 'string' ? objOrString : JSON.stringify(objOrString);
-  const bytes = new TextEncoder().encode(s);
-  let bin = '';
-  for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
-  return btoa(bin);
+  const bytes = new TextEncoder().encode(s); let bin='';
+  for (let i=0;i<bytes.length;i++) bin += String.fromCharCode(bytes[i]); return btoa(bin);
 }
 
-/* ---------- NEW: округлення координат для коротших URL ---------- */
+/* округлення координат */
 const round6 = n => Math.round(n * 1e6) / 1e6;
 const roundCoords = arr => (arr || []).map(([lng,lat]) => [round6(lng), round6(lat)]);
 
-/* ---------- NEW: нормалізація "лінійок"/домальованих сегментів з документа ---------- */
+/* нормалізація домальованих сегментів */
 function normalizeSegments(source){
-  const segments = [];
-
-  function pushLine(arr){
-    if (!Array.isArray(arr)) return;
-    const pts = arr.map(toLonLat).filter(Boolean);
-    if (pts.length >= 2) segments.push(pts);
-  }
-
-  function scan(val, keyHint=''){
+  const segments=[];
+  function pushLine(arr){ if (!Array.isArray(arr)) return; const pts=arr.map(toLonLat).filter(Boolean); if (pts.length>=2) segments.push(pts); }
+  function scan(val){
     if (!val) return;
-
-    // GeoJSON
-    if (val.type === 'FeatureCollection' && Array.isArray(val.features)){
-      val.features.forEach(f=>{
-        if (f?.geometry?.type === 'LineString') pushLine(f.geometry.coordinates);
-        if (f?.geometry?.type === 'MultiLineString') (f.geometry.coordinates||[]).forEach(pushLine);
-      });
-      return;
-    }
-    if (val.type === 'Feature' && val.geometry){ scan(val.geometry, keyHint); return; }
-    if (val.type === 'LineString' && Array.isArray(val.coordinates)){ pushLine(val.coordinates); return; }
-    if (val.type === 'MultiLineString' && Array.isArray(val.coordinates)){ val.coordinates.forEach(pushLine); return; }
-
-    // Масиви
-    if (Array.isArray(val)){
-      if (val.length && Array.isArray(val[0])){ pushLine(val); return; }
-      if (val.length && typeof val[0] === 'object'){
-        const pts = val.map(toLonLat).filter(Boolean);
-        if (pts.length >= 2){ segments.push(pts); return; }
-        val.forEach(v=>scan(v, keyHint)); return;
-      }
-      if (val.length && typeof val[0] === 'string'){ pushLine(val); return; }
-    }
-
-    // Об’єкти
-    if (typeof val === 'object'){
-      for (const [k,v] of Object.entries(val)){
-        if (/(ruler|manual|line|path|segment|polyline|draw)/i.test(k)) scan(v, k);
-      }
-    }
+    if (val.type==='FeatureCollection' && Array.isArray(val.features)){ val.features.forEach(f=>{ if (f?.geometry?.type==='LineString') pushLine(f.geometry.coordinates); if (f?.geometry?.type==='MultiLineString') (f.geometry.coordinates||[]).forEach(pushLine); }); return; }
+    if (val.type==='Feature' && val.geometry) return scan(val.geometry);
+    if (val.type==='LineString' && Array.isArray(val.coordinates)) return pushLine(val.coordinates);
+    if (val.type==='MultiLineString' && Array.isArray(val.coordinates)) return val.coordinates.forEach(pushLine);
+    if (Array.isArray(val)){ if (val.length && Array.isArray(val[0])) return pushLine(val); if (val.length && typeof val[0]==='object'){ const pts=val.map(toLonLat).filter(Boolean); if (pts.length>=2) return segments.push(pts); val.forEach(scan); return; } if (val.length && typeof val[0]==='string') return pushLine(val); }
+    if (typeof val==='object'){ for (const [k,v] of Object.entries(val)){ if (/(ruler|manual|line|path|segment|polyline|draw)/i.test(k)) scan(v); } }
   }
-
-  scan(source);
-  return segments;
+  scan(source); return segments;
 }
 
-/* --- мемо стан останньої вибірки --- */
-let lastQueryKey = '';
-let lastAllRows = null;
+/* --- мемо стан вибірки --- */
+let lastQueryKey = ''; let lastAllRows = null;
 
 function getFiltersSignature(){
   const fromCode = getCodeByNameInput('fromName');
@@ -631,7 +468,6 @@ async function queryRoutes(){
   const df       = document.getElementById('dateFrom')?.value;
   const dt       = document.getElementById('dateTo')?.value;
 
-  // фільтр логіста — через logisticId
   const logistId = getLogistIdByInput('logistFilter');
 
   if (fromCode) q = q.where('fromCode','==',fromCode);
@@ -671,38 +507,28 @@ async function queryRoutes(){
 
 async function getFilteredRows(){
   const key = getFiltersSignature();
-  if (lastAllRows && key === lastQueryKey){
-    return applyClientFilters(lastAllRows);
-  }
-  const all = await queryRoutes();
-  lastQueryKey = key;
-  lastAllRows = all;
-  return applyClientFilters(all);
+  if (lastAllRows && key === lastQueryKey){ return applyClientFilters(lastAllRows); }
+  const all = await queryRoutes(); lastQueryKey = key; lastAllRows = all; return applyClientFilters(all);
 }
 
-/* ---------- Додаткові фільтри на клієнті ---------- */
+/* ---------- Додаткові фільтри ---------- */
 function applyClientFilters(rows){
   const unit = document.getElementById('unitFilter')?.value.trim() || '';
   const dmin = parseFloat(document.getElementById('distMin')?.value);
   const dmax = parseFloat(document.getElementById('distMax')?.value);
-
   const logistText = (document.getElementById('logistFilter')?.value || '').trim();
   const logistId = getLogistIdByInput('logistFilter');
 
   return rows.filter(r=>{
     if (unit && !(r.fromUnit === unit || r.toUnit === unit)) return false;
-
     const dist = r.distance_km;
     if (!Number.isFinite(dist)) return false;
     if (!Number.isNaN(dmin) && isFinite(dmin) && dist < dmin) return false;
     if (!Number.isNaN(dmax) && isFinite(dmax) && dist > dmax) return false;
-
-    // якщо користувач ввів довільний текст (без точного збігу з довідником) — фільтруємо по імені
     if (logistText && !logistId) {
       const n = _norm(logistText);
       if (!_norm(r.logisticName).includes(n)) return false;
     }
-
     return true;
   });
 }
@@ -711,28 +537,22 @@ function applyClientFilters(rows){
 function updateStats(rows){
   const statsBox = document.getElementById('statsInfo');
   if (!rows.length){ statsBox.style.display='none'; return; }
-
   const nums = rows.map(r=>r.distance_km).filter(Number.isFinite);
   if (!nums.length){ statsBox.style.display='none'; return; }
-
-  const max = Math.max(...nums);
-  const min = Math.min(...nums);
-  const avg = nums.reduce((a,b)=>a+b,0)/nums.length;
-
+  const max = Math.max(...nums), min = Math.min(...nums), avg = nums.reduce((a,b)=>a+b,0)/nums.length;
   document.getElementById('statMax').textContent = `Найбільша: ${max.toFixed(3)}`;
   document.getElementById('statMin').textContent = `Найменша: ${min.toFixed(3)}`;
   document.getElementById('statAvg').textContent = `Середня: ${avg.toFixed(3)}`;
   statsBox.style.display='';
 }
 
-/* ---------- NEW: збірка payload (включно з лінійками) ---------- */
+/* ---------- Навігатор ---------- */
 async function buildNavigatePayloadById(routeId, prettyName){
   const ref = db.collection('routes').doc(routeId);
   const doc = await ref.get();
   if (!doc.exists) throw new Error('Маршрут не знайдено');
   const d = doc.data() || {};
 
-  // основна лінія
   let points =
       normalizePoints(d.points) ||
       normalizePoints(d.coordinates) ||
@@ -749,45 +569,21 @@ async function buildNavigatePayloadById(routeId, prettyName){
   }
   if (!points || points.length < 2) throw new Error('У маршруті відсутній коректний масив точок');
 
-  // домальовані лінії (лінійки)
   const manualSegments = normalizeSegments(d);
-
-  // округлимо координати для коротшого URL
-  const payload = {
-    name: prettyName || 'Маршрут',
-    points: roundCoords(points),
-    manualSegments: (manualSegments || []).map(roundCoords)
-  };
-  return payload;
+  return { name: prettyName || 'Маршрут', points: roundCoords(points), manualSegments: (manualSegments || []).map(roundCoords) };
 }
 
-/* ---------- NEW: будівник короткого URL (srcz) з optional fallback src ---------- */
 function buildNavigateURLFromPayload(payloadObj){
   const base = `${location.origin}${NAVIGATE_PAGE}`;
   const q = new URLSearchParams();
-
-  // 1) Стиснений srcz
-  try {
-    const json = JSON.stringify(payloadObj);
-    const srcz = LZString.compressToEncodedURIComponent(json);
-    q.set('srcz', srcz);
-  } catch(e){
-    console.warn('Compression failed, falling back to src:', e);
-  }
-
-  // 2) Fallback: старий base64-параметр src (для сумісності зі старими navigate.html)
+  try { const json = JSON.stringify(payloadObj); const srcz = LZString.compressToEncodedURIComponent(json); q.set('srcz', srcz); } catch(e){ console.warn('Compression failed:', e); }
   try { q.set('src', b64encodeUtf8(payloadObj)); } catch(e){}
-
-  // НЕ додаємо profile/token/autостart — їх обробляє navigate.html
   return `${base}?${q.toString()}`;
 }
 
-/* ---------- Шеринг ---------- */
 function isMobileUA(){ return /Android|iPhone|iPad|iPod/i.test(navigator.userAgent || ''); }
 async function shareURL(url, title){
-  if (isMobileUA() && navigator.share){
-    try { await navigator.share({ title: title || 'Маршрут', url }); return; } catch{}
-  }
+  if (isMobileUA() && navigator.share){ try { await navigator.share({ title: title || 'Маршрут', url }); return; } catch{} }
   try { await navigator.clipboard.writeText(url); alert('Посилання скопійовано у буфер обміну!'); }
   catch { prompt('Скопіюйте посилання вручну:', url); }
 }
@@ -804,7 +600,10 @@ function renderTable(rows){
     <td>${r.type}</td>
     <td>${r.logisticName || ''}</td>
     <td>${r.updatedAt}</td>
-    <td class="cell-id" title="${r.id}">${r.id}</td> <!-- EDGE: один рядок + підказка -->
+    <td class="cell-id" title="${r.id}">
+      ${r.id}
+      <button class="copy-id" data-id="${r.id}" title="Скопіювати ID">📋</button>
+    </td>
     <td><a href="${MAP_URL}?rid=${encodeURIComponent(r.id)}" target="_blank" rel="noopener">Відкрити</a></td>
     <td><button class="btn sm share-btn" data-id="${r.id}" data-name="${(r.fromName||'') + ' → ' + (r.toName||'')}">🔗 Поділитися</button></td>
   </tr>`).join('');
@@ -812,20 +611,14 @@ function renderTable(rows){
   updateStats(rows);
 }
 
-/* ---------- Експорт у Excel (з логістом) ---------- */
+/* ---------- Експорт у Excel ---------- */
 function exportToExcel(rows){
   const data = [
     ['Код Від','Код До','Від','До','Відстань, км','Тип','Логіст','Оновлено','ID','URL (Карта)'],
     ...rows.map(r => [
-      r.fromCode,
-      r.toCode,
-      r.fromName,
-      r.toName,
+      r.fromCode, r.toCode, r.fromName, r.toName,
       Number.isFinite(r.distance_km) ? Number(r.distance_km.toFixed(3)) : '',
-      r.type,
-      r.logisticName || '',
-      r.updatedAt,
-      r.id,
+      r.type, r.logisticName || '', r.updatedAt, r.id,
       `${location.origin}${MAP_URL}?rid=${encodeURIComponent(r.id)}`
     ])
   ];
@@ -836,58 +629,54 @@ function exportToExcel(rows){
   XLSX.writeFile(wb, 'routes_export.xlsx');
 }
 
-/* ---------- Обробник помилок Firestore (індекс) ---------- */
+/* ---------- Помилки Firestore ---------- */
 function handleFirestoreError(e){
   console.error('Firestore error:', e);
   const msg = e?.message || '';
   if (e?.code === 'failed-precondition' && msg.includes('create it here')) {
     const m = msg.match(/https:\/\/console\.firebase\.google\.com\/[^\s"]+/);
-    if (m && m[0]) {
-      const url = m[0];
-      try { window.open(url, '_blank'); } catch(_) {}
-      alert('Для цього запиту потрібен індекс у Firestore.\nЯ відкрив сторінку створення індексу у новій вкладці.\n\nПосилання:\n' + url);
-      return;
-    }
+    if (m && m[0]) { const url = m[0]; try { window.open(url, '_blank'); } catch(_) {} alert('Для цього запиту потрібен індекс у Firestore.\nЯ відкрив сторінку створення індексу у новій вкладці.\n\nПосилання:\n' + url); return; }
   }
   alert(msg || e);
 }
 
 /* ---------- Події ---------- */
 btnPreview.addEventListener('click', async ()=>{
-  try{
-    setBusy(true);
-    const rows = await getFilteredRows();
-    renderTable(rows);
-  }catch(e){ handleFirestoreError(e); }
+  try{ setBusy(true); const rows = await getFilteredRows(); renderTable(rows); }
+  catch(e){ handleFirestoreError(e); }
   finally{ setBusy(false); }
 });
 
 btnExport.addEventListener('click', async ()=>{
-  try{
-    setBusy(true);
-    const rows = await getFilteredRows();
-    exportToExcel(rows);
-  }catch(e){ handleFirestoreError(e); }
+  try{ setBusy(true); const rows = await getFilteredRows(); exportToExcel(rows); }
+  catch(e){ handleFirestoreError(e); }
   finally{ setBusy(false); }
 });
 
-/* Делегування кліку на кнопки "Поділитися" в таблиці */
+/* Делегування кліків: Поділитися + Копіювати ID */
 document.querySelector('#resTable tbody').addEventListener('click', async (ev)=>{
-  const btn = ev.target.closest('.share-btn');
-  if (!btn) return;
-  const id = btn.getAttribute('data-id');
-  const prettyName = btn.getAttribute('data-name') || 'Маршрут';
-  try{
-    setBusy(true);
-    // Будуємо payload з основним маршрутом + лінійками
-    const payload = await buildNavigatePayloadById(id, prettyName);
-    // Коротке посилання (srcz) + fallback src
-    const url = buildNavigateURLFromPayload(payload);
-    await shareURL(url, prettyName);
-  }catch(e){
-    alert('Не вдалося створити посилання для навігатора: ' + (e?.message || e));
-  }finally{
-    setBusy(false);
+  const shareBtn = ev.target.closest('.share-btn');
+  if (shareBtn){
+    const id = shareBtn.getAttribute('data-id');
+    const prettyName = shareBtn.getAttribute('data-name') || 'Маршрут';
+    try{
+      setBusy(true);
+      const payload = await buildNavigatePayloadById(id, prettyName);
+      const url = buildNavigateURLFromPayload(payload);
+      await shareURL(url, prettyName);
+    }catch(e){ alert('Не вдалося створити посилання для навігатора: ' + (e?.message || e)); }
+    finally{ setBusy(false); }
+    return;
+  }
+
+  const copyBtn = ev.target.closest('.copy-id');
+  if (copyBtn){
+    const id = copyBtn.getAttribute('data-id') || '';
+    try{
+      await navigator.clipboard.writeText(id);
+      copyBtn.textContent = '✅';
+      setTimeout(()=>{ copyBtn.textContent = '📋'; }, 1000);
+    }catch{ prompt('Скопіюйте ID вручну:', id); }
   }
 });
 
@@ -895,14 +684,55 @@ document.querySelector('#resTable tbody').addEventListener('click', async (ev)=>
 (async ()=>{
   if (!db) return;
   statusEl.textContent = 'Увійдіть';
-
-  // якщо користувач уже залогінений і сторінку перезавантажили — підстрахуємо завантаження логістів
-  if (auth?.currentUser) {
-    await Promise.all([loadDirectory(), loadLogists(true)]);
-  } else {
-    await loadLogists(false); // покаже "Увійдіть, щоб побачити..."
-  }
+  if (auth?.currentUser) { await Promise.all([loadDirectory(), loadLogists(true)]); }
+  else { await loadLogists(false); }
 })();
+
+/* ============================================================
+   ОРИГІНАЛЬНИЙ КОД МАРШРУТУ (для сторінки створення маршруту)
+   Приклад: Гайсин → Троща => "Г-Т-XXXXXXXXXX"
+   ============================================================ */
+
+/** Повертає першу літеру з рядка (без пробілів), у верхньому регістрі */
+function _firstLetter(s){
+  const t = String(s||'').trim();
+  return t ? t[0].toUpperCase() : 'X';
+}
+
+/** Генерує унікальний код маршруту і бронює його в Firestore (колекція routeKeys) */
+async function mintRouteKey(fromName, toName){
+  const prefix = `${_firstLetter(fromName)}-${_firstLetter(toName)}-`;
+  while(true){
+    const rnd = Math.floor(Math.random() * 1e10).toString().padStart(10,'0'); // 10 цифр
+    const key = prefix + rnd;
+    const ref = db.collection('routeKeys').doc(key);
+    try{
+      await db.runTransaction(async tx=>{
+        const snap = await tx.get(ref);
+        if (snap.exists) throw new Error('exists');
+        tx.set(ref, { createdAt: firebase.firestore.FieldValue.serverTimestamp() });
+      });
+      return key; // успішно заброньовано
+    }catch(e){
+      if (e.message !== 'exists') console.warn('mintRouteKey retry:', e.message||e);
+      // колізія або інша помилка — пробуємо ще раз
+    }
+  }
+}
+
+/* Приклад використання (на сторінці створення маршруту):
+async function createRoute({ fromCode, toCode, ...rest }){
+  const fromName = nameByCode(fromCode);
+  const toName   = nameByCode(toCode);
+  const routeKey = await mintRouteKey(fromName, toName); // наприклад "Г-Т-0123456789"
+  await db.collection('routes').add({
+    fromCode, toCode,
+    routeKey,            // зберігаємо "оригінальний код маршруту"
+    ...rest,
+    updatedAt: new Date().toISOString()
+  });
+}
+*/
 </script>
 </body>
 </html>
