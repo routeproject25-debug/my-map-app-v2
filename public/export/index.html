@@ -703,8 +703,6 @@ function updateStats(rows){
   statsBox.style.display='';
 }
 
-const MAPBOX_TOKEN_FOR_NAV = 'pk.eyJ1IjoidGtjaGsiLCJhIjoiY21lYnIzcmcxMGQ3eTJrc2NpOTRkNHdwZCJ9.tHlbdCp9fCoZC3X5HYGLMw';
-
 /* ---------- NEW: збірка payload (включно з лінійками) ---------- */
 async function buildNavigatePayloadById(routeId, prettyName){
   const ref = db.collection('routes').doc(routeId);
@@ -741,8 +739,8 @@ async function buildNavigatePayloadById(routeId, prettyName){
   return payload;
 }
 
-/* ---------- NEW: будівник короткого URL (srcz) з fallback src ---------- */
-function buildNavigateURLFromPayload(payloadObj, profile = DEFAULT_PROFILE){
+/* ---------- NEW: будівник короткого URL (srcz) з optional fallback src ---------- */
+function buildNavigateURLFromPayload(payloadObj){
   const base = `${location.origin}${NAVIGATE_PAGE}`;
   const q = new URLSearchParams();
 
@@ -752,15 +750,13 @@ function buildNavigateURLFromPayload(payloadObj, profile = DEFAULT_PROFILE){
     const srcz = LZString.compressToEncodedURIComponent(json);
     q.set('srcz', srcz);
   } catch(e){
-    console.warn('Compression failed, will rely on src fallback:', e);
+    console.warn('Compression failed, falling back to src:', e);
   }
 
-  // 2) Fallback: старий base64-параметр src (для сумісності зі старим navigate.html)
+  // 2) Fallback: старий base64-параметр src (для сумісності зі старими navigate.html)
   try { q.set('src', b64encodeUtf8(payloadObj)); } catch(e){}
 
-  q.set('profile', profile);
-  q.set('autostart', '1');
-  q.set('token', MAPBOX_TOKEN_FOR_NAV);
+  // НЕ додаємо profile/token/autostart — їх обробляє navigate.html
   return `${base}?${q.toString()}`;
 }
 
@@ -864,7 +860,7 @@ document.querySelector('#resTable tbody').addEventListener('click', async (ev)=>
     // Будуємо payload з основним маршрутом + лінійками
     const payload = await buildNavigatePayloadById(id, prettyName);
     // Коротке посилання (srcz) + fallback src
-    const url = buildNavigateURLFromPayload(payload, DEFAULT_PROFILE);
+    const url = buildNavigateURLFromPayload(payload);
     await shareURL(url, prettyName);
   }catch(e){
     alert('Не вдалося створити посилання для навігатора: ' + (e?.message || e));

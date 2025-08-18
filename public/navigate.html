@@ -9,6 +9,10 @@
   <script src="https://unpkg.com/@turf/turf@6.5.0/turf.min.js"></script>
   <!-- NEW: LZ-String для стиску/розпакування srcz -->
   <script src="https://cdn.jsdelivr.net/npm/lz-string@1.5.0/libs/lz-string.min.js"></script>
+  <!-- NEW: токен Mapbox всередині файлу (щоб не передавати у посиланні) -->
+  <script>
+    window.MAPBOX_TOKEN = 'pk.eyJ1IjoidGtjaGsiLCJhIjoiY21lYnIzcmcxMGQ3eTJrc2NpOTRkNHdwZCJ9.tHlbdCp9fCoZC3X5HYGLMw';
+  </script>
   <style>
     :root { --card:#fff; --line:#e5e7eb; --muted:#6b7280; --accent:#2563eb; }
     html, body { height:100%; margin:0; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
@@ -64,7 +68,8 @@
   const PROFILE = qs.get('profile') || 'driving';
   const SRCZ = qs.get('srcz');               // NEW: стиснене посилання
   const SRC_B64 = qs.get('src');             // fallback
-  const AUTO_START = qs.get('autostart') === '1';
+  // NEW: автозапуск за замовчуванням (якщо параметр не вказано)
+  const AUTO_START = qs.has('autostart') ? (qs.get('autostart') === '1') : true;
 
   // === CAMERA / TRACK-UP ===
   const NAV_PITCH_DEG  = 60;
@@ -98,7 +103,7 @@
   }
 
   if (!MAPBOX_TOKEN){
-    alert('Відсутній Mapbox token. Передай ?token=... у посиланні.');
+    alert('Відсутній Mapbox token. Додай його у navigate.html або ?token=...');
   }
   mapboxgl.accessToken = MAPBOX_TOKEN;
 
@@ -552,7 +557,7 @@
     }
   }
 
-  // NEW: build short link (srcz) + fallback src
+  // NEW: коротке посилання — лише srcz (без token/profile/autostart)
   function buildShareURL(payload){
     const base = `${location.origin}${location.pathname}`;
     const q = new URLSearchParams();
@@ -560,10 +565,6 @@
       const srcz = LZString.compressToEncodedURIComponent(JSON.stringify(payload));
       q.set('srcz', srcz);
     }catch(e){ console.warn('compress fail', e); }
-    try{ q.set('src', b64encodeUtf8(payload)); }catch(e){}
-    q.set('profile', PROFILE);
-    q.set('token', MAPBOX_TOKEN);
-    q.set('autostart', '1');
     return `${base}?${q.toString()}`;
   }
 
