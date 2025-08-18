@@ -67,10 +67,12 @@
     .col-code { width: 120px; }
     .cell-code { word-break: break-all; overflow-wrap: anywhere; white-space: normal; line-height:1.25; }
 
-    .col-id { width: clamp(120px, 18vw, 220px); }
-    .cell-id { position:relative; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-right:28px; }
-    .copy-id { position:absolute; right:6px; top:50%; transform:translateY(-50%); border:0; background:transparent; cursor:pointer; font-size:14px; opacity:.75; }
-    .copy-id:hover { opacity:1; }
+    .col-key { width: clamp(140px, 16vw, 200px); }
+    .col-id  { width: clamp(120px, 18vw, 220px); }
+
+    .cell-key, .cell-id { position:relative; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-right:28px; }
+    .copy-btn { position:absolute; right:6px; top:50%; transform:translateY(-50%); border:0; background:transparent; cursor:pointer; font-size:14px; opacity:.75; }
+    .copy-btn:hover { opacity:1; }
   </style>
 </head>
 <body>
@@ -174,6 +176,7 @@
           <colgroup>
             <col class="col-code"><col class="col-code">
             <col><col><col><col><col><col>
+            <col class="col-key">
             <col class="col-id">
             <col><col>
           </colgroup>
@@ -183,7 +186,9 @@
               <th>Від</th><th>До</th>
               <th>Відстань, км</th><th>Тип</th>
               <th>Логіст</th>
-              <th>Оновлено</th><th>ID</th>
+              <th>Оновлено</th>
+              <th>Код маршруту</th>
+              <th>ID</th>
               <th>Карта</th>
               <th>Навігатор</th>
             </tr>
@@ -488,6 +493,7 @@ async function queryRoutes(){
     const d=doc.data()||{};
     rows.push({
       id: doc.id,
+      routeKey: d.routeKey || '',
       fromCode: d.fromCode||'',
       toCode: d.toCode||'',
       fromName: nameByCode(d.fromCode)||'',
@@ -600,9 +606,13 @@ function renderTable(rows){
     <td>${r.type}</td>
     <td>${r.logisticName || ''}</td>
     <td>${r.updatedAt}</td>
+    <td class="cell-key" title="${r.routeKey || ''}">
+      ${r.routeKey || ''}
+      ${r.routeKey ? `<button class="copy-btn copy-key" data-val="${r.routeKey}" title="Скопіювати код">📋</button>` : ''}
+    </td>
     <td class="cell-id" title="${r.id}">
       ${r.id}
-      <button class="copy-id" data-id="${r.id}" title="Скопіювати ID">📋</button>
+      <button class="copy-btn copy-id" data-val="${r.id}" title="Скопіювати ID">📋</button>
     </td>
     <td><a href="${MAP_URL}?rid=${encodeURIComponent(r.id)}" target="_blank" rel="noopener">Відкрити</a></td>
     <td><button class="btn sm share-btn" data-id="${r.id}" data-name="${(r.fromName||'') + ' → ' + (r.toName||'')}">🔗 Поділитися</button></td>
@@ -614,16 +624,16 @@ function renderTable(rows){
 /* ---------- Експорт у Excel ---------- */
 function exportToExcel(rows){
   const data = [
-    ['Код Від','Код До','Від','До','Відстань, км','Тип','Логіст','Оновлено','ID','URL (Карта)'],
+    ['Код Від','Код До','Від','До','Відстань, км','Тип','Логіст','Оновлено','Код маршруту','ID','URL (Карта)'],
     ...rows.map(r => [
       r.fromCode, r.toCode, r.fromName, r.toName,
       Number.isFinite(r.distance_km) ? Number(r.distance_km.toFixed(3)) : '',
-      r.type, r.logisticName || '', r.updatedAt, r.id,
+      r.type, r.logisticName || '', r.updatedAt, r.routeKey || '', r.id,
       `${location.origin}${MAP_URL}?rid=${encodeURIComponent(r.id)}`
     ])
   ];
   const ws = XLSX.utils.aoa_to_sheet(data);
-  ws['!cols'] = [12,12,28,28,12,16,22,22,36,40].map(w => ({ wch: w }));
+  ws['!cols'] = [12,12,28,28,12,16,22,22,18,36,40].map(w => ({ wch: w }));
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Маршрути');
   XLSX.writeFile(wb, 'routes_export.xlsx');
@@ -653,7 +663,7 @@ btnExport.addEventListener('click', async ()=>{
   finally{ setBusy(false); }
 });
 
-/* Делегування кліків: Поділитися + Копіювати ID */
+/* Делегування кліків: Поділитися + Копіювати ID/Код */
 document.querySelector('#resTable tbody').addEventListener('click', async (ev)=>{
   const shareBtn = ev.target.closest('.share-btn');
   if (shareBtn){
@@ -669,14 +679,14 @@ document.querySelector('#resTable tbody').addEventListener('click', async (ev)=>
     return;
   }
 
-  const copyBtn = ev.target.closest('.copy-id');
+  const copyBtn = ev.target.closest('.copy-btn');
   if (copyBtn){
-    const id = copyBtn.getAttribute('data-id') || '';
+    const val = copyBtn.getAttribute('data-val') || '';
     try{
-      await navigator.clipboard.writeText(id);
+      await navigator.clipboard.writeText(val);
       copyBtn.textContent = '✅';
       setTimeout(()=>{ copyBtn.textContent = '📋'; }, 1000);
-    }catch{ prompt('Скопіюйте ID вручну:', id); }
+    }catch{ prompt('Скопіюйте значення вручну:', val); }
   }
 });
 
@@ -692,14 +702,10 @@ document.querySelector('#resTable tbody').addEventListener('click', async (ev)=>
    ОРИГІНАЛЬНИЙ КОД МАРШРУТУ (для сторінки створення маршруту)
    Приклад: Гайсин → Троща => "Г-Т-XXXXXXXXXX"
    ============================================================ */
-
-/** Повертає першу літеру з рядка (без пробілів), у верхньому регістрі */
 function _firstLetter(s){
   const t = String(s||'').trim();
   return t ? t[0].toUpperCase() : 'X';
 }
-
-/** Генерує унікальний код маршруту і бронює його в Firestore (колекція routeKeys) */
 async function mintRouteKey(fromName, toName){
   const prefix = `${_firstLetter(fromName)}-${_firstLetter(toName)}-`;
   while(true){
@@ -712,27 +718,12 @@ async function mintRouteKey(fromName, toName){
         if (snap.exists) throw new Error('exists');
         tx.set(ref, { createdAt: firebase.firestore.FieldValue.serverTimestamp() });
       });
-      return key; // успішно заброньовано
+      return key;
     }catch(e){
       if (e.message !== 'exists') console.warn('mintRouteKey retry:', e.message||e);
-      // колізія або інша помилка — пробуємо ще раз
     }
   }
 }
-
-/* Приклад використання (на сторінці створення маршруту):
-async function createRoute({ fromCode, toCode, ...rest }){
-  const fromName = nameByCode(fromCode);
-  const toName   = nameByCode(toCode);
-  const routeKey = await mintRouteKey(fromName, toName); // наприклад "Г-Т-0123456789"
-  await db.collection('routes').add({
-    fromCode, toCode,
-    routeKey,            // зберігаємо "оригінальний код маршруту"
-    ...rest,
-    updatedAt: new Date().toISOString()
-  });
-}
-*/
 </script>
 </body>
 </html>
