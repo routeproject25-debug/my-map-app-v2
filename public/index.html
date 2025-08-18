@@ -21,7 +21,7 @@
 
   /* top bar */
   header.topbar{
-    position:sticky; top:0; z-index:5000; min-height:var(--nav-h); /* було height + нижчий z-index */
+    position:sticky; top:0; z-index:5000; min-height:var(--nav-h);
     display:flex; align-items:center; justify-content:space-between; gap:10px; padding:8px;
     background:#2563eb; color:#fff;
   }
@@ -54,16 +54,15 @@
       height:34px; padding:0 10px; border-radius:8px; border:1px solid rgba(255,255,255,.35);
       background:#fff; color:#111; cursor:pointer;
     }
-    /* згортаємо інпути коли .collapsed */
     #authBar.collapsed input,
     #authBar.collapsed #authLogin,
     #authBar.collapsed #authLogout{ display:none !important; }
   }
 
-  /* map — топ від реальної, а не фіксованої висоти шапки */
+  /* map */
   #map{position:absolute; top:var(--nav-real); bottom:0; width:100%}
 
-  /* side panel — теж від реальної висоти */
+  /* side panel */
   #controls{
     position:absolute; z-index:3000; top:calc(var(--nav-real) + 8px); left:8px;
     background:var(--card); border:1px solid var(--line); border-radius:12px;
@@ -83,7 +82,6 @@
   .row{display:grid;grid-template-columns:1fr 1fr;gap:8px}
   @media(max-width:420px){ .row{grid-template-columns:1fr} }
 
-  /* buttons */
   .btn{
     cursor:pointer;border:1px solid var(--line);background:#fff;border-radius:10px;
     padding:8px 12px;font-size:14px; line-height:1.2; touch-action:manipulation;
@@ -95,7 +93,6 @@
   .segment{display:flex;gap:6px;flex-wrap:wrap}
   .btn-row{display:flex;gap:6px;flex-wrap:wrap}
 
-  /* MOBILE: великі кнопки та 2 в рядок */
   @media (max-width: 640px){
     #controls{ left:8px; right:8px; max-width:unset; width:auto; }
     .segment, .btn-row{ display:grid; grid-template-columns:1fr 1fr; gap:8px; }
@@ -129,7 +126,6 @@
   .mapboxgl-control-container{z-index:1!important}
   .mapboxgl-marker{z-index:2!important}
 
-  /* help message under logistInput */
   #logistsMsg{display:none;font-size:12px;color:#b91c1c;margin-top:4px}
   </style>
 </head>
@@ -155,7 +151,6 @@
     <button id="authLogout" class="btn" style="display:none">Вийти</button>
   </div>
 
-  <!-- Перемикач для мобільних -->
   <button id="mobileAuthToggle" class="btn" title="Показати/сховати вхід">🔐 Вхід</button>
 </header>
 
@@ -315,7 +310,7 @@ mapboxgl.accessToken = 'pk.eyJ1IjoidGtjaGsiLCJhIjoiY21keTN0bXVlMjN6djJrczZ2NDk5b
 let currentStyle = 'mapbox://styles/mapbox/streets-v12';
 const map = new mapboxgl.Map({ container: 'map', style: currentStyle, center: [30.5238, 50.4547], zoom: 10 });
 
-/* === Динамічна висота шапки (щоб кнопка входу не ховалась) === */
+/* === Динамічна висота шапки === */
 const topbarEl = document.querySelector('header.topbar');
 function updateLayoutHeights(){
   const h = (topbarEl?.offsetHeight || 56);
@@ -325,7 +320,7 @@ function updateLayoutHeights(){
 window.addEventListener('resize', updateLayoutHeights);
 updateLayoutHeights();
 
-/* === УКРАЇНСЬКІ ПІДПИСИ НА КАРТІ === */
+/* === Українські підписи === */
 function applyUkrainianLabels(){
   const style = map.getStyle();
   if (!style || !style.layers) return;
@@ -345,9 +340,7 @@ let insertAfterMode = false;
 let points = [], markers = [], startRuler = [], endRuler = [], rulerLines = [], routeLayers = [];
 let selectedMarkerIndex = null;
 
-/* ====== Active ruler tracking ====== */
-let activeRuler = null;       // 'start' | 'end' | null
-let lastActiveRuler = null;
+let activeRuler = null; let lastActiveRuler = null;
 function setActiveRuler(which){ activeRuler = which; if (which) lastActiveRuler = which; }
 
 /* ====== Roles ====== */
@@ -358,7 +351,6 @@ function applyRoleUI(role){
   currentRole = role || 'guest';
   readOnly = (currentRole === 'guest' || currentRole === 'user');
 
-  // logistInput НЕ блокуємо
   const disableIds = [
     'toggleAdd','startLineMode','endLineMode','clearRoute','popRulerPoint','clearRulers',
     'saveRoute','loadRoute','saveToDB','deleteFromDB','routeName',
@@ -383,7 +375,7 @@ function applyRoleUI(role){
   document.getElementById('roleChip').textContent = 'Роль: ' + (currentRole || '–');
 }
 
-/* ====== Context menu ====== */
+/* ===== Context menu ===== */
 const contextMenu = document.getElementById('contextMenu');
 const insertAfterBtn = document.getElementById('insertAfter');
 const deletePointBtn = document.getElementById('deletePoint');
@@ -406,9 +398,7 @@ deletePointBtn.onclick = (e) => {
 };
 document.addEventListener('click', () => { contextMenu.style.display = 'none'; });
 
-/* Застосувати українські підписи після кожного завантаження стилю */
 map.on('style.load', () => { applyUkrainianLabels(); updateRoute(); drawRulers(); });
-
 document.getElementById('mapStyle').addEventListener('change', function() {
   currentStyle = this.value; map.setStyle(currentStyle);
 });
@@ -439,7 +429,6 @@ document.getElementById('endLineMode').onclick = () => {
   toggleButton('endLineMode', endLineMode); toggleButton('startLineMode', false); toggleButton('toggleAdd', false);
 };
 
-/* — видалення останньої точки активної лінійки — */
 document.getElementById('popRulerPoint').onclick = () => {
   if (readOnly) return;
   const choose = () => activeRuler || lastActiveRuler || (startRuler.length >= endRuler.length ? 'start' : 'end');
@@ -452,7 +441,6 @@ document.getElementById('popRulerPoint').onclick = () => {
   if (did){ drawRulers(); updateRoute(); }
 };
 
-/* — ОЧИЩЕННЯ ЛІНІЙОК — */
 document.getElementById('clearRulers').onclick = () => {
   if (readOnly) return;
   if (activeRuler === 'start') { startRuler = []; }
@@ -562,7 +550,7 @@ function calculateRulerDistance(ruler) {
   return dist;
 }
 
-/* ===== ЛІЧИЛЬНИКИ ТОЧОК ===== */
+/* ===== Лічильники ===== */
 function updateCounters(){
   const routeCount = points.length;
   const startCount = startRuler.length;
@@ -575,7 +563,7 @@ function updateCounters(){
   byId('countTotal').textContent = total;
 }
 
-/* ===== Route (Mapbox Directions chunks) ===== */
+/* ===== Route rendering ===== */
 function splitIntoChunks(array, chunkSize) {
   const chunks = [];
   for (let i = 0; i < array.length - 1; i += chunkSize - 1) {
@@ -638,7 +626,7 @@ document.head.appendChild(turfScript);
 
 /* ===================== Firebase ===================== */
 const firebaseConfig = {
-  apiKey: "AIzaSyDjDBZkmy-skuDEQF8-AkRma7yw6TugoQc", // Перевірте, щоб не було зайвих символів/пробілів
+  apiKey: "AIzaSyDjDBZkmy-skuDEQF8-AkRma7yw6TugoQc",
   authDomain: "my-map-app-58312.firebaseapp.com",
   projectId: "my-map-app-58312",
   storageBucket: "my-map-app-58312.firebasestorage.app",
@@ -664,8 +652,6 @@ try {
 const dirByCode = {};
 const codeByName = {};
 const routesLookup = {};
-
-/* === ЛОГІСТИ === */
 const logistById = {};
 const logistIdByName = {};
 
@@ -741,7 +727,7 @@ function fillLogistsUI(rows){
     const opt = document.createElement('option'); opt.value = r.name; list.appendChild(opt);
   });
 
-  if (rows.length === 0) { console.warn('👥 Logists: пусто (можливо, немає доступу/документів).'); }
+  if (rows.length === 0) { console.warn('👥 Logists: пусто.'); }
 }
 
 async function loadLogists(allowServer=true){
@@ -749,7 +735,6 @@ async function loadLogists(allowServer=true){
   const showMsg = (t) => { msg.textContent = t || ''; msg.style.display = t ? 'block' : 'none'; };
 
   try{
-    // 1) Кеш
     const raw = localStorage.getItem(LOGISTS_CACHE_KEY);
     if(raw){
       const { ts, rows } = JSON.parse(raw);
@@ -759,8 +744,6 @@ async function loadLogists(allowServer=true){
         return;
       }
     }
-
-    // 2) Firestore (за потреби)
     if (!allowServer) { showMsg('Увійдіть, щоб побачити список логістів.'); return; }
 
     let snap = null;
@@ -948,6 +931,44 @@ fileInput.onchange = (event) => {
   reader.readAsText(file);
 };
 
+/* ================= NEW routeKey helpers ================= */
+/** Повертає першу літеру (кирилиця/латиниця) з рядка. */
+function firstLetter(str){
+  const s = String(str || '').trim();
+  if (!s) return 'X';
+  const re = /[A-Za-zА-Яа-яЁёІіЇїЄєҐґ]/u;
+  for (const ch of s){
+    if (re.test(ch)) return ch.toUpperCase();
+  }
+  return 'X';
+}
+/** 10 випадкових цифр за криптографічним ГВЧ */
+function randomDigits(len=10){
+  const a = new Uint32Array(len);
+  (crypto && crypto.getRandomValues) ? crypto.getRandomValues(a) : a.fill(Math.floor(Math.random()*10));
+  return Array.from(a, n => (n % 10).toString()).join('');
+}
+/** Резервує і повертає унікальний ключ у межах однієї транзакції. */
+async function reserveKeyTx(tx, prefix, docId, meta){
+  for (let tries = 0; tries < 10; tries++){
+    const key = `${prefix}-${randomDigits(10)}`;
+    const keyRef = db.collection('routeKeys').doc(key);
+    const snap = await tx.get(keyRef);
+    if (!snap.exists){
+      tx.set(keyRef, {
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        routeId: docId,
+        fromCode: meta.fromCode, toCode: meta.toCode,
+        fromName: meta.fromName, toName: meta.toName
+      });
+      return key;
+    }
+  }
+  throw new Error('Не вдалося згенерувати унікальний код маршруту (спробуйте ще раз).');
+}
+/* ======================================================= */
+
 /* ===== Firestore: save/list/load/delete ===== */
 async function saveToDB() {
   try {
@@ -989,22 +1010,54 @@ async function saveToDB() {
       updatedAt: new Date().toISOString()
     };
 
+    // Дублі — як і раніше
     const existing = await findExistingRoute(fromCode, toCode, routeType);
     const baseId = sanitizeId(finalName);
     let docId = baseId;
+    let mode = 'new'; // 'new' | 'overwrite' | 'copy'
 
     if (existing){
       const existingName = existing.data()?.name || existing.id;
       const choice = await askDuplicateAction(existingName);
       if (choice === 'cancel'){ alert('❎ Збереження скасовано'); return; }
-      if (choice === 'overwrite'){ docId = existing.id; }
-      if (choice === 'copy'){ docId = makeCopyId(baseId); payload.name = `${payload.name} (копія)`; }
+      if (choice === 'overwrite'){ docId = existing.id; mode = 'overwrite'; }
+      if (choice === 'copy'){ docId = makeCopyId(baseId); payload.name = `${payload.name} (копія)`; mode = 'copy'; }
     }
 
-    console.log('➡️ Зберігаю маршрут:', { docId, ...payload });
-    await db.collection('routes').doc(docId).set(payload, { merge: true });
+    // === NEW routeKey: транзакцією записуємо маршрут + резервуємо/поновлюємо код ===
+    const prefix = firstLetter(from.name) + firstLetter(to.name); // напр., "ГТ"
+    const meta = { fromCode, toCode, fromName: from.name || '', toName: to.name || '' };
 
-    alert('✅ Збережено в БД: ' + payload.name);
+    let routeKeySaved = null;
+
+    await db.runTransaction(async (tx) => {
+      const routeRef = db.collection('routes').doc(docId);
+      const routeSnap = await tx.get(routeRef);
+
+      let routeKey = null;
+
+      if (mode === 'overwrite' && routeSnap.exists && routeSnap.data()?.routeKey) {
+        // Перезапис: зберігаємо існуючий ключ
+        routeKey = String(routeSnap.data().routeKey);
+        const keyRef = db.collection('routeKeys').doc(routeKey);
+        const keySnap = await tx.get(keyRef);
+        // Поновлюємо зв’язок (на випадок, якщо відсутній)
+        tx.set(keyRef, {
+          routeId: docId,
+          updatedAt: new Date().toISOString(),
+          fromCode, toCode,
+          fromName: meta.fromName, toName: meta.toName
+        }, { merge: true });
+      } else {
+        // Новий/копія або перезапис без ключа — генеруємо та резервуємо
+        routeKey = await reserveKeyTx(tx, prefix, docId, meta);
+      }
+
+      routeKeySaved = routeKey;
+      tx.set(routeRef, { ...payload, routeKey }, { merge: true });
+    });
+
+    alert(`✅ Збережено в БД: ${payload.name}\nКод маршруту: ${routeKeySaved}`);
     await refreshRoutesList();
   } catch (err) {
     console.error('❌ Помилка збереження в Firestore:', err);
@@ -1081,7 +1134,7 @@ async function loadFromDB() {
 
     rebuildMarkers(); drawRulers(); updateRoute();
     if (points.length > 0) map.flyTo({ center: points[0], zoom: 12 });
-    alert('Маршрут завантажено з БД: ' + id);
+    alert('Маршрут завантажено з БД: ' + id + (data.routeKey ? `\nКод: ${data.routeKey}` : ''));
   } catch (err) {
     console.error('❌ Помилка завантаження з БД:', err);
     alert('❌ Не вдалося завантажити: ' + (err?.message || err));
@@ -1181,6 +1234,7 @@ async function loadRouteById(rid) {
       for (const p of points) b.extend(p);
       map.fitBounds(b, { padding: 40 });
     }
+    if (data.routeKey) alert('Код маршруту: ' + data.routeKey);
   } catch (e) {
     console.error('loadRouteById error:', e);
     alert('Не вдалося завантажити маршрут: ' + (e?.message || e));
@@ -1223,7 +1277,7 @@ const logoutBtn  = document.getElementById('authLogout');
 
 document.getElementById('mobileAuthToggle').addEventListener('click', () => {
   document.getElementById('authBar').classList.toggle('collapsed');
-  requestAnimationFrame(updateLayoutHeights); // важливо на мобільному
+  requestAnimationFrame(updateLayoutHeights);
 });
 
 loginBtn.onclick = async () => {
@@ -1237,7 +1291,6 @@ auth?.onAuthStateChanged(async (user) => {
     authHello.textContent = 'Увійшли як ' + (user.email || user.uid);
     loginBtn.style.display='none'; authEmail.style.display='none'; authPass.style.display='none';
     logoutBtn.style.display='inline-block';
-    // на мобільному згортаємо панель логіна після входу
     if (window.matchMedia('(max-width: 640px)').matches) {
       document.getElementById('authBar').classList.add('collapsed');
     }
@@ -1248,28 +1301,27 @@ auth?.onAuthStateChanged(async (user) => {
       if (r.exists && r.data()?.role) role = String(r.data().role);
     }catch{}
     applyRoleUI(role);
-    await loadLogists(true);  // після входу — тягнемо логістів
+    await loadLogists(true);
   } else {
     authHello.textContent = 'Гість';
     loginBtn.style.display='inline-block'; authEmail.style.display='inline-block'; authPass.style.display='inline-block';
     logoutBtn.style.display='none';
     requestAnimationFrame(updateLayoutHeights);
     applyRoleUI('guest');
-    await loadLogists(false); // для гостей — лише кеш
+    await loadLogists(false);
   }
 });
 
 /* ===== Start ===== */
 window.addEventListener('load', async () => {
   if (!db) return;
-  await loadDirectory(true);   // довідник
-  await refreshRoutesList();   // кеш -> сервер
+  await loadDirectory(true);
+  await refreshRoutesList();
   const rid = new URLSearchParams(location.search).get('rid');
   if (rid) await loadRouteById(rid);
   requestAnimationFrame(updateLayoutHeights);
 });
 
-/* На фокус у полі логіста — пробуємо підвантажити список */
 document.getElementById('logistInput').addEventListener('focus', function(){
   const isLogged = !!(auth && auth.currentUser);
   loadLogists(isLogged);
