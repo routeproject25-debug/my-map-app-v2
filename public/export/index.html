@@ -11,6 +11,8 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
   <!-- SheetJS (Excel) -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <!-- LZ-String для стиснення payload у URL (srcz) -->
+  <script src="https://cdn.jsdelivr.net/npm/lz-string@1.5.0/libs/lz-string.min.js"></script>
 
   <style>
     :root { --w: 1080px; }
@@ -521,7 +523,11 @@ function b64encodeUtf8(objOrString){
   return btoa(bin);
 }
 
-/* --- NEW: нормалізація "лінійок"/домальованих сегментів з документа --- */
+/* ---------- NEW: округлення координат для коротших URL ---------- */
+const round6 = n => Math.round(n * 1e6) / 1e6;
+const roundCoords = arr => (arr || []).map(([lng,lat]) => [round6(lng), round6(lat)]);
+
+/* ---------- NEW: нормалізація "лінійок"/домальованих сегментів з документа ---------- */
 function normalizeSegments(source){
   const segments = [];
 
@@ -542,36 +548,26 @@ function normalizeSegments(source){
       });
       return;
     }
-    if (val.type === 'Feature' && val.geometry){
-      scan(val.geometry, keyHint); return;
-    }
-    if (val.type === 'LineString' && Array.isArray(val.coordinates)){
-      pushLine(val.coordinates); return;
-    }
-    if (val.type === 'MultiLineString' && Array.isArray(val.coordinates)){
-      val.coordinates.forEach(pushLine); return;
-    }
+    if (val.type === 'Feature' && val.geometry){ scan(val.geometry, keyHint); return; }
+    if (val.type === 'LineString' && Array.isArray(val.coordinates)){ pushLine(val.coordinates); return; }
+    if (val.type === 'MultiLineString' && Array.isArray(val.coordinates)){ val.coordinates.forEach(pushLine); return; }
 
     // Масиви
     if (Array.isArray(val)){
       if (val.length && Array.isArray(val[0])){
-        // або сам лайн, або масив лайнів
         const looksLikePoint = val[0].length >= 2 && Number.isFinite(+val[0][0]) && Number.isFinite(+val[0][1]);
         if (looksLikePoint){ pushLine(val); return; }
         val.forEach(v=>scan(v, keyHint)); return;
       }
       if (val.length && typeof val[0] === 'object'){
-        // масив об’єктів точок
         const pts = val.map(toLonLat).filter(Boolean);
         if (pts.length >= 2){ segments.push(pts); return; }
         val.forEach(v=>scan(v, keyHint)); return;
       }
-      if (val.length && typeof val[0] === 'string'){
-        pushLine(val); return;
-      }
+      if (val.length && typeof val[0] === 'string'){ pushLine(val); return; }
     }
 
-    // Об’єкти: беремо тільки полі, схожі на лінійки
+    // Об’єкти: беремо тільки поля, схожі на «ручні» лінії
     if (typeof val === 'object'){
       for (const [k,v] of Object.entries(val)){
         if (/(ruler|manual|line|path|segment|polyline|draw)/i.test(k)) scan(v, k);
@@ -708,33 +704,15 @@ function updateStats(rows){
 }
 
 const MAPBOX_TOKEN_FOR_NAV = 'pk.eyJ1IjoidGtjaGsiLCJhIjoiY21lYnIzcmcxMGQ3eTJrc2NpOTRkNHdwZCJ9.tHlbdCp9fCoZC3X5HYGLMw';
-function buildNavigateURL(payloadB64, profile = DEFAULT_PROFILE){
-  const base = `${location.origin}${NAVIGATE_PAGE}`;
-  const q = new URLSearchParams();
-  q.set('src', payloadB64);
-  q.set('profile', profile);
-  q.set('autostart', '1');
-  q.set('token', MAPBOX_TOKEN_FOR_NAV);
-  return `${base}?${q.toString()}`;
-}
 
-/* ---------- Шеринг ---------- */
-function isMobileUA(){ return /Android|iPhone|iPad|iPod/i.test(navigator.userAgent || ''); }
-async function shareURL(url, title){
-  if (isMobileUA() && navigator.share){
-    try { await navigator.share({ title: title || 'Маршрут', url }); return; } catch{}
-  }
-  try { await navigator.clipboard.writeText(url); alert('Посилання скопійовано у буфер обміну!'); }
-  catch { prompt('Скопіюйте посилання вручну:', url); }
-}
-
-/* ---------- Отримати та нормалізувати точки маршруту ---------- */
-async function fetchRoutePointsById(routeId){
+/* ---------- NEW: збірка payload (включно з лінійками) ---------- */
+async function buildNavigatePayloadById(routeId, prettyName){
   const ref = db.collection('routes').doc(routeId);
   const doc = await ref.get();
   if (!doc.exists) throw new Error('Маршрут не знайдено');
   const d = doc.data() || {};
 
+  // основна лінія
   let points =
       normalizePoints(d.points) ||
       normalizePoints(d.coordinates) ||
@@ -750,24 +728,50 @@ async function fetchRoutePointsById(routeId){
     if (parts.length >= 2) points = parts;
   }
   if (!points || points.length < 2) throw new Error('У маршруті відсутній коректний масив точок');
-  return points;
-}
-
-/* ---------- NEW: зібрати payload для навігатора (включно з лінійками) ---------- */
-async function buildNavigatePayloadById(routeId, prettyName){
-  const ref = db.collection('routes').doc(routeId);
-  const doc = await ref.get();
-  if (!doc.exists) throw new Error('Маршрут не знайдено');
-  const d = doc.data() || {};
-
-  // основна лінія
-  const points = await fetchRoutePointsById(routeId);
 
   // домальовані лінії (лінійки)
   const manualSegments = normalizeSegments(d);
 
-  console.log('🔎 manualSegments found:', manualSegments.length);
-  return { name: prettyName || 'Маршрут', points, manualSegments };
+  // округлимо координати для коротшого URL
+  const payload = {
+    name: prettyName || 'Маршрут',
+    points: roundCoords(points),
+    manualSegments: (manualSegments || []).map(roundCoords)
+  };
+  return payload;
+}
+
+/* ---------- NEW: будівник короткого URL (srcz) з fallback src ---------- */
+function buildNavigateURLFromPayload(payloadObj, profile = DEFAULT_PROFILE){
+  const base = `${location.origin}${NAVIGATE_PAGE}`;
+  const q = new URLSearchParams();
+
+  // 1) Стиснений srcz
+  try {
+    const json = JSON.stringify(payloadObj);
+    const srcz = LZString.compressToEncodedURIComponent(json);
+    q.set('srcz', srcz);
+  } catch(e){
+    console.warn('Compression failed, will rely on src fallback:', e);
+  }
+
+  // 2) Fallback: старий base64-параметр src (для сумісності зі старим navigate.html)
+  try { q.set('src', b64encodeUtf8(payloadObj)); } catch(e){}
+
+  q.set('profile', profile);
+  q.set('autostart', '1');
+  q.set('token', MAPBOX_TOKEN_FOR_NAV);
+  return `${base}?${q.toString()}`;
+}
+
+/* ---------- Шеринг ---------- */
+function isMobileUA(){ return /Android|iPhone|iPad|iPod/i.test(navigator.userAgent || ''); }
+async function shareURL(url, title){
+  if (isMobileUA() && navigator.share){
+    try { await navigator.share({ title: title || 'Маршрут', url }); return; } catch{}
+  }
+  try { await navigator.clipboard.writeText(url); alert('Посилання скопійовано у буфер обміну!'); }
+  catch { prompt('Скопіюйте посилання вручну:', url); }
 }
 
 /* ---------- Таблиця ---------- */
@@ -857,10 +861,10 @@ document.querySelector('#resTable tbody').addEventListener('click', async (ev)=>
   const prettyName = btn.getAttribute('data-name') || 'Маршрут';
   try{
     setBusy(true);
-    // NEW: будуємо payload з лінійками
+    // Будуємо payload з основним маршрутом + лінійками
     const payload = await buildNavigatePayloadById(id, prettyName);
-    const b64 = b64encodeUtf8(payload);
-    const url = buildNavigateURL(b64, DEFAULT_PROFILE);
+    // Коротке посилання (srcz) + fallback src
+    const url = buildNavigateURLFromPayload(payload, DEFAULT_PROFILE);
     await shareURL(url, prettyName);
   }catch(e){
     alert('Не вдалося створити посилання для навігатора: ' + (e?.message || e));
