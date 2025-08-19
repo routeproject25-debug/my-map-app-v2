@@ -4,34 +4,70 @@
   <meta charset="utf-8" />
   <title>Вхід • Маршрути</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <!-- Firebase -->
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+
   <style>
-    :root{--bg:#0b61e1;--card:#fff;--line:#e5e7eb}
-    *{box-sizing:border-box}
-    html,body{height:100%}
-    body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
-         background:linear-gradient(135deg,#1d4ed8,#0ea5e9)}
-    .wrap{min-height:100%;display:grid;place-items:center;padding:24px}
-    .card{
-      width:min(420px,94vw); background:var(--card); border:1px solid var(--line);
-      border-radius:14px; box-shadow:0 20px 60px rgba(0,0,0,.25); padding:22px
+    :root{ --card:#fff; --line:#e5e7eb; --pad:clamp(12px,2vw,24px); }
+    *{ box-sizing:border-box }
+    html,body{ height:100% }
+    body{
+      margin:0;
+      font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+      background:#1d4ed8; /* fallback, якщо картинка не завантажилась */
     }
-    h1{margin:0 0 14px; font-size:22px}
-    .muted{color:#6b7280; font-size:13px}
-    label{display:block;font-size:13px;margin:2px 0 6px;color:#374151}
-    input{width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:10px;font-size:14px}
-    .row{display:grid; gap:10px}
-    .btn{cursor:pointer;border:1px solid var(--line);background:#2563eb;color:#fff;font-weight:600;
-         border-radius:10px;padding:10px 12px;width:100%}
-    .btn[disabled]{opacity:.6;cursor:not-allowed}
-    .btn.ghost{background:#fff;color:#111}
-    .actions{display:flex;gap:10px;margin-top:10px;flex-wrap:wrap}
-    .msg{margin:8px 0 0; font-size:13px}
-    .msg.err{color:#b91c1c}
-    .brand{display:flex;align-items:center;gap:10px;margin-bottom:10px}
-    .brand svg{width:28px;height:28px}
+    /* Фон-картинка + легке затемнення для читабельності */
+    body::before{
+      content:""; position:fixed; inset:0;
+      background:url("/img/login-bg.jpg") center/cover no-repeat fixed;
+      z-index:-2;
+    }
+    body::after{
+      content:""; position:fixed; inset:0;
+      background:linear-gradient( to bottom right, rgba(0,0,0,.18), rgba(0,0,0,.28) );
+      z-index:-1;
+    }
+
+    .wrap{ min-height:100%; padding:var(--pad) }
+
+    /* Картка в правому верхньому куті */
+    .card{
+      position:fixed; top:var(--pad); right:var(--pad);
+      width:min(420px,94vw);
+      background:rgba(255,255,255,.94);
+      border:1px solid var(--line);
+      border-radius:14px;
+      box-shadow:0 20px 60px rgba(0,0,0,.25);
+      backdrop-filter:blur(6px);
+      padding:22px;
+    }
+    /* На мобілках притискаємо до країв */
+    @media (max-width:640px){
+      .card{ left:var(--pad); right:var(--pad); top:var(--pad); width:auto; }
+    }
+
+    h1{ margin:0 0 14px; font-size:22px }
+    .muted{ color:#6b7280; font-size:13px }
+    label{ display:block; font-size:13px; margin:2px 0 6px; color:#374151 }
+    input{
+      width:100%; padding:10px 12px; border:1px solid var(--line); border-radius:10px; font-size:14px;
+      background:#fff; outline:none;
+    }
+    .row{ display:grid; gap:10px }
+    .btn{
+      cursor:pointer; border:1px solid var(--line); background:#2563eb; color:#fff; font-weight:600;
+      border-radius:10px; padding:10px 12px; width:100%;
+    }
+    .btn[disabled]{ opacity:.6; cursor:not-allowed }
+    .btn.ghost{ background:#fff; color:#111 }
+    .actions{ display:flex; gap:10px; margin-top:10px; flex-wrap:wrap }
+    .msg{ margin:8px 0 0; font-size:13px }
+    .msg.err{ color:#b91c1c }
+    .brand{ display:flex; align-items:center; gap:10px; margin-bottom:10px }
+    .brand svg{ width:28px; height:28px }
   </style>
 </head>
 <body>
@@ -39,7 +75,7 @@
     <div class="card">
       <div class="brand">
         <svg viewBox="0 0 24 24" fill="none"><path d="M3 12h18M12 3v18" stroke="#2563eb" stroke-width="2" stroke-linecap="round"/></svg>
-        <h1>Вхід до «Маршрутів»</h1>
+        <h1>FARMLOG</h1>
       </div>
       <p class="muted">Увійди своїм корпоративним email і паролем.</p>
 
@@ -73,13 +109,11 @@ const firebaseConfig = {
 const app  = firebase.apps?.length ? firebase.app() : firebase.initializeApp(firebaseConfig);
 const auth = firebase.auth();
 
-// Персистентність ОДИН раз (до логіну)
+// Персистентність один раз (до логіну)
 auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch(()=>{});
 
 /* Якщо вже увійшов — одразу на next */
-auth.onAuthStateChanged(u => {
-  if (u) goNext();
-});
+auth.onAuthStateChanged(u => { if (u) goNext(); });
 
 function goNext(){
   const p = new URLSearchParams(location.search);
@@ -113,8 +147,7 @@ async function doLogin(){
 }
 
 $btnLogin.onclick = doLogin;
-
-// Сабміт по Enter у будь-якому полі
+// Сабміт по Enter
 document.getElementById('email').addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
 document.getElementById('pass').addEventListener('keydown',  e => { if (e.key === 'Enter') doLogin(); });
 
