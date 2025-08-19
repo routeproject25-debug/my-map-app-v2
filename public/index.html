@@ -304,6 +304,35 @@
   </div>
 </div>
 
+<!-- ⬇️⬇️⬇️ AUTH GUARD: редірект неавторизованих на /login -->
+<script>
+(function(){
+  // сховаємо сторінку, щоб не миготіла незалогінена
+  document.documentElement.style.visibility = 'hidden';
+
+  const firebaseConfig = {
+    apiKey: "AIzaSyDjDBZkmy-skuDEQF8-AkRma7yw6TugoQc",
+    authDomain: "my-map-app-58312.firebaseapp.com",
+    projectId: "my-map-app-58312",
+    storageBucket: "my-map-app-58312.firebasestorage.app",
+    messagingSenderId: "53260611353",
+    appId: "1:53260611353:web:f25e120996ad8305405f88",
+    measurementId: "G-9LRX1FLTKL"
+  };
+
+  try { firebase.apps?.length ? firebase.app() : firebase.initializeApp(firebaseConfig); } catch(e) {}
+
+  const auth = firebase.auth();
+  const loginURL = '/login?next=' + encodeURIComponent(location.pathname + location.search);
+
+  auth.onAuthStateChanged(u => {
+    if (!u) { location.replace(loginURL); return; }
+    document.documentElement.style.visibility = '';
+  });
+})();
+</script>
+<!-- ⬆️⬆️⬆️ AUTH GUARD -->
+
 <script>
 /* ===================== Mapbox init ===================== */
 mapboxgl.accessToken = 'pk.eyJ1IjoidGtjaGsiLCJhIjoiY21keTN0bXVlMjN6djJrczZ2NDk5bXRoMiJ9.6n1kuiUJ3EdGUpz5I6-wdg';
@@ -932,7 +961,6 @@ fileInput.onchange = (event) => {
 };
 
 /* ================= NEW routeKey helpers ================= */
-/** Повертає першу літеру (кирилиця/латиниця) з рядка. */
 function firstLetter(str){
   const s = String(str || '').trim();
   if (!s) return 'X';
@@ -942,13 +970,11 @@ function firstLetter(str){
   }
   return 'X';
 }
-/** 10 випадкових цифр за криптографічним ГВЧ */
 function randomDigits(len=10){
   const a = new Uint32Array(len);
   (crypto && crypto.getRandomValues) ? crypto.getRandomValues(a) : a.fill(Math.floor(Math.random()*10));
   return Array.from(a, n => (n % 10).toString()).join('');
 }
-/** Резервує і повертає унікальний ключ у межах однієї транзакції. */
 async function reserveKeyTx(tx, prefix, docId, meta){
   for (let tries = 0; tries < 10; tries++){
     const key = `${prefix}-${randomDigits(10)}`;
@@ -1010,7 +1036,6 @@ async function saveToDB() {
       updatedAt: new Date().toISOString()
     };
 
-    // Дублі — як і раніше
     const existing = await findExistingRoute(fromCode, toCode, routeType);
     const baseId = sanitizeId(finalName);
     let docId = baseId;
@@ -1024,8 +1049,7 @@ async function saveToDB() {
       if (choice === 'copy'){ docId = makeCopyId(baseId); payload.name = `${payload.name} (копія)`; mode = 'copy'; }
     }
 
-    // === NEW routeKey: транзакцією записуємо маршрут + резервуємо/поновлюємо код ===
-    const prefix = firstLetter(from.name) + firstLetter(to.name); // напр., "ГТ"
+    const prefix = firstLetter(from.name) + firstLetter(to.name);
     const meta = { fromCode, toCode, fromName: from.name || '', toName: to.name || '' };
 
     let routeKeySaved = null;
@@ -1037,11 +1061,9 @@ async function saveToDB() {
       let routeKey = null;
 
       if (mode === 'overwrite' && routeSnap.exists && routeSnap.data()?.routeKey) {
-        // Перезапис: зберігаємо існуючий ключ
         routeKey = String(routeSnap.data().routeKey);
         const keyRef = db.collection('routeKeys').doc(routeKey);
         const keySnap = await tx.get(keyRef);
-        // Поновлюємо зв’язок (на випадок, якщо відсутній)
         tx.set(keyRef, {
           routeId: docId,
           updatedAt: new Date().toISOString(),
@@ -1049,7 +1071,6 @@ async function saveToDB() {
           fromName: meta.fromName, toName: meta.toName
         }, { merge: true });
       } else {
-        // Новий/копія або перезапис без ключа — генеруємо та резервуємо
         routeKey = await reserveKeyTx(tx, prefix, docId, meta);
       }
 
@@ -1216,7 +1237,7 @@ async function loadRouteById(rid) {
     if (!snap.exists) { alert('Маршрут з таким ID не знайдено: ' + rid); return; }
     const data = snap.data();
     document.getElementById('fromName').value = getNameByCode(data.fromCode) || '';
-    document.getElementById('toName').value   = getNameByCode(data.toCode)   || '';
+    document.getElementById('toName').value   = getNameByCode(data.toCode) || '';
     document.getElementById('routeType').value = data.routeType || 'Основний';
     document.getElementById('routePurpose').value = data.purpose || 'Зерно';
     document.getElementById('intermediateText').value = data.intermediateText || '';
@@ -1284,7 +1305,13 @@ loginBtn.onclick = async () => {
   try{ await auth.signInWithEmailAndPassword(authEmail.value.trim(), authPass.value); }
   catch(e){ alert('🚫 Вхід не виконано: ' + (e?.message || e)); }
 };
-logoutBtn.onclick = async () => { try{ await auth.signOut(); }catch(e){} };
+logoutBtn.onclick = async () => {
+  try{ await auth.signOut(); }
+  finally{
+    // після виходу — на повноекранну сторінку входу
+    location.replace('/login?next=' + encodeURIComponent('/index.html'));
+  }
+};
 
 auth?.onAuthStateChanged(async (user) => {
   if (user){
