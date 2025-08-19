@@ -35,7 +35,6 @@
     @media(min-width:720px){ .grid.two{grid-template-columns:1fr 1fr} }
     .counter{margin-top:8px; font-size:14px}
     .ok{color:var(--ok)} .err{color:var(--err)}
-    /* збільшене лог-вікно */
     pre#log{
       background:#0b1020; color:#e2e8f0; padding:12px; border-radius:10px;
       max-height:60vh; min-height:240px; overflow:auto; resize:vertical; margin-top:8px;
@@ -43,7 +42,6 @@
     code{background:#f1f5f9; padding:2px 6px; border-radius:6px}
     .toolbar{display:flex; gap:10px; flex-wrap:wrap}
     .pill{display:inline-flex; align-items:center; gap:6px; padding:4px 10px; background:#eef6ff; border:1px solid #dbeafe; color:#1e3a8a; border-radius:999px; font-size:12px}
-    /* прогрес */
     .progress-wrap{display:flex; align-items:center; gap:10px; margin-top:8px}
     progress{width:260px; height:14px}
 
@@ -51,7 +49,6 @@
     header.top { background:#2563eb;color:#fff;padding:10px;display:flex;gap:16px;align-items:center;justify-content:space-between; }
     header.top a { color:#fff;text-decoration:none; }
     .authbar { display:flex; gap:6px; align-items:center; flex-wrap:wrap; }
-    .authbar input { height:30px; padding:4px 8px; border-radius:6px; border:1px solid rgba(255,255,255,.35); background:#fff; color:#111; }
     .authbar .btn { height:30px; padding:4px 10px; }
     .role-badge { background:rgba(255,255,255,.2); padding:2px 8px; border-radius:999px; font-size:12px; }
   </style>
@@ -65,11 +62,8 @@
       <a href="/import/">📥 Імпорт</a>
     </nav>
     <div class="authbar">
-      <span id="authInfo">Не увійшли</span>
+      <span id="authInfo">Перевірка…</span>
       <span id="authRole" class="role-badge" style="display:none;"></span>
-      <input id="authEmail" type="text" placeholder="email (напр. admin@demo.fake)" autocomplete="username" />
-      <input id="authPass" type="password" placeholder="пароль" autocomplete="current-password" />
-      <button id="btnLogin" class="btn">Увійти</button>
       <button id="btnLogout" class="btn" style="display:none;">Вийти</button>
       <span id="statusTop" class="pill">З’єднання…</span>
     </div>
@@ -164,7 +158,7 @@ document.addEventListener('DOMContentLoaded', () => {
   function log(msg, type=''){
     const el = $('log');
     el.textContent += (type ? '['+type+'] ' : '') + msg + "\\n";
-    el.scrollTop = el.scrollHeight; // автопрокрутка вниз
+    el.scrollTop = el.scrollHeight;
   }
   function setStatus(html){ $('status').innerHTML = html; }
   function setProg(pct, label){
@@ -176,10 +170,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const statusTop = $('statusTop');
   const authInfo = $('authInfo');
   const authRoleBadge = $('authRole');
-  const btnLogin = $('btnLogin');
   const btnLogout = $('btnLogout');
-  const emailInp = $('authEmail');
-  const passInp  = $('authPass');
   const importBtn = $('importBtn');
 
   let db = null, auth = null, currentUser = null, currentRole = null;
@@ -219,16 +210,6 @@ document.addEventListener('DOMContentLoaded', () => {
   }
   $('dryRun').addEventListener('change', updateImportButton);
 
-  btnLogin.addEventListener('click', async () => {
-    try{
-      btnLogin.disabled = true;
-      await auth.signInWithEmailAndPassword(emailInp.value.trim(), passInp.value);
-    }catch(e){
-      alert('Помилка входу: ' + (e?.message || e));
-    }finally{
-      btnLogin.disabled = false;
-    }
-  });
   btnLogout.addEventListener('click', async () => {
     try{ await auth.signOut(); }catch(e){ console.warn(e); }
   });
@@ -236,17 +217,12 @@ document.addEventListener('DOMContentLoaded', () => {
   auth?.onAuthStateChanged(async (u) => {
     currentUser = u || null;
     if (!u){
-      currentRole = null;
-      authInfo.textContent = 'Не увійшли';
-      authRoleBadge.style.display = 'none';
-      btnLogin.style.display = '';
-      btnLogout.style.display = 'none';
-      statusTop.textContent = 'Увійдіть';
-      updateImportButton();
+      // 🔒 Неавторизованих перенаправляємо на логін
+      const next = encodeURIComponent(location.pathname + location.search);
+      location.replace(`/login.html?next=${next}`);
       return;
     }
     authInfo.textContent = `Увійшли як ${u.email || u.uid}`;
-    btnLogin.style.display = 'none';
     btnLogout.style.display = '';
 
     try{
@@ -398,7 +374,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!entries) return;
     setStatus(`<b>Готово до імпорту:</b> ${entries.length}`);
     log('Приклади перших 5:', 'ok');
-    entries.slice(0,PREVIEW_ROWS).forEach(e => log(`id="${e.id}"  data=${JSON.stringify(e.data)}`));
+    entries.slice(0,5).forEach(e => log(`id="${e.id}"  data=${JSON.stringify(e.data)}`));
   });
 
   // Порівняння тільки важливих полів
@@ -424,6 +400,7 @@ document.addEventListener('DOMContentLoaded', () => {
     $('clearBtn').disabled = true;
 
     const total = entries.length;
+    const SAFE_BATCH = 450;
     const totalBatches = Math.ceil(total / SAFE_BATCH);
     let ok = 0, fail = 0;
     let newCount = 0, updatedCount = 0, unchangedCount = 0;
@@ -442,7 +419,6 @@ document.addEventListener('DOMContentLoaded', () => {
         let writes = 0;
         const batch = !dry ? db.batch() : null;
 
-        // вирішуємо що робити з кожним записом
         for (let i = 0; i < slice.length; i++){
           const { id, data } = slice[i];
           const snap = snaps[i];

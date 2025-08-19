@@ -56,7 +56,6 @@
     header.top { background:#2563eb;color:#fff;padding:10px;display:flex;gap:16px;align-items:center;justify-content:space-between; }
     header.top a { color:#fff;text-decoration:none; }
     .authbar { display:flex; gap:6px; align-items:center; flex-wrap:wrap; }
-    .authbar input { height:30px; padding:4px 8px; border-radius:6px; border:1px solid rgba(255,255,255,.35); background:#fff; color:#111; }
     .authbar .btn { height:30px; padding:4px 10px; }
     .role-badge { background:rgba(255,255,255,.2); padding:2px 8px; border-radius:999px; font-size:12px; }
 
@@ -83,11 +82,8 @@
     <a href="/import/">📥 Імпорт</a>
   </nav>
   <div class="authbar">
-    <span id="authInfo">Не увійшли</span>
+    <span id="authInfo">Перевірка…</span>
     <span id="authRole" class="role-badge" style="display:none;"></span>
-    <input id="authEmail" type="text" placeholder="email (напр. user@demo.fake)" autocomplete="username" />
-    <input id="authPass" type="password" placeholder="пароль" autocomplete="current-password" />
-    <button id="btnLogin" class="btn">Увійти</button>
     <button id="btnLogout" class="btn" style="display:none;">Вийти</button>
     <span id="status" class="pill">З’єднання…</span>
   </div>
@@ -243,10 +239,7 @@ try{
 /* ---------- Auth UI ---------- */
 const authInfo = document.getElementById('authInfo');
 const authRoleBadge = document.getElementById('authRole');
-const btnLogin = document.getElementById('btnLogin');
 const btnLogout = document.getElementById('btnLogout');
-const emailInp = document.getElementById('authEmail');
-const passInp  = document.getElementById('authPass');
 const btnPreview = document.getElementById('btnPreview');
 const btnExport  = document.getElementById('btnExport');
 
@@ -256,26 +249,17 @@ function setBusy(b){
   statusEl.textContent = b ? 'Виконується…' : (currentUser ? 'Готово' : 'Увійдіть');
 }
 
-btnLogin.addEventListener('click', async () => {
-  try{ setBusy(true); await auth.signInWithEmailAndPassword(emailInp.value.trim(), passInp.value); }
-  catch(e){ alert('Помилка входу: ' + (e?.message || e)); }
-  finally{ setBusy(false); }
-});
 btnLogout.addEventListener('click', async () => { try{ await auth.signOut(); }catch(e){ console.warn(e); } });
 
 auth?.onAuthStateChanged(async (u) => {
   currentUser = u || null;
   if (!u){
-    currentRole = null;
-    authInfo.textContent = 'Не увійшли';
-    authRoleBadge.style.display = 'none';
-    btnLogin.style.display = '';
-    btnLogout.style.display = 'none';
-    setBusy(false);
+    // 🔒 якщо не увійшов — одразу на /login.html?next=...
+    const next = encodeURIComponent(location.pathname + location.search);
+    location.replace(`/login.html?next=${next}`);
     return;
   }
   authInfo.textContent = `Увійшли як ${u.email || u.uid}`;
-  btnLogin.style.display = 'none';
   btnLogout.style.display = '';
 
   try{
@@ -694,12 +678,12 @@ document.querySelector('#resTable tbody').addEventListener('click', async (ev)=>
 (async ()=>{
   if (!db) return;
   statusEl.textContent = 'Увійдіть';
+  // Якщо авторизації ще нема — незабаром onAuthStateChanged зробить редірект
   if (auth?.currentUser) { await Promise.all([loadDirectory(), loadLogists(true)]); }
-  else { await loadLogists(false); }
 })();
 
 /* ============================================================
-   ОРИГІНАЛЬНИЙ КОД МАРШРУТУ (для сторінки створення маршруту)
+   ОРИГІНАЛЬНИЙ КОД МАРШРУТУ (генератор routeKey)
    Приклад: Гайсин → Троща => "Г-Т-XXXXXXXXXX"
    ============================================================ */
 function _firstLetter(s){

@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+  <meta charset="utf-8" />
+  <title>Вхід • Маршрути</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+  <style>
+    :root{--bg:#0b61e1;--card:#fff;--line:#e5e7eb}
+    *{box-sizing:border-box}
+    html,body{height:100%}
+    body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+         background:linear-gradient(135deg,#1d4ed8,#0ea5e9)}
+    .wrap{min-height:100%;display:grid;place-items:center;padding:24px}
+    .card{
+      width:min(420px,94vw); background:var(--card); border:1px solid var(--line);
+      border-radius:14px; box-shadow:0 20px 60px rgba(0,0,0,.25); padding:22px
+    }
+    h1{margin:0 0 14px; font-size:22px}
+    .muted{color:#6b7280; font-size:13px}
+    label{display:block;font-size:13px;margin:2px 0 6px;color:#374151}
+    input{width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:10px;font-size:14px}
+    .row{display:grid; gap:10px}
+    .btn{cursor:pointer;border:1px solid var(--line);background:#2563eb;color:#fff;font-weight:600;
+         border-radius:10px;padding:10px 12px;width:100%}
+    .btn[disabled]{opacity:.6;cursor:not-allowed}
+    .btn.ghost{background:#fff;color:#111}
+    .actions{display:flex;gap:10px;margin-top:10px;flex-wrap:wrap}
+    .msg{margin:8px 0 0; font-size:13px}
+    .msg.err{color:#b91c1c}
+    .brand{display:flex;align-items:center;gap:10px;margin-bottom:10px}
+    .brand svg{width:28px;height:28px}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <div class="brand">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M3 12h18M12 3v18" stroke="#2563eb" stroke-width="2" stroke-linecap="round"/></svg>
+        <h1>Вхід до «Маршрутів»</h1>
+      </div>
+      <p class="muted">Увійди своїм корпоративним email і паролем.</p>
+
+      <label for="email">Email</label>
+      <input id="email" type="email" placeholder="you@company.com" autocomplete="username" />
+
+      <label for="pass" style="margin-top:10px">Пароль</label>
+      <input id="pass" type="password" placeholder="••••••••" autocomplete="current-password" />
+
+      <div class="actions" style="margin-top:14px">
+        <button id="btnLogin" class="btn" type="button">Увійти</button>
+        <button id="btnReset" class="btn ghost" type="button">Нагадати пароль</button>
+      </div>
+
+      <div id="msg" class="msg"></div>
+      <p class="muted" style="margin-top:14px">Питання доступу — до адміністратора.</p>
+    </div>
+  </div>
+
+<script>
+/* Firebase */
+const firebaseConfig = {
+  apiKey: "AIzaSyDjDBZkmy-skuDEQF8-AkRma7yw6TugoQc",
+  authDomain: "my-map-app-58312.firebaseapp.com",
+  projectId: "my-map-app-58312",
+  storageBucket: "my-map-app-58312.firebasestorage.app",
+  messagingSenderId: "53260611353",
+  appId: "1:53260611353:web:f25e120996ad8305405f88",
+  measurementId: "G-9LRX1FLTKL"
+};
+const app  = firebase.apps?.length ? firebase.app() : firebase.initializeApp(firebaseConfig);
+const auth = firebase.auth();
+
+// Персистентність ОДИН раз (до логіну)
+auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch(()=>{});
+
+/* Якщо вже увійшов — одразу на next */
+auth.onAuthStateChanged(u => {
+  if (u) goNext();
+});
+
+function goNext(){
+  const p = new URLSearchParams(location.search);
+  const next = p.get('next') || '/index.html';
+  location.replace(next);
+}
+
+function showMsg(text, isErr=false){
+  const el = document.getElementById('msg');
+  el.textContent = text || '';
+  el.className = 'msg' + (isErr ? ' err' : '');
+}
+
+const $btnLogin = document.getElementById('btnLogin');
+
+async function doLogin(){
+  const email = document.getElementById('email').value.trim();
+  const pass  = document.getElementById('pass').value;
+  if (!email || !pass) { showMsg('Заповни email і пароль', true); return; }
+  try{
+    $btnLogin.disabled = true;
+    showMsg('Входимо…');
+    await auth.signInWithEmailAndPassword(email, pass);
+    showMsg('Готово, перенаправляю…');
+    goNext();
+  }catch(e){
+    showMsg(e?.message || 'Помилка входу', true);
+  }finally{
+    $btnLogin.disabled = false;
+  }
+}
+
+$btnLogin.onclick = doLogin;
+
+// Сабміт по Enter у будь-якому полі
+document.getElementById('email').addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
+document.getElementById('pass').addEventListener('keydown',  e => { if (e.key === 'Enter') doLogin(); });
+
+document.getElementById('btnReset').onclick = async () => {
+  const email = document.getElementById('email').value.trim();
+  if (!email){ showMsg('Вкажи email для відновлення', true); return; }
+  try{
+    await auth.sendPasswordResetEmail(email);
+    showMsg('Надіслано лист для відновлення пароля.');
+  }catch(e){ showMsg(e?.message || 'Не вдалося надіслати лист', true); }
+};
+</script>
+</body>
+</html>

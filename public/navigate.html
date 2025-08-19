@@ -4,15 +4,26 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
   <title>Навігація маршрутом</title>
+
+  <!-- Mapbox -->
   <link href="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.css" rel="stylesheet" />
   <script src="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.js"></script>
+
+  <!-- Turf -->
   <script src="https://unpkg.com/@turf/turf@6.5.0/turf.min.js"></script>
-  <!-- NEW: LZ-String для стиску/розпакування srcz -->
+
+  <!-- LZ-String (для srcz) -->
   <script src="https://cdn.jsdelivr.net/npm/lz-string@1.5.0/libs/lz-string.min.js"></script>
-  <!-- NEW: токен Mapbox всередині файлу (щоб не передавати у посиланні) -->
+
+  <!-- Firebase (auth) -->
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+
+  <!-- Токен Mapbox зберігаємо тут (не в URL) -->
   <script>
     window.MAPBOX_TOKEN = 'pk.eyJ1IjoidGtjaGsiLCJhIjoiY21lYnIzcmcxMGQ3eTJrc2NpOTRkNHdwZCJ9.tHlbdCp9fCoZC3X5HYGLMw';
   </script>
+
   <style>
     :root { --card:#fff; --line:#e5e7eb; --muted:#6b7280; --accent:#2563eb; }
     html, body { height:100%; margin:0; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
@@ -62,13 +73,45 @@
   <div class="notice" id="notice">Для голосових підказок залишай цю сторінку відкритою на екрані. У фоновому режимі браузер може зупиняти GPS/звук.</div>
 
 <script>
-(function(){
+(async function(){
+  // ===== Auth gate (redirect to /login.html unless public/guest allowed) =====
   const qs = new URLSearchParams(location.search);
+  const allowGuest = qs.has('guest') || qs.get('public') === '1';
+
+  if (!allowGuest) {
+    const firebaseConfig = {
+      apiKey: "AIzaSyDjDBZkmy-skuDEQF8-AkRma7yw6TugoQc",
+      authDomain: "my-map-app-58312.firebaseapp.com",
+      projectId: "my-map-app-58312",
+      storageBucket: "my-map-app-58312.firebasestorage.app",
+      messagingSenderId: "53260611353",
+      appId: "1:53260611353:web:f25e120996ad8305405f88",
+      measurementId: "G-9LRX1FLTKL"
+    };
+    try{
+      const app = firebase.apps?.length ? firebase.app() : firebase.initializeApp(firebaseConfig);
+      const auth = firebase.auth();
+      await new Promise((resolve) => {
+        auth.onAuthStateChanged(u => {
+          if (u) resolve();
+          else {
+            const next = encodeURIComponent(location.pathname + location.search);
+            location.replace(`/login.html?next=${next}`);
+          }
+        });
+      });
+    }catch(e){
+      const next = encodeURIComponent(location.pathname + location.search);
+      location.replace(`/login.html?next=${next}`);
+      return;
+    }
+  }
+  // ===== /Auth gate =====
+
   const MAPBOX_TOKEN = qs.get('token') || window.MAPBOX_TOKEN || '';
   const PROFILE = qs.get('profile') || 'driving';
-  const SRCZ = qs.get('srcz');               // NEW: стиснене посилання
+  const SRCZ = qs.get('srcz');               // стиснене посилання
   const SRC_B64 = qs.get('src');             // fallback
-  // NEW: автозапуск за замовчуванням (якщо параметр не вказано)
   const AUTO_START = qs.has('autostart') ? (qs.get('autostart') === '1') : true;
 
   // === CAMERA / TRACK-UP ===
@@ -81,7 +124,7 @@
   const GPS_ACCURACY_MAX = 50;
   const SMOOTH_ALPHA_POS = 0.5;
   const SMOOTH_ALPHA_HD  = 0.6;
-  const SNAP_MAX_METERS  = 40; // прилипати до маршруту/лінійки, якщо ближче ніж 40 м
+  const SNAP_MAX_METERS  = 40;
 
   // === Voice timing ===
   const SPEAK_LOOKAHEAD_SEC = 8;
@@ -89,7 +132,6 @@
   const SPEAK_MAX_DIST = 800;
   const SPEAK_NOW_DIST = 25;
 
-  // === helpers ===
   function b64decodeUtf8(b64){
     const bin = atob(b64); const bytes = new Uint8Array(bin.length);
     for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
@@ -117,7 +159,6 @@
   });
   map.addControl(new mapboxgl.NavigationControl({visualizePitch:true}), 'bottom-left');
 
-  // Ukrainian labels
   function applyUkrainianLabels(){
     const style = map.getStyle(); if (!style || !style.layers) return;
     const ukExpr = ['coalesce',['get','name_uk'],['get','name:uk'],['get','name_ua'],['get','name:ua'],['get','name_local'],['get','name']];
@@ -129,7 +170,6 @@
     });
   }
 
-  // UI refs
   document.getElementById('statMode').textContent = PROFILE;
   const $title = document.getElementById('routeTitle');
   const $dist = document.getElementById('statDistance');
@@ -138,9 +178,8 @@
   const $notice = document.getElementById('notice');
   const $recenter = document.getElementById('btnRecenter');
 
-  // state
   let routeGeoJSON = null;
-  let manualSegments = [];      // лінійки
+  let manualSegments = [];
   let steps = [];
   let routeLengthKm = 0;
   let totalDistance = 0;
@@ -149,21 +188,17 @@
   let userMarker = null;
   let lastUserPos = null;
 
-  // smoothing state
   let filteredPos = null;
   let filteredHeading = null;
 
-  // speed estimate
   let lastTs = null;
   let lastSpeedPos = null;
   let speedMps = 0;
   const SPEED_ALPHA = 0.5;
   const MAX_SPEED_MPS = 90/3.6;
 
-  // snapping lines collection (route + manuals)
-  let snapFeatures = []; // масив Feature<LineString>
+  let snapFeatures = [];
 
-  // voices
   let uaVoice = null;
   function pickUkrainianVoice() {
     const voices = window.speechSynthesis?.getVoices?.() || [];
@@ -186,34 +221,24 @@
   function metersToKM(m){ return (m/1000).toFixed(1); }
   function secondsToETA(s){ const dt = new Date(Date.now() + s*1000); const hh=String(dt.getHours()).padStart(2,'0'); const mm=String(dt.getMinutes()).padStart(2,'0'); return `${hh}:${mm}`; }
 
-  // payload loader (srcz -> src fallback)
   async function loadRouteData(){
     let json = null;
-
-    // 1) спочатку пробуємо srcz (стиснене посилання)
     if (SRCZ) {
       try {
         const decompressed = LZString.decompressFromEncodedURIComponent(SRCZ);
         if (decompressed) json = JSON.parse(decompressed);
       } catch(e){ console.warn('srcz decompress error:', e); }
     }
-
-    // 2) fallback: src (base64)
     if (!json && SRC_B64){
       try { json = JSON.parse(b64decodeUtf8(SRC_B64)); }
       catch(e){ console.warn('src base64 parse error:', e); }
     }
-
     if (!json) throw new Error('Не передано маршрут. Використай ?srcz=... або ?src=...');
-
     const segs = Array.isArray(json.manualSegments) ? json.manualSegments : [];
-    // легка валідація сегментів
     const cleanedSegs = segs.map(arr => (Array.isArray(arr)?arr:[]).filter(p=>Array.isArray(p)&&p.length>=2&&isFinite(p[0])&&isFinite(p[1])));
-
     return { name: json.name || 'Маршрут', points: json.points, manualSegments: cleanedSegs };
   }
 
-  // map layers
   function addRouteToMap(){
     if (!routeGeoJSON) return;
     if (map.getSource('route')){
@@ -247,14 +272,12 @@
     }
   }
 
-  // combine for snapping
   function rebuildSnapFeatures(){
     snapFeatures = [];
     if (routeGeoJSON) snapFeatures.push({ type:'Feature', geometry: routeGeoJSON.geometry, properties:{_kind:'route'} });
     (manualSegments||[]).forEach(seg => snapFeatures.push({ type:'Feature', geometry:{type:'LineString', coordinates: seg}, properties:{_kind:'manual'} }));
   }
 
-  // fetch mapbox route
   async function fetchDirections(points){
     const coords = points.map(p => p.join(',')).join(';');
     const url = `https://api.mapbox.com/directions/v5/mapbox/${PROFILE}/${coords}?alternatives=false&geometries=geojson&overview=full&steps=true&language=uk&voice_units=metric&access_token=${MAPBOX_TOKEN}`;
@@ -272,7 +295,6 @@
     $dist.textContent = `${metersToKM(totalDistance)} км`;
     $eta.textContent = `ETA ${secondsToETA(totalDuration)}`;
 
-    // збирання кроків та їх позиції вздовж маршруту
     const rawSteps = r.legs.flatMap(l=>l.steps);
     routeLengthKm = turf.length(routeGeoJSON, {units:'kilometers'});
     steps = rawSteps.map((s) => {
@@ -285,7 +307,6 @@
     return routeGeoJSON;
   }
 
-  // waypoints limiter
   function clampWaypoints(points, maxWaypoints = 25){
     const clean = (points || []).filter(p =>
       Array.isArray(p) && p.length >= 2 &&
@@ -302,7 +323,6 @@
     return out;
   }
 
-  // marker
   function ensureUserMarker(lng, lat){
     if (!userMarker){
       const el = document.createElement('div');
@@ -319,19 +339,17 @@
     return (bearing+360)%360;
   }
 
-  // camera
   function updateCamera(centerLL, bearingDeg){
     if (!centerLL) return;
     const opts = {
-      center: centerLL, duration: CAMERA_DURATION, essential: true,
+      center: centerLL, duration: 350, essential: true,
       bearing: (bearingDeg!=null && !Number.isNaN(bearingDeg)) ? bearingDeg : map.getBearing(),
-      pitch: NAV_PITCH_DEG, offset: [0, NAV_OFFSET_PX]
+      pitch: 60, offset: [0, 180]
     };
-    if (map.getZoom() < NAV_MIN_ZOOM) opts.zoom = NAV_MIN_ZOOM;
+    if (map.getZoom() < 13) opts.zoom = 13;
     map.easeTo(opts);
   }
 
-  // voice helpers
   let spoken = { idx: -1, early: false, now: false };
   function resetSpokenFor(idx){ spoken = { idx, early:false, now:false }; }
 
@@ -345,7 +363,6 @@
   }
 
   function sanitizeInstruction(text){
-    // базові заміни EN → UA (якщо раптом)
     return String(text||'')
       .replace(/Turn right/i, 'Поверніть праворуч')
       .replace(/Turn left/i, 'Поверніть ліворуч')
@@ -358,18 +375,14 @@
   function stepToSpeech(step, mode='soon', overrideMeters=null){
     const man = step.maneuver || {};
     const arr = isArrivalStep(step);
-
-    if (arr && !isFinalArrival(step)) return ''; // не озвучується проміжне «прибуття»
+    if (arr && !isFinalArrival(step)) return '';
     let text = sanitizeInstruction(man.instruction || '');
-
     if (arr && isFinalArrival(step)){
-      // фінал: окремий меседж
       if (mode === 'now') return 'Ви прибули до місця призначення.';
       const d = Math.round(overrideMeters ?? (step.distance||0));
       const add = d < 1000 ? `${d} метрів` : `${(d/1000).toFixed(1)} кілометра`;
       return `Фініш за ${add}.`;
     }
-
     if (mode === 'now') return 'Зараз: ' + text.replace(/\. За .+$/,'');
     const d = Math.round(overrideMeters ?? (step.distance||0));
     const add = d < 1000 ? `${d} м` : `${(d/1000).toFixed(1)} км`;
@@ -377,7 +390,6 @@
     return text;
   }
 
-  // nearest to route OR manuals
   function nearestOnAnyLine(ll){
     if (!snapFeatures.length) return null;
     let best=null, min=Infinity, which='route', idx=-1;
@@ -390,10 +402,10 @@
     return { coord: best.geometry.coordinates, dist: min, which, idx };
   }
 
-  // follow/lock UI
   let followHard = true;
   let autoCenter = true;
   function setFollowUI(){
+    const $recenter = document.getElementById('btnRecenter');
     if (followHard){ $recenter.textContent = '🔒'; $recenter.title = 'Стеження: увімкнено. Натисни, щоб дозволити вільний перегляд карти'; }
     else { $recenter.textContent = '📍'; $recenter.title = 'Стеження: вимкнено. Натисни, щоб знову увімкнути'; }
   }
@@ -401,19 +413,17 @@
   map.on('dragstart',   ()=> { if (!followHard) autoCenter = false; });
   map.on('rotatestart', ()=> { if (!followHard) autoCenter = false; });
   map.on('pitchstart',  ()=> { if (!followHard) autoCenter = false; });
-  $recenter.onclick = ()=>{
+  document.getElementById('btnRecenter').onclick = ()=>{
     followHard = !followHard; autoCenter = followHard; setFollowUI();
     if (followHard && lastUserPos) updateCamera(lastUserPos, filteredHeading);
   };
 
-  // choose next step by position, пропускаючи проміжні arrive
   function getNextStepByLocation(userLocKm){
     if (!steps || steps.length === 0) return null;
     let sel = null;
     for (let i = 0; i < steps.length; i++){
       const s = steps[i];
       if (s._locKm > userLocKm){
-        // пропустити проміжне прибуття
         if (isArrivalStep(s) && i !== steps.length - 1) continue;
         s._index = i;
         s._metersToManeuver = Math.max(0, (s._locKm - userLocKm) * 1000);
@@ -421,7 +431,6 @@
         sel = s; break;
       }
     }
-    // якщо взяли проміжне arrive (на випадок рівності), проскочимо далі
     if (sel && isArrivalStep(sel) && sel._index !== steps.length - 1){
       const j = Math.min(steps.length - 1, sel._index + 1);
       const t = steps[j];
@@ -433,57 +442,48 @@
     return sel;
   }
 
-  // main GPS handler
   function onPosition(pos){
     if (Number.isFinite(pos.coords.accuracy) && pos.coords.accuracy > GPS_ACCURACY_MAX) return;
     const raw = [pos.coords.longitude, pos.coords.latitude];
 
-    // snap to route OR manual if close enough
     let onLine = raw; let snappedKind = null;
     const snap = nearestOnAnyLine(raw);
     if (snap && snap.dist <= SNAP_MAX_METERS){
-      onLine = snap.coord; snappedKind = snap.which; // 'route' | 'manual'
+      onLine = snap.coord; snappedKind = snap.which;
     }
 
-    // smoothing
     filteredPos = filteredPos
-      ? [ filteredPos[0] + (onLine[0] - filteredPos[0]) * SMOOTH_ALPHA_POS,
-          filteredPos[1] + (onLine[1] - filteredPos[1]) * SMOOTH_ALPHA_POS ]
+      ? [ filteredPos[0] + (onLine[0] - filteredPos[0]) * 0.5,
+          filteredPos[1] + (onLine[1] - filteredPos[1]) * 0.5 ]
       : onLine;
 
-    // heading
     const gpsHeading = Number.isFinite(pos.coords.heading) ? pos.coords.heading : null;
     const headingInstant = gpsHeading != null ? gpsHeading : (lastUserPos ? computeHeading(lastUserPos, filteredPos) : null);
     if (headingInstant != null){
       filteredHeading = (filteredHeading == null)
         ? headingInstant
-        : filteredHeading + (headingInstant - filteredHeading) * SMOOTH_ALPHA_HD;
+        : filteredHeading + (headingInstant - filteredHeading) * 0.6;
     }
     lastUserPos = filteredPos;
 
-    // speed estimate
     const ts = (typeof pos.timestamp === 'number' ? pos.timestamp : Date.now());
     if (lastSpeedPos && lastTs){
       const dM = turf.distance(turf.point(lastSpeedPos), turf.point(filteredPos), {units:'kilometers'})*1000;
       const dt = Math.max(0.2, (ts - lastTs)/1000);
-      const inst = Math.min(dM/dt, MAX_SPEED_MPS);
-      speedMps = (1 - SPEED_ALPHA)*speedMps + SPEED_ALPHA*inst;
+      const inst = Math.min(dM/dt, 90/3.6);
+      speedMps = (1 - 0.5)*speedMps + 0.5*inst;
     }
     lastSpeedPos = filteredPos; lastTs = ts;
 
-    // render + camera
     ensureUserMarker(filteredPos[0], filteredPos[1]);
     if (followHard || autoCenter) updateCamera(filteredPos, filteredHeading);
 
-    // distance/ETA + voice only for ROUTE
     if (routeGeoJSON){
-      // позиція вздовж основного маршруту
       const snapKm = turf.nearestPointOnLine(routeGeoJSON, filteredPos, {units:'kilometers'});
       const userLocKm = (snapKm.properties && typeof snapKm.properties.location === 'number') ? snapKm.properties.location : 0;
       const remainRoute = Math.max(0, (routeLengthKm - userLocKm) * 1000);
 
       if (snappedKind === 'manual'){
-        // якщо на лінійці — показуємо локальну відстань до кінця поточної лінійки
         const nearManual = nearestOnAnyLine(filteredPos);
         if (nearManual && nearManual.which === 'manual'){
           const feat = snapFeatures[nearManual.idx];
@@ -495,11 +495,9 @@
         } else {
           $dist.textContent = '— км'; $eta.textContent = 'ETA —';
         }
-        // голос не говоримо на лінійці
         return;
       }
 
-      // якщо на маршруті — звична логіка
       $dist.textContent = `${(remainRoute/1000).toFixed(1)} км`;
       const next = getNextStepByLocation(userLocKm);
       if (next){
@@ -507,15 +505,12 @@
         $eta.textContent = `ETA ${secondsToETA(etaSec)}`;
 
         const lead = Math.min(SPEAK_MAX_DIST, Math.max(SPEAK_MIN_DIST, speedMps * SPEAK_LOOKAHEAD_SEC));
-
         if (spoken.idx !== next._index) resetSpokenFor(next._index);
 
-        // рання підказка
         if (!spoken.early && next._metersToManeuver <= lead && next._metersToManeuver > SPEAK_NOW_DIST){
           const t = stepToSpeech(next, 'soon', next._metersToManeuver);
           if (t) { speak(t); spoken.early = true; }
         }
-        // «зараз»
         if (!spoken.now && next._metersToManeuver <= SPEAK_NOW_DIST){
           const t = stepToSpeech(next, 'now');
           if (t) { speak(t); spoken.now = true; }
@@ -528,7 +523,6 @@
 
   function onPositionError(err){ console.warn('GPS error', err); }
 
-  // UI buttons
   document.getElementById('btnStart').onclick = startNav;
   document.getElementById('btnStop').onclick = stopNav;
   document.getElementById('btnShare').onclick = shareLink;
@@ -557,7 +551,6 @@
     }
   }
 
-  // NEW: коротке посилання — лише srcz (без token/profile/autostart)
   function buildShareURL(payload){
     const base = `${location.origin}${location.pathname}`;
     const q = new URLSearchParams();
@@ -565,6 +558,8 @@
       const srcz = LZString.compressToEncodedURIComponent(JSON.stringify(payload));
       q.set('srcz', srcz);
     }catch(e){ console.warn('compress fail', e); }
+    // Додай public=1, якщо хочеш шарити без входу
+    if (allowGuest) q.set('public','1');
     return `${base}?${q.toString()}`;
   }
 
@@ -585,7 +580,7 @@
   map.on('load', async ()=>{
     try{
       const { name, points, manualSegments: segs } = await loadRouteData();
-      $title.textContent = name;
+      document.getElementById('routeTitle').textContent = name;
       manualSegments = Array.isArray(segs) ? segs : [];
 
       const waypoints = clampWaypoints(points, 25);
@@ -598,8 +593,8 @@
       }
 
       addRouteToMap();
-      addManualToMap();      // лінійки на карті
-      rebuildSnapFeatures(); // для snap до маршруту/лінійок
+      addManualToMap();
+      rebuildSnapFeatures();
 
       if (AUTO_START) startNav();
     }catch(e){ console.error(e); alert(e.message || e); }
