@@ -10,7 +10,6 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
   <!-- ІНІЦІАЛІЗАЦІЯ FIREBASE (ВАРІАНТ B) -->
   <script>
-    // Твій конфіг (storageBucket під web: appspot.com)
     const firebaseConfig = {
       apiKey: "AIzaSyDjDBZkmy-skuDEQF8-AkRma7yw6TugoQc",
       authDomain: "my-map-app-58312.firebaseapp.com",
@@ -61,13 +60,13 @@
       <span id="authState" class="pill">Не автентифіковано</span>
       <span id="roleState" class="pill">Роль: —</span>
     </div>
-    <div class="muted" style="margin-top:6px">Доступ до запису бажано обмежити роллю <b>admin</b> (custom claims).</div>
+    <div class="muted" style="margin-top:6px">Доступ до запису обмежуємо роллю <b>admin</b> (через <b>/roles/{uid}</b>), резервно — custom claims.</div>
   </div>
 
   <!-- Init (автовиявлення існуючого застосунку) -->
   <div class="card" id="initCard">
     <h2>1) Ініціалізація Firebase</h2>
-    <p class="muted">Сторінка спробує використати вже ініціалізований застосунок. Якщо на цій сторінці ще не ініціалізовано, встав конфіг або підключи ваш <span class="kbd">/firebase-config.js</span>, який задає <span class="kbd">window.firebaseConfig</span>.</p>
+    <p class="muted">Якщо на сторінці вже ініціалізовано застосунок — ця форма сховається автоматично.</p>
     <div class="row">
       <div>
         <label>apiKey</label><input id="apiKey" type="text" placeholder="...">
@@ -82,7 +81,6 @@
     </div>
     <div style="margin-top:8px" class="flex">
       <button class="btn" id="btnInit">Ініціалізувати</button>
-      <span class="muted">Або просто підключи <span class="kbd">&lt;script src="/firebase-config.js"&gt;</span> із <span class="kbd">window.firebaseConfig</span>.</span>
     </div>
   </div>
 
@@ -107,7 +105,7 @@
   <!-- Import -->
   <div class="card">
     <h2>3) Імпорт CSV</h2>
-    <p class="muted">Обов’язкові колонки: <b>Підприємство; Підрозділ; Назва; КОД ЦБ; Рік коду</b>. Формат — CSV з роздільником «;» (крапка з комою).</p>
+    <p class="muted">Обов’язкові колонки: <b>Підприємство; Підрозділ; Назва; КОД ЦБ; Рік коду</b>. Формат — CSV з «;».</p>
     <div class="row">
       <div>
         <label>CSV файл</label><input id="file" type="file" accept=".csv">
@@ -148,7 +146,6 @@ function normalizeRaw(s){
   if(!s) return "";
   let x = s.trim().toUpperCase();
   x = x.replace(/[\s/_\\-]+/g, ""); // прибрати роздільники і пробіли
-  // (опц.) латиниця -> кирилиця для схожих символів
   const map = { A:"А", B:"В", C:"С", E:"Е", H:"Н", I:"І", K:"К", M:"М", O:"О", P:"Р", T:"Т", X:"Х", Y:"У" };
   x = x.replace(/[ABCEHIKMOPTXY]/g, ch => map[ch] || ch);
   return x.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
@@ -164,7 +161,7 @@ function headerMap(h){
   if (["назва","name","posiv","посів","посiв"].includes(m)) return "Назва";
   if (["код цб","код","code","cb","цб","код_цб","kod cb","kod"].includes(m)) return "КОД ЦБ";
   if (["рік коду","рiк коду","year","рік","rik"].includes(m)) return "Рік коду";
-  return h; // залишаємо як є
+  return h;
 }
 
 // download helpers
@@ -174,7 +171,7 @@ function downloadText(filename, text){
   a.download = filename; a.click(); URL.revokeObjectURL(a.href);
 }
 
-// ===== Firebase Init (reuse existing app or window.firebaseConfig) =====
+// ===== Firebase Init =====
 function tryAutoInit(){
   try{
     if (firebase.apps && firebase.apps.length){
@@ -234,34 +231,46 @@ document.getElementById('btnLogin').onclick = async () => {
     );
   }catch(e){ logLine('<span class="err">✗ Вхід: '+e.message+'</span>'); }
 };
-document.getElementById('btnLogout').onclick = async () => {
-  await auth.signOut();
-};
+document.getElementById('btnLogout').onclick = async () => { await auth.signOut(); };
 
 function updateAuthUI(u){
   setText('authState', u ? 'Увійшли' : 'Не автентифіковано');
-  document.getElementById('btnImport').disabled = !(u && db && isAdmin);
+  // кнопка активна для dry run навіть без admin
+  document.getElementById('btnImport').disabled = !(u && db);
   document.getElementById('userInfo').textContent = u ? (u.email||'') : '';
 }
+
+// >>> ОНОВЛЕНА ФУНКЦІЯ: читаємо роль з /roles/{uid}, резервно з custom claims
 async function refreshRole(u){
   isAdmin = false;
   setText('roleState','Роль: —');
   if(!u) return;
 
   try{
-    const tok = await u.getIdTokenResult(true);
-    const role = tok.claims?.role || tok.claims?.roles?.[0] || null;
-    // опц: whitelist імейлів
-    const allowedEmails = []; // ['boss@company.com']
-    isAdmin = role === 'admin' || allowedEmails.includes(u.email);
-    setText('roleState', 'Роль: ' + (isAdmin ? 'admin' : (role||'немає')));
+    // 1) роль з колекції /roles/{uid}
+    const roleSnap = await firebase.firestore().doc(`roles/${u.uid}`).get();
+    const colRole = roleSnap.exists ? (roleSnap.data()?.role || null) : null;
+
+    // 2) резервно — custom claims
+    let claimRole = null;
+    try {
+      const tok = await u.getIdTokenResult(true);
+      claimRole = tok?.claims?.role || (Array.isArray(tok?.claims?.roles) ? tok.claims.roles[0] : null);
+    } catch (_) {}
+
+    // 3) whitelist email (за потреби)
+    const allowedEmails = []; // напр.: ['you@company.com']
+
+    isAdmin = (colRole === 'admin') || (claimRole === 'admin') || allowedEmails.includes(u.email || '');
+    setText('roleState', 'Роль: ' + (colRole || claimRole || 'немає'));
     if(!isAdmin){
-      logLine('<span class="warn">! Попередження: у вас немає ролі admin — запис буде недоступний (dryRun доступний).</span>');
+      logLine('<span class="warn">! У вас немає ролі admin — запис буде недоступний (dryRun доступний).</span>');
     }
   }catch(e){
-    logLine('<span class="warn">! Не вдалося отримати claims: '+e.message+'</span>');
+    logLine('<span class="warn">! Не вдалося отримати роль: '+e.message+'</span>');
   }
 }
+
 auth && auth.onAuthStateChanged(async (u)=>{
   currentUser = u || null;
   await refreshRole(currentUser);
@@ -290,8 +299,12 @@ document.getElementById('btnImport').onclick = ()=>{
   if(!file){ logLine('<span class="warn">! Оберіть CSV файл</span>'); return; }
 
   const dry = document.getElementById('dryRun').checked;
-  logLine(`<b>Читаю CSV...</b> (dryRun=${dry})`);
+  if (!isAdmin && !dry){
+    logLine('<span class="err">✗ У вас немає ролі admin. Доступний лише тестовий прогін (dry run).</span>');
+    return;
+  }
 
+  logLine(`<b>Читаю CSV...</b> (dryRun=${dry})`);
   Papa.parse(file, {
     header: true,
     delimiter: ";",
@@ -322,7 +335,6 @@ async function processRows(rows, dry){
   for(let i=0;i<rows.length;i++){
     const r = rows[i];
     try{
-      // валідація колонок
       for(const k of required){ if(!(k in r)){ throw new Error(`Немає колонки "${k}"`); } }
 
       const ent  = (r["Підприємство"]||"").trim();
