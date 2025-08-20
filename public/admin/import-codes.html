@@ -95,7 +95,7 @@
         <label>Пароль</label><input id="password" type="password" placeholder="••••••••">
       </div>
     </div>
-    <div class="flex" style="margin-top:8px">
+    <div class="flex" style="margin-top:8px)">
       <button class="btn" id="btnLogin">Увійти</button>
       <button class="btn" id="btnLogout" style="background:#6b7280">Вийти</button>
       <span class="muted" id="userInfo"></span>
@@ -171,6 +171,19 @@ function downloadText(filename, text){
   a.download = filename; a.click(); URL.revokeObjectURL(a.href);
 }
 
+// === Перевірка наявності маршрутів для коду (fromCode/toCode) ===
+async function hasRoutesForCode(code){
+  try{
+    const q1 = await db.collection('routes').where('fromCode','==',code).limit(1).get();
+    if (!q1.empty) return true;
+    const q2 = await db.collection('routes').where('toCode','==',code).limit(1).get();
+    return !q2.empty;
+  }catch(e){
+    logLine(`<span class="warn">! Перевірка маршрутів не вдалася: ${e.message}</span>`);
+    return false;
+  }
+}
+
 // ===== Firebase Init =====
 function tryAutoInit(){
   try{
@@ -240,25 +253,22 @@ function updateAuthUI(u){
   document.getElementById('userInfo').textContent = u ? (u.email||'') : '';
 }
 
-// >>> ОНОВЛЕНА ФУНКЦІЯ: читаємо роль з /roles/{uid}, резервно з custom claims
+// >>> читаємо роль з /roles/{uid}, резервно з custom claims
 async function refreshRole(u){
   isAdmin = false;
   setText('roleState','Роль: —');
   if(!u) return;
 
   try{
-    // 1) роль з колекції /roles/{uid}
     const roleSnap = await firebase.firestore().doc(`roles/${u.uid}`).get();
     const colRole = roleSnap.exists ? (roleSnap.data()?.role || null) : null;
 
-    // 2) резервно — custom claims
     let claimRole = null;
     try {
       const tok = await u.getIdTokenResult(true);
       claimRole = tok?.claims?.role || (Array.isArray(tok?.claims?.roles) ? tok.claims.roles[0] : null);
     } catch (_) {}
 
-    // 3) whitelist email (за потреби)
     const allowedEmails = []; // напр.: ['you@company.com']
 
     isAdmin = (colRole === 'admin') || (claimRole === 'admin') || allowedEmails.includes(u.email || '');
@@ -363,22 +373,54 @@ async function processRows(rows, dry){
           skip++; logLine(`<span class="muted">• [${i+1}] Skip: вже є ${name} → ${code} (${year})</span>`);
         }else{
           upsert++; logLine(`<span class="ok">✓ [${i+1}] Update: ${name} (${year}) код ${cur.code} → ${code}</span>`);
+
+          // --- UPDATE з needs_route ---
+          const hasR = await hasRoutesForCode(code);
+          const needsRoute = !hasR;
+
           if(!dry){
             batch.set(docRef, {
-              code, display_name:name, enterprise:ent, department:dep, updated_at: Date.now()
+              code,
+              display_name: name,
+              enterprise: ent,
+              department: dep,
+              updated_at: Date.now(),
+              needs_route: needsRoute
             }, { merge:true }); ops++;
+
             batch.set(byCodeRef, { sowing_key:key }, { merge:true }); ops++;
+
             if(ops >= 400){ await commitBatch(); }
+          }
+
+          if(needsRoute){
+            logLine(`<span class="warn">! UPDATE_CODE: ${name} (${year}) — маршрутів для коду ${code} не знайдено, needs_route=true</span>`);
           }
         }
       }else{
         upsert++; logLine(`<span class="ok">✓ [${i+1}] Insert: ${name} (${year}) → ${code}</span>`);
+
+        // --- INSERT з needs_route ---
+        const hasR = await hasRoutesForCode(code);
+        const needsRoute = !hasR;
+
         if(!dry){
           batch.set(docRef, {
-            code, display_name:name, enterprise:ent, department:dep, updated_at: Date.now()
+            code,
+            display_name: name,
+            enterprise: ent,
+            department: dep,
+            updated_at: Date.now(),
+            needs_route: needsRoute
           }, { merge:false }); ops++;
+
           batch.set(byCodeRef, { sowing_key:key }, { merge:false }); ops++;
+
           if(ops >= 400){ await commitBatch(); }
+        }
+
+        if(needsRoute){
+          logLine(`<span class="warn">! NEW_SOWING: ${name} (${year}) — маршрутів для коду ${code} не знайдено, needs_route=true</span>`);
         }
       }
     }catch(e){
