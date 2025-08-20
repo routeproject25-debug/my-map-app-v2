@@ -1,0 +1,381 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+  <meta charset="utf-8" />
+  <title>Імпорт довідника посівів (Назва → КОД ЦБ за роком)</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <!-- Firebase compat -->
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+  <!-- ІНІЦІАЛІЗАЦІЯ FIREBASE (ВАРІАНТ B) -->
+  <script>
+    // Твій конфіг (storageBucket під web: appspot.com)
+    const firebaseConfig = {
+      apiKey: "AIzaSyDjDBZkmy-skuDEQF8-AkRma7yw6TugoQc",
+      authDomain: "my-map-app-58312.firebaseapp.com",
+      projectId: "my-map-app-58312",
+      storageBucket: "my-map-app-58312.appspot.com",
+      messagingSenderId: "53260611353",
+      appId: "1:53260611353:web:f25e120996ad8305405f88",
+      measurementId: "G-9LRX1FLTKL"
+    };
+    if (firebase.apps && firebase.apps.length) {
+      firebase.app();
+    } else {
+      firebase.initializeApp(firebaseConfig);
+    }
+  </script>
+  <!-- PapaParse для CSV -->
+  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+  <style>
+    :root{ --bg:#f6f7f9; --card:#fff; --line:#e5e7eb; --text:#111827; --brand:#0b61e1 }
+    *{ box-sizing:border-box }
+    body{ margin:0; font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif; background:var(--bg); color:var(--text) }
+    .wrap{ max-width:1000px; margin:24px auto; padding:0 16px }
+    .card{ background:var(--card); border-radius:12px; box-shadow:0 2px 8px rgba(0,0,0,.06); padding:16px 18px; margin-bottom:16px }
+    h1{ font-size:20px; margin:0 0 12px }
+    h2{ font-size:16px; margin:0 0 10px }
+    label{ display:block; margin:8px 0 4px }
+    input[type="text"], input[type="email"], input[type="password"], input[type="number"]{
+      width:100%; padding:10px; border:1px solid var(--line); border-radius:10px; background:#fff
+    }
+    .row{ display:grid; grid-template-columns:1fr 1fr; gap:12px }
+    .btn{ border:0; border-radius:10px; padding:10px 14px; cursor:pointer; background:var(--brand); color:#fff }
+    .btn[disabled]{ opacity:.6; cursor:not-allowed }
+    .muted{ color:#6b7280; font-size:12px }
+    .log{ font-family:ui-monospace, SFMono-Regular, Menlo, monospace; background:#0b122033; color:#e5e7eb; border-radius:8px; padding:12px; white-space:pre-wrap; max-height:360px; overflow:auto }
+    .ok{ color:#22c55e } .warn{ color:#f59e0b } .err{ color:#ef4444 }
+    .pill{ display:inline-block; padding:2px 8px; border-radius:999px; font-size:12px; background:#eef2ff; color:#3730a3 }
+    .flex{ display:flex; gap:8px; align-items:center; flex-wrap:wrap }
+    .sep{ height:1px; background:var(--line); margin:10px 0 }
+    .kbd{ font-family:ui-monospace, SFMono-Regular, Menlo, monospace; font-size:12px; background:#eef2ff; color:#111827; padding:2px 6px; border-radius:6px }
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <div class="card">
+    <h1>Імпорт довідника посівів (CSV: «Підприємство; Підрозділ; Назва; КОД ЦБ; Рік коду»)</h1>
+    <div class="flex">
+      <span id="appState" class="pill">Не ініціалізовано</span>
+      <span id="authState" class="pill">Не автентифіковано</span>
+      <span id="roleState" class="pill">Роль: —</span>
+    </div>
+    <div class="muted" style="margin-top:6px">Доступ до запису бажано обмежити роллю <b>admin</b> (custom claims).</div>
+  </div>
+
+  <!-- Init (автовиявлення існуючого застосунку) -->
+  <div class="card" id="initCard">
+    <h2>1) Ініціалізація Firebase</h2>
+    <p class="muted">Сторінка спробує використати вже ініціалізований застосунок. Якщо на цій сторінці ще не ініціалізовано, встав конфіг або підключи ваш <span class="kbd">/firebase-config.js</span>, який задає <span class="kbd">window.firebaseConfig</span>.</p>
+    <div class="row">
+      <div>
+        <label>apiKey</label><input id="apiKey" type="text" placeholder="...">
+        <label>authDomain</label><input id="authDomain" type="text" placeholder="...">
+        <label>projectId</label><input id="projectId" type="text" placeholder="...">
+      </div>
+      <div>
+        <label>appId</label><input id="appId" type="text" placeholder="...">
+        <label>storageBucket (опц.)</label><input id="storageBucket" type="text" placeholder="...">
+        <label>messagingSenderId (опц.)</label><input id="messagingSenderId" type="text" placeholder="...">
+      </div>
+    </div>
+    <div style="margin-top:8px" class="flex">
+      <button class="btn" id="btnInit">Ініціалізувати</button>
+      <span class="muted">Або просто підключи <span class="kbd">&lt;script src="/firebase-config.js"&gt;</span> із <span class="kbd">window.firebaseConfig</span>.</span>
+    </div>
+  </div>
+
+  <!-- Auth -->
+  <div class="card" id="authCard">
+    <h2>2) Вхід</h2>
+    <div class="row">
+      <div>
+        <label>Email</label><input id="email" type="email" placeholder="admin@example.com">
+      </div>
+      <div>
+        <label>Пароль</label><input id="password" type="password" placeholder="••••••••">
+      </div>
+    </div>
+    <div class="flex" style="margin-top:8px">
+      <button class="btn" id="btnLogin">Увійти</button>
+      <button class="btn" id="btnLogout" style="background:#6b7280">Вийти</button>
+      <span class="muted" id="userInfo"></span>
+    </div>
+  </div>
+
+  <!-- Import -->
+  <div class="card">
+    <h2>3) Імпорт CSV</h2>
+    <p class="muted">Обов’язкові колонки: <b>Підприємство; Підрозділ; Назва; КОД ЦБ; Рік коду</b>. Формат — CSV з роздільником «;» (крапка з комою).</p>
+    <div class="row">
+      <div>
+        <label>CSV файл</label><input id="file" type="file" accept=".csv">
+      </div>
+      <div>
+        <label>Режим</label>
+        <div><input id="dryRun" type="checkbox" checked> <label for="dryRun">Тестовий прогін (без запису)</label></div>
+      </div>
+    </div>
+    <div class="flex" style="margin-top:8px">
+      <button class="btn" id="btnImport" disabled>Імпортувати</button>
+      <span id="importState" class="muted"></span>
+    </div>
+    <div class="sep"></div>
+    <div class="flex">
+      <button class="btn" id="btnTemplate">Завантажити порожній шаблон</button>
+      <button class="btn" id="btnExample" style="background:#0a7a0a">Завантажити приклад</button>
+    </div>
+  </div>
+
+  <!-- Log -->
+  <div class="card">
+    <h2>Журнал</h2>
+    <div id="log" class="log"></div>
+  </div>
+</div>
+
+<script>
+let app, db, auth, currentUser, isAdmin=false;
+
+// ===== Helpers =====
+const logEl = document.getElementById('log');
+function logLine(html){ logEl.innerHTML += html + "\n"; logEl.scrollTop = logEl.scrollHeight; }
+function setText(id, t){ const el=document.getElementById(id); if(el) el.textContent=t; }
+function show(id, v){ const el=document.getElementById(id); if(el) el.style.display = v ? 'block':'none'; }
+
+function normalizeRaw(s){
+  if(!s) return "";
+  let x = s.trim().toUpperCase();
+  x = x.replace(/[\s/_\\-]+/g, ""); // прибрати роздільники і пробіли
+  // (опц.) латиниця -> кирилиця для схожих символів
+  const map = { A:"А", B:"В", C:"С", E:"Е", H:"Н", I:"І", K:"К", M:"М", O:"О", P:"Р", T:"Т", X:"Х", Y:"У" };
+  x = x.replace(/[ABCEHIKMOPTXY]/g, ch => map[ch] || ch);
+  return x.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+}
+function makeKey(ent, dep, name){
+  return `${normalizeRaw(ent)}::${normalizeRaw(dep)}::${normalizeRaw(name)}`;
+}
+
+function headerMap(h){
+  const m = (h||"").trim().toLowerCase();
+  if (["підприємство","pidpryiemstvo"].includes(m)) return "Підприємство";
+  if (["підрозділ","pidrozdil"].includes(m)) return "Підрозділ";
+  if (["назва","name","posiv","посів","посiв"].includes(m)) return "Назва";
+  if (["код цб","код","code","cb","цб","код_цб","kod cb","kod"].includes(m)) return "КОД ЦБ";
+  if (["рік коду","рiк коду","year","рік","rik"].includes(m)) return "Рік коду";
+  return h; // залишаємо як є
+}
+
+// download helpers
+function downloadText(filename, text){
+  const a=document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([text], {type:'text/csv;charset=utf-8;'}));
+  a.download = filename; a.click(); URL.revokeObjectURL(a.href);
+}
+
+// ===== Firebase Init (reuse existing app or window.firebaseConfig) =====
+function tryAutoInit(){
+  try{
+    if (firebase.apps && firebase.apps.length){
+      app = firebase.app();
+      db = firebase.firestore();
+      auth = firebase.auth();
+      setText('appState','Ініціалізовано (reuse)');
+      show('initCard', false);
+      logLine('<span class="ok">✓ Firebase: використано вже ініціалізований застосунок</span>');
+      return true;
+    }
+    if (window.firebaseConfig){
+      app = firebase.initializeApp(window.firebaseConfig);
+      db = firebase.firestore();
+      auth = firebase.auth();
+      setText('appState','Ініціалізовано (config.js)');
+      show('initCard', false);
+      logLine('<span class="ok">✓ Firebase: ініціалізовано з window.firebaseConfig</span>');
+      return true;
+    }
+  }catch(e){
+    logLine('<span class="err">✗ Помилка автo-ініціалізації: '+e.message+'</span>');
+  }
+  setText('appState','Не ініціалізовано');
+  return false;
+}
+
+document.getElementById('btnInit').onclick = () => {
+  try{
+    const cfg = {
+      apiKey: document.getElementById('apiKey').value.trim(),
+      authDomain: document.getElementById('authDomain').value.trim(),
+      projectId: document.getElementById('projectId').value.trim(),
+      appId: document.getElementById('appId').value.trim(),
+      storageBucket: document.getElementById('storageBucket').value.trim() || undefined,
+      messagingSenderId: document.getElementById('messagingSenderId').value.trim() || undefined,
+    };
+    app = firebase.initializeApp(cfg);
+    db = firebase.firestore();
+    auth = firebase.auth();
+    setText('appState','Ініціалізовано (ручний ввід)');
+    show('initCard', false);
+    logLine('<span class="ok">✓ Firebase: ініціалізовано вручну</span>');
+  }catch(e){
+    logLine('<span class="err">✗ Помилка ініціалізації: '+e.message+'</span>');
+  }
+};
+
+tryAutoInit();
+
+// ===== Auth =====
+document.getElementById('btnLogin').onclick = async () => {
+  try{
+    await auth.signInWithEmailAndPassword(
+      document.getElementById('email').value.trim(),
+      document.getElementById('password').value
+    );
+  }catch(e){ logLine('<span class="err">✗ Вхід: '+e.message+'</span>'); }
+};
+document.getElementById('btnLogout').onclick = async () => {
+  await auth.signOut();
+};
+
+function updateAuthUI(u){
+  setText('authState', u ? 'Увійшли' : 'Не автентифіковано');
+  document.getElementById('btnImport').disabled = !(u && db && isAdmin);
+  document.getElementById('userInfo').textContent = u ? (u.email||'') : '';
+}
+async function refreshRole(u){
+  isAdmin = false;
+  setText('roleState','Роль: —');
+  if(!u) return;
+
+  try{
+    const tok = await u.getIdTokenResult(true);
+    const role = tok.claims?.role || tok.claims?.roles?.[0] || null;
+    // опц: whitelist імейлів
+    const allowedEmails = []; // ['boss@company.com']
+    isAdmin = role === 'admin' || allowedEmails.includes(u.email);
+    setText('roleState', 'Роль: ' + (isAdmin ? 'admin' : (role||'немає')));
+    if(!isAdmin){
+      logLine('<span class="warn">! Попередження: у вас немає ролі admin — запис буде недоступний (dryRun доступний).</span>');
+    }
+  }catch(e){
+    logLine('<span class="warn">! Не вдалося отримати claims: '+e.message+'</span>');
+  }
+}
+auth && auth.onAuthStateChanged(async (u)=>{
+  currentUser = u || null;
+  await refreshRole(currentUser);
+  updateAuthUI(currentUser);
+});
+
+// ===== Template / Example download =====
+document.getElementById('btnTemplate').onclick = ()=>{
+  const headers = 'Підприємство;Підрозділ;Назва;КОД ЦБ;Рік коду\n';
+  downloadText('Довідник_посівів_ШАБЛОН.csv', headers);
+};
+document.getElementById('btnExample').onclick = ()=>{
+  const csv = [
+    'Підприємство;Підрозділ;Назва;КОД ЦБ;Рік коду',
+    'ТОВ «АгроХолдинг»;Митків;Митків 001/00;ЦБ10162836;2025',
+    'ТОВ «АгроХолдинг»;Митків;Митків 001/01;ЦБ30009927;2025',
+    'ТОВ «АгроХолдинг»;Митків;Митків 001/00;ЦБ50001234;2026'
+  ].join('\n');
+  downloadText('Довідник_посівів_ПРИКЛАД.csv', csv);
+};
+
+// ===== Import =====
+document.getElementById('btnImport').onclick = ()=>{
+  if(!db){ logLine('<span class="err">✗ Firestore не ініціалізовано</span>'); return; }
+  const file = document.getElementById('file').files[0];
+  if(!file){ logLine('<span class="warn">! Оберіть CSV файл</span>'); return; }
+
+  const dry = document.getElementById('dryRun').checked;
+  logLine(`<b>Читаю CSV...</b> (dryRun=${dry})`);
+
+  Papa.parse(file, {
+    header: true,
+    delimiter: ";",
+    transformHeader: (h)=>headerMap(h),
+    skipEmptyLines: true,
+    complete: async (res)=>{
+      const rows = res.data;
+      logLine(`<b>Знайдено рядків:</b> ${rows.length}`);
+      await processRows(rows, dry);
+    },
+    error: (err)=> logLine(`<span class="err">✗ Помилка парсингу CSV: ${err.message}</span>`)
+  });
+};
+
+async function processRows(rows, dry){
+  let upsert=0, skip=0, conflict=0, errors=0;
+  const required = ["Підприємство","Підрозділ","Назва","КОД ЦБ","Рік коду"];
+
+  // батчі: максимум ~200 пар операцій (2 записи на рядок)
+  let batch = db.batch(), ops=0;
+
+  async function commitBatch(){
+    if(ops===0 || dry) return;
+    await batch.commit();
+    batch = db.batch(); ops=0;
+  }
+
+  for(let i=0;i<rows.length;i++){
+    const r = rows[i];
+    try{
+      // валідація колонок
+      for(const k of required){ if(!(k in r)){ throw new Error(`Немає колонки "${k}"`); } }
+
+      const ent  = (r["Підприємство"]||"").trim();
+      const dep  = (r["Підрозділ"]||"").trim();
+      const name = (r["Назва"]||"").trim();
+      const code = (r["КОД ЦБ"]||"").trim();
+      const year = Number((r["Рік коду"]||"").toString().trim());
+
+      if(!ent||!dep||!name||!code||!year){ throw new Error('Пропущені обов’язкові поля'); }
+
+      const key = makeKey(ent,dep,name);
+      const docRef    = db.collection('codes').doc(String(year)).collection('sowings').doc(key);
+      const byCodeRef = db.collection('codes_by_code').doc(String(year)).collection('codes').doc(code);
+
+      // унікальність коду у межах року
+      const byCodeSnap = await byCodeRef.get();
+      if(byCodeSnap.exists && byCodeSnap.data().sowing_key !== key){
+        conflict++; logLine(`<span class="err">✗ [${i+1}] Конфлікт: код ${code} вже прив'язаний до іншого посіву (${byCodeSnap.data().sowing_key})</span>`);
+        continue;
+      }
+
+      const snap = await docRef.get();
+      if(snap.exists){
+        const cur = snap.data();
+        if(cur.code === code){
+          skip++; logLine(`<span class="muted">• [${i+1}] Skip: вже є ${name} → ${code} (${year})</span>`);
+        }else{
+          upsert++; logLine(`<span class="ok">✓ [${i+1}] Update: ${name} (${year}) код ${cur.code} → ${code}</span>`);
+          if(!dry){
+            batch.set(docRef, {
+              code, display_name:name, enterprise:ent, department:dep, updated_at: Date.now()
+            }, { merge:true }); ops++;
+            batch.set(byCodeRef, { sowing_key:key }, { merge:true }); ops++;
+            if(ops >= 400){ await commitBatch(); }
+          }
+        }
+      }else{
+        upsert++; logLine(`<span class="ok">✓ [${i+1}] Insert: ${name} (${year}) → ${code}</span>`);
+        if(!dry){
+          batch.set(docRef, {
+            code, display_name:name, enterprise:ent, department:dep, updated_at: Date.now()
+          }, { merge:false }); ops++;
+          batch.set(byCodeRef, { sowing_key:key }, { merge:false }); ops++;
+          if(ops >= 400){ await commitBatch(); }
+        }
+      }
+    }catch(e){
+      errors++; logLine(`<span class="err">✗ [${i+1}] ${e.message}</span>`);
+    }
+  }
+  await commitBatch();
+  logLine(`<hr><b>Підсумок:</b> Insert/Update: ${upsert} • Skip: ${skip} • Conflict: ${conflict} • Errors: ${errors}`);
+}
+</script>
+</body>
+</html>
