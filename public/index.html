@@ -1362,3 +1362,1649 @@ document.getElementById('routePurpose').addEventListener('change', updateRouteNa
 </script>
 </body>
 </html>
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>🚚Маршрути Mapbox</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+  <script src="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.js"></script>
+  <link href="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.css" rel="stylesheet" />
+
+  <!-- Firebase (compat) -->
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+
+  <style>
+  :root { --nav-h:56px; --nav-real:56px; --card:#fff; --line:#e5e7eb; --muted:#6b7280; }
+
+  /* base */
+  *{box-sizing:border-box}
+  body{margin:0;padding:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+
+  /* top bar */
+  header.topbar{
+    position:sticky; top:0; z-index:5000; min-height:var(--nav-h);
+    display:flex; align-items:center; justify-content:space-between; gap:10px; padding:8px;
+    background:#2563eb; color:#fff;
+  }
+  header.topbar a{ color:#fff; text-decoration:none; margin-right:12px; white-space:nowrap; }
+  header .left, header .right{ display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+  header .spacer{ flex:1 1 auto; }
+
+  /* auth bar */
+  #authBar{ display:flex; align-items:center; gap:6px; flex-wrap:wrap; }
+  #authBar input{
+    height:34px; padding:6px 10px; border-radius:8px; border:1px solid rgba(255,255,255,.35);
+    background:rgba(255,255,255,.15); color:#fff; outline:none; width:180px;
+  }
+  #authBar input::placeholder{ color:rgba(255,255,255,.85) }
+  #authBar input[type="password"]{ width:120px }
+  #authBar .chip{
+    font-size:12px; background:rgba(255,255,255,.15); border:1px solid rgba(255,255,255,.3);
+    border-radius:999px; padding:4px 10px; white-space:nowrap;
+  }
+  #authBar .btn{
+    height:34px; padding:0 12px; border-radius:8px; border:1px solid rgba(255,255,255,.35);
+    background:#fff; color:#111; cursor:pointer; touch-action:manipulation;
+  }
+
+  /* mobile auth toggle */
+  #mobileAuthToggle{ display:none; }
+  @media (max-width: 640px){
+    #mobileAuthToggle{
+      display:inline-flex; align-items:center; justify-content:center;
+      height:34px; padding:0 10px; border-radius:8px; border:1px solid rgba(255,255,255,.35);
+      background:#fff; color:#111; cursor:pointer;
+    }
+    #authBar.collapsed input,
+    #authBar.collapsed #authLogin,
+    #authBar.collapsed #authLogout{ display:none !important; }
+  }
+
+  /* map */
+  #map{position:absolute; top:var(--nav-real); bottom:0; width:100%}
+
+  /* side panel */
+  #controls{
+    position:absolute; z-index:3000; top:calc(var(--nav-real) + 8px); left:8px;
+    background:var(--card); border:1px solid var(--line); border-radius:12px;
+    box-shadow:0 1px 8px rgba(0,0,0,.12); padding:12px;
+    max-width:380px; max-height:90vh; overflow-y:auto; overflow-x:hidden;
+  }
+  .controls-hidden #controls{ display:none }
+
+  #controls .row>*{min-width:0}
+  #controls input[type=text], #controls select, #controls textarea{
+    width:100%; max-width:100%; padding:9px 11px; font-size:14px;
+    border:1px solid var(--line); border-radius:10px; outline:none;
+  }
+  #controls textarea{min-height:48px; resize:vertical}
+  label{display:block;font-size:13px;color:#444;margin:2px 0 6px}
+  small.muted{color:#6b7280}
+  .row{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  @media(max-width:420px){ .row{grid-template-columns:1fr} }
+
+  .btn{
+    cursor:pointer;border:1px solid var(--line);background:#fff;border-radius:10px;
+    padding:8px 12px;font-size:14px; line-height:1.2; touch-action:manipulation;
+  }
+  .btn.xs{ padding:8px 12px; font-size:14px }
+  .btn.active{background:#e6f4ea;border-color:#22c55e}
+
+  .panel-head{display:grid;gap:10px;margin-bottom:8px}
+  .segment{display:flex;gap:6px;flex-wrap:wrap}
+  .btn-row{display:flex;gap:6px;flex-wrap:wrap}
+
+  @media (max-width: 640px){
+    #controls{ left:8px; right:8px; max-width:unset; width:auto; }
+    .segment, .btn-row{ display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+    .btn, .btn.xs{ min-height:44px; font-size:15px; padding:10px 12px; }
+    .km-chip{ font-size:13px; padding:6px 10px; }
+  }
+
+  .km-chip{margin-top:2px;font-size:12.5px;color:#111;background:#f3f4f6;
+           border:1px solid var(--line);border-radius:999px;display:inline-block;
+           padding:4px 10px;width:max-content}
+
+  .section{border-top:1px dashed var(--line);padding-top:8px;margin-top:8px}
+  details>summary{cursor:pointer;font-weight:700;margin:4px 0}
+  #dbControls{margin-top:10px;padding-top:10px;border-top:1px dashed var(--line)}
+  #dbControls input,#dbControls select{margin:5px 0}
+
+  #contextMenu{position:absolute;background:#fff;border:1px solid #ccc;display:none;z-index:3500;
+               box-shadow:0 2px 6px rgba(0,0,0,.15)}
+  #contextMenu div{padding:6px 10px;cursor:pointer}
+  #contextMenu div:hover{background:#f3f4f6}
+
+  .modal{position:fixed; inset:0; background:rgba(0,0,0,.35); display:none; align-items:center; justify-content:center; z-index:4000}
+  .modal.show{display:flex}
+  .modal-box{background:#fff; border:1px solid var(--line); border-radius:12px; padding:14px; width:min(440px,92vw); box-shadow:0 10px 30px rgba(0,0,0,.2)}
+  .modal-title{font-weight:700; margin-bottom:6px}
+  .modal-body{color:#374151; font-size:14px; margin-bottom:10px; white-space:pre-line}
+  .modal-actions{display:flex; gap:8px; flex-wrap:wrap; justify-content:flex-end}
+  .modal-actions .btn{min-width:140px}
+
+  .mapboxgl-canvas{z-index:0!important}
+  .mapboxgl-control-container{z-index:1!important}
+  .mapboxgl-marker{z-index:2!important}
+
+  #logistsMsg{display:none;font-size:12px;color:#b91c1c;margin-top:4px}
+  </style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="left">
+    <button id="panelToggle" class="btn xs" title="Сховати/показати панель">◀ Сховати</button>
+    <a href="/">🏠 Карта</a>
+    <a href="/export/">📤 Експорт</a>
+    <a href="/import/">📥 Імпорт</a>
+  </div>
+
+  <div class="spacer"></div>
+
+  <div id="authBar" class="right collapsed">
+    <span id="authHello" class="chip">Гість</span>
+    <span id="roleChip" class="chip">Роль: –</span>
+
+    <input id="authEmail" type="text" placeholder="email (наприкл. user@demo.fake)" autocomplete="username">
+    <input id="authPass"  type="password" placeholder="пароль" autocomplete="current-password">
+    <button id="authLogin"  class="btn">Увійти</button>
+    <button id="authLogout" class="btn" style="display:none">Вийти</button>
+  </div>
+
+  <button id="mobileAuthToggle" class="btn" title="Показати/сховати вхід">🔐 Вхід</button>
+</header>
+
+<div id="controls">
+  <div class="panel-head">
+    <div class="segment">
+      <button id="toggleAdd" class="btn xs">Маршрут</button>
+      <button id="startLineMode" class="btn xs" title="Додавати точки початкової лінійки">Лінійка(поч.)</button>
+      <button id="endLineMode" class="btn xs" title="Додавати точки кінцевої лінійки">Лінійка(кін.)</button>
+    </div>
+
+    <div class="btn-row">
+      <button id="clearRoute" class="btn xs">Очист. марш.</button>
+      <button id="popRulerPoint" class="btn xs" title="Видалити останню точку активної лінійки">← Остання точка (лін.)</button>
+      <button id="clearRulers" class="btn xs" title="Очистити активну лінійку, або обидві якщо режим лінійки вимкнено">Очист. лін.</button>
+      <button id="toggleMarkers" class="btn xs">📍 Точки</button>
+    </div>
+
+    <div class="btn-row">
+      <button id="saveRoute" class="btn xs">💾 Route JSON</button>
+      <button id="loadRoute" class="btn xs">📂 Завантажити</button>
+      <input type="file" id="fileInput" accept=".json" style="display:none;">
+    </div>
+
+    <div class="km-chip">км: <span id="distance">0</span></div>
+    <div class="km-chip">
+      точки: <span id="countRoute">0</span> •
+      лін(поч): <span id="countStart">0</span> •
+      лін(кін): <span id="countEnd">0</span> •
+      всього: <span id="countTotal">0</span>
+    </div>
+  </div>
+
+  <hr/>
+  <div class="row">
+    <div>
+      <label>Від</label>
+      <input id="fromName" type="text" placeholder="Почни вводити назву..." list="directoryList" autocomplete="off">
+    </div>
+    <div>
+      <label>До</label>
+      <input id="toName" type="text" placeholder="Почни вводити назву..." list="directoryList" autocomplete="off">
+    </div>
+  </div>
+  <datalist id="directoryList"></datalist>
+
+  <div class="row" style="margin-top:6px;">
+    <div>
+      <label>Тип маршруту</label>
+      <select id="routeType">
+        <option value="Основний">Основний</option>
+        <option value="Альтернативний1">Альтернативний1</option>
+        <option value="Альтернативний2">Альтернативний2</option>
+      </select>
+    </div>
+    <div>
+      <label>Призначення</label>
+      <select id="routePurpose">
+        <option value="Зерно" selected>Зерно</option>
+        <option value="ОД">ОД</option>
+        <option value="ТМЦ">ТМЦ</option>
+      </select>
+    </div>
+    <div style="grid-column:1 / -1">
+      <label>Проміжні пункти</label>
+      <input id="intermediateText" type="text" placeholder="Напр.: Немирів; Гайсин; Тульчин">
+    </div>
+  </div>
+
+  <!-- ЛОГІСТ -->
+  <div class="row" style="margin-top:6px;">
+    <div style="grid-column:1 / -1">
+      <label>Логіст (хто створює)</label>
+      <input id="logistInput" type="text" placeholder="Почни вводити прізвище..." list="logistsList" autocomplete="off">
+      <datalist id="logistsList"></datalist>
+      <small class="muted">Список береться з колекції <b>logists</b> (активні). Обери себе зі списку.</small>
+      <div id="logistsMsg"></div>
+    </div>
+  </div>
+
+  <small class="muted">У БД зберігаються ключі місць (fromKey/toKey). Коди кешуються для вибраного року.</small>
+
+  <details>
+    <summary><b>Стиль карти</b></summary>
+    <div id="styleSelector" style="margin-top:10px;">
+      <label for="mapStyle">Стиль карти:</label>
+      <select id="mapStyle">
+        <option value="mapbox://styles/mapbox/streets-v12">Streets</option>
+        <option value="mapbox://styles/mapbox/satellite-v9">Satellite</option>
+        <option value="mapbox://styles/mapbox/satellite-streets-v12">Satellite Streets</option>
+        <option value="mapbox://styles/mapbox/outdoors-v12">Outdoors</option>
+        <option value="mapbox://styles/mapbox/light-v11">Light</option>
+        <option value="mapbox://styles/mapbox/dark-v11">Dark</option>
+        <option value="mapbox://styles/mapbox/navigation-day-v1">Navigation Day</option>
+        <option value="mapbox://styles/mapbox/navigation-night-v1">Navigation Night</option>
+        <option value="mapbox://styles/tkchk/cmdzvf97b00vq01qscpgsf1jt">map</option>
+      </select>
+    </div>
+  </details>
+
+  <div id="dirControls" class="section">
+    <!-- перемикач року довідника -->
+    <div class="row" style="margin-bottom:6px;">
+      <div style="grid-column:1 / -1">
+        <label>Рік довідника</label>
+        <div class="segment">
+          <select id="yearSelect" style="min-width:140px"></select>
+          <span class="chip" id="activeYearChip">Активний: –</span>
+        </div>
+        <small class="muted">Коди беруться з колекції <b>codes/{рік}/sowings</b>. «Авто» підбирає найновіший рік з даними.</small>
+      </div>
+    </div>
+
+    <div class="btn-row">
+      <button id="refreshDirectory" class="btn xs">🔄 Оновити довідник</button>
+      <button id="clearDirCache" class="btn xs">🧹 Очистити кеш</button>
+    </div>
+
+    <div class="btn-row" style="margin-top:6px;">
+      <button id="refreshLogists" class="btn xs">🔄 Оновити логістів</button>
+      <button id="clearLogistsCache" class="btn xs">🧹 Кеш логістів</button>
+    </div>
+    <small class="muted">Дані логістів оновлюються з Firestore. Адмін змінює їх у колекції <b>logists</b>.</small>
+  </div>
+
+  <div id="dbControls">
+    <div><strong>База (Firestore)</strong></div>
+    <input id="routeName" type="text" placeholder="Назва маршруту (згенерується автоматично, можна змінити)" />
+    <button id="saveToDB" class="btn">💾 Зберегти в БД</button>
+    <br/>
+    <input id="routeSearch" type="text" placeholder="🔎 Пошук маршруту..." list="routesList" autocomplete="off" />
+    <datalist id="routesList"></datalist>
+    <select id="remoteRoutes" style="min-width:260px">
+      <option value="">— вибери маршрут з БД —</option>
+    </select>
+    <div class="btn-row" style="margin-top:6px;">
+      <button id="refreshList" class="btn">🔄 Оновити список</button>
+      <button id="loadFromDB" class="btn">⬇️ Завантажити з БД</button>
+      <button id="deleteFromDB" class="btn">🗑 Видалити з БД</button>
+      <button id="clearForm" class="btn">🧹 Очистити форму</button>
+      <!-- нова кнопка копії -->
+      <button id="copyToYear" class="btn">🔁 Копія в інший рік</button>
+    </div>
+  </div>
+</div>
+
+<div id="map"></div>
+
+<div id="contextMenu">
+  <div id="insertAfter">➕Вставити після</div>
+  <div id="deletePoint">❌Видалити точку</div>
+</div>
+
+<div id="dupModal" class="modal" aria-hidden="true">
+  <div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="dupTitle">
+    <div id="dupTitle" class="modal-title">Маршрут вже існує</div>
+    <div class="modal-body">
+      <div id="dupText"></div>
+    </div>
+    <div class="modal-actions">
+      <button id="dupOverwrite" class="btn">Ок — Перезаписати</button>
+      <button id="dupCopy" class="btn">Зберегти копію</button>
+      <button id="dupCancel" class="btn">Скасувати</button>
+    </div>
+  </div>
+</div>
+
+<!-- ⬇️⬇️⬇️ AUTH GUARD: редірект неавторизованих на /login -->
+<script>
+(function(){
+  // сховаємо сторінку, щоб не миготіла незалогінена
+  document.documentElement.style.visibility = 'hidden';
+
+  const firebaseConfig = {
+    apiKey: "AIzaSyDjDBZkmy-skuDEQF8-AkRma7yw6TugoQc",
+    authDomain: "my-map-app-58312.firebaseapp.com",
+    projectId: "my-map-app-58312",
+    storageBucket: "my-map-app-58312.firebasestorage.app",
+    messagingSenderId: "53260611353",
+    appId: "1:53260611353:web:f25e120996ad8305405f88",
+    measurementId: "G-9LRX1FLTKL"
+  };
+
+  try { firebase.apps?.length ? firebase.app() : firebase.initializeApp(firebaseConfig); } catch(e) {}
+
+  const auth = firebase.auth();
+  const loginURL = '/login?next=' + encodeURIComponent(location.pathname + location.search);
+
+  auth.onAuthStateChanged(u => {
+    if (!u) { location.replace(loginURL); return; }
+    document.documentElement.style.visibility = '';
+  });
+})();
+</script>
+<!-- ⬆️⬆️⬆️ AUTH GUARD -->
+
+<script>
+/* ===================== Mapbox init ===================== */
+mapboxgl.accessToken = 'pk.eyJ1IjoidGtjaGsiLCJhIjoiY21keTN0bXVlMjN6djJrczZ2NDk5bXRoMiJ9.6n1kuiUJ3EdGUpz5I6-wdg';
+let currentStyle = 'mapbox://styles/mapbox/streets-v12';
+const map = new mapboxgl.Map({ container: 'map', style: currentStyle, center: [30.5238, 50.4547], zoom: 10 });
+
+/* === Динамічна висота шапки === */
+const topbarEl = document.querySelector('header.topbar');
+function updateLayoutHeights(){
+  const h = (topbarEl?.offsetHeight || 56);
+  document.documentElement.style.setProperty('--nav-real', h + 'px');
+  try { map.resize(); } catch(_) {}
+}
+window.addEventListener('resize', updateLayoutHeights);
+updateLayoutHeights();
+
+/* === Українські підписи === */
+function applyUkrainianLabels(){
+  const style = map.getStyle();
+  if (!style || !style.layers) return;
+  const ukTextExpr = [
+    'coalesce',['get','name_uk'],['get','name:uk'],['get','name_ua'],['get','name:ua'],['get','name_local'],['get','name']
+  ];
+  style.layers.forEach(l => {
+    if (l.type === 'symbol') {
+      const hasTextField = map.getLayoutProperty(l.id, 'text-field') !== undefined;
+      if (hasTextField) { try { map.setLayoutProperty(l.id, 'text-field', ukTextExpr); } catch(_) {} }
+    }
+  });
+}
+
+let addMode = false, startLineMode = false, endLineMode = false;
+let insertAfterMode = false;
+let points = [], markers = [], startRuler = [], endRuler = [], rulerLines = [], routeLayers = [];
+let selectedMarkerIndex = null;
+
+let activeRuler = null; let lastActiveRuler = null;
+function setActiveRuler(which){ activeRuler = which; if (which) lastActiveRuler = which; }
+
+/* ====== Roles ====== */
+let currentRole = 'guest';
+let readOnly    = true;
+
+function applyRoleUI(role){
+  currentRole = role || 'guest';
+  readOnly = (currentRole === 'guest' || currentRole === 'user');
+
+  const disableIds = [
+    'toggleAdd','startLineMode','endLineMode','clearRoute','popRulerPoint','clearRulers',
+    'saveRoute','loadRoute','saveToDB','deleteFromDB','routeName',
+    'fromName','toName','routeType','routePurpose','intermediateText','copyToYear'
+  ];
+  disableIds.forEach(id=>{
+    const el = document.getElementById(id);
+    if(!el) return;
+    if (el.tagName === 'INPUT' || el.tagName === 'SELECT' || el.tagName === 'TEXTAREA') {
+      el.disabled = readOnly;
+    } else {
+      el.disabled = readOnly;
+      el.classList.toggle('muted', readOnly);
+    }
+  });
+
+  document.getElementById('loadFromDB').disabled = false;
+  document.getElementById('refreshList').disabled = false;
+  document.getElementById('remoteRoutes').disabled = false;
+  document.getElementById('routeSearch').disabled = false;
+
+  document.getElementById('roleChip').textContent = 'Роль: ' + (currentRole || '–');
+}
+
+/* ===== Context menu ===== */
+const contextMenu = document.getElementById('contextMenu');
+const insertAfterBtn = document.getElementById('insertAfter');
+const deletePointBtn = document.getElementById('deletePoint');
+
+insertAfterBtn.onclick = (e) => {
+  e.preventDefault(); e.stopPropagation();
+  if (readOnly) { contextMenu.style.display='none'; return; }
+  if (selectedMarkerIndex !== null) insertAfterMode = true;
+  contextMenu.style.display = 'none';
+};
+deletePointBtn.onclick = (e) => {
+  e.preventDefault(); e.stopPropagation();
+  if (readOnly) { contextMenu.style.display='none'; return; }
+  if (selectedMarkerIndex !== null) {
+    points.splice(selectedMarkerIndex, 1);
+    rebuildMarkers();
+  }
+  contextMenu.style.display = 'none';
+  selectedMarkerIndex = null;
+};
+document.addEventListener('click', () => { contextMenu.style.display = 'none'; });
+
+map.on('style.load', () => { applyUkrainianLabels(); updateRoute(); drawRulers(); });
+document.getElementById('mapStyle').addEventListener('change', function() {
+  currentStyle = this.value; map.setStyle(currentStyle);
+});
+
+/* ===== Buttons state ===== */
+function toggleButton(id, flag) {
+  const btn = document.getElementById(id);
+  btn.textContent = btn.textContent.split(':')[0] + `: ${flag ? 'УВІМКНЕНО.' : 'ВИМКНЕНО.'}`;
+  if (flag) btn.classList.add('active'); else btn.classList.remove('active');
+}
+
+document.getElementById('toggleAdd').onclick = () => {
+  if (readOnly) return;
+  addMode = !addMode; startLineMode = false; endLineMode = false; insertAfterMode = false;
+  setActiveRuler(null);
+  toggleButton('toggleAdd', addMode); toggleButton('startLineMode', false); toggleButton('endLineMode', false);
+};
+document.getElementById('startLineMode').onclick = () => {
+  if (readOnly) return;
+  startLineMode = !startLineMode; endLineMode = false; addMode = false; insertAfterMode = false;
+  setActiveRuler(startLineMode ? 'start' : null);
+  toggleButton('startLineMode', startLineMode); toggleButton('endLineMode', false); toggleButton('toggleAdd', false);
+};
+document.getElementById('endLineMode').onclick = () => {
+  if (readOnly) return;
+  endLineMode = !endLineMode; startLineMode = false; addMode = false; insertAfterMode = false;
+  setActiveRuler(endLineMode ? 'end' : null);
+  toggleButton('endLineMode', endLineMode); toggleButton('startLineMode', false); toggleButton('toggleAdd', false);
+};
+
+document.getElementById('popRulerPoint').onclick = () => {
+  if (readOnly) return;
+  const choose = () => activeRuler || lastActiveRuler || (startRuler.length >= endRuler.length ? 'start' : 'end');
+  let target = choose();
+  if (target === 'start' && startRuler.length === 0 && endRuler.length > 0) target = 'end';
+  if (target === 'end' && endRuler.length === 0 && startRuler.length > 0) target = 'start';
+  let did = false;
+  if (target === 'start' && startRuler.length) { startRuler.pop(); did = true; }
+  if (target === 'end' && endRuler.length) { endRuler.pop(); did = true; }
+  if (did){ drawRulers(); updateRoute(); }
+};
+
+document.getElementById('clearRulers').onclick = () => {
+  if (readOnly) return;
+  if (activeRuler === 'start') { startRuler = []; }
+  else if (activeRuler === 'end') { endRuler = []; }
+  else {
+    if (!startRuler.length && !endRuler.length) return;
+    if (!confirm('Очистити обидві лінійки?')) return;
+    startRuler = []; endRuler = [];
+  }
+  drawRulers(); updateRoute();
+};
+
+document.getElementById('clearRoute').onclick = () => {
+  if (readOnly) return;
+  points = []; markers.forEach(m => m.remove()); markers = [];
+  clearRouteLayers(); updateRoute();
+};
+
+/* ===== Map click ===== */
+map.on('click', (e) => {
+  const lngLat = [e.lngLat.lng, e.lngLat.lat];
+  contextMenu.style.display = 'none';
+  if (readOnly) return;
+
+  if (insertAfterMode && selectedMarkerIndex !== null) {
+    points.splice(selectedMarkerIndex + 1, 0, lngLat);
+    insertAfterMode = false; rebuildMarkers(); return;
+  }
+  if (startLineMode) { startRuler.push(lngLat); setActiveRuler('start'); drawRulers(); updateRoute(); return; }
+  if (endLineMode)   { endRuler.push(lngLat); setActiveRuler('end');   drawRulers(); updateRoute(); return; }
+  if (addMode)       { points.push(lngLat); addMarker(lngLat); updateRoute(); }
+});
+
+function addMarker(lngLat, index = points.length - 1) {
+  const marker = new mapboxgl.Marker({ draggable: !readOnly }).setLngLat(lngLat).addTo(map);
+  marker.getElement().addEventListener('contextmenu', (e) => {
+    e.preventDefault(); e.stopPropagation();
+    if (readOnly) return;
+    selectedMarkerIndex = index;
+    contextMenu.style.left = e.pageX + 'px';
+    contextMenu.style.top  = e.pageY + 'px';
+    contextMenu.style.display = 'block';
+  });
+  marker.on('dragend', () => {
+    if (readOnly) return;
+    const ll = marker.getLngLat();
+    points[index] = [ll.lng, ll.lat];
+    updateRoute();
+  });
+  markers.push(marker);
+}
+
+function rebuildMarkers() {
+  markers.forEach(m => m.remove()); markers = [];
+  points.forEach((pt, idx) => addMarker(pt, idx));
+  selectedMarkerIndex = null; insertAfterMode = false; contextMenu.style.display = 'none';
+  updateRoute();
+}
+
+let markersVisible = true;
+document.getElementById('toggleMarkers').onclick = () => {
+  markersVisible = !markersVisible;
+  markers.forEach(m => m.getElement().style.display = markersVisible ? 'block' : 'none');
+  document.getElementById('toggleMarkers').textContent = markersVisible ? '📍 Приховати точки' : '📍 Показати точки';
+};
+
+/* ===== Rulers (draw + distance) ===== */
+function drawRulers() {
+  rulerLines.forEach(id => { if (map.getLayer(id)) map.removeLayer(id); if (map.getSource(id)) map.removeSource(id); });
+  rulerLines = [];
+  drawRulerSegment(startRuler, 'start', '#0066ff');
+  drawRulerSegment(endRuler, 'end', '#33cc33');
+}
+function drawRulerSegment(ruler, prefix, color) {
+  for (let i = 0; i < ruler.length - 1; i++) {
+    const lineId = `${prefix}-ruler-${i}`;
+    const geojson = { type: 'Feature', geometry: { type: 'LineString', coordinates: [ruler[i], ruler[i + 1]] } };
+    map.addSource(lineId, { type: 'geojson', data: geojson });
+    map.addLayer({ id: lineId, type: 'line', source: lineId,
+      layout: { 'line-join': 'round', 'line-cap': 'round' },
+      paint: { 'line-color': color, 'line-width': 4, 'line-dasharray': [1, 2] } });
+    rulerLines.push(lineId);
+  }
+}
+
+/* Haversine fallback */
+function haversineKm(a, b){
+  const toRad = d => d * Math.PI / 180;
+  const [lng1, lat1] = a, [lng2, lat2] = b;
+  const R = 6371;
+  const dLat = toRad(lat2 - lat1), dLng = toRad(lng2 - lng1);
+  const s1 = Math.sin(dLat/2), s2 = Math.sin(dLng/2);
+  const h = s1*s1 + Math.cos(toRad(lat1))*Math.cos(toRad(lat2))*s2*s2;
+  return 2 * R * Math.asin(Math.sqrt(h));
+}
+
+function calculateRulerDistance(ruler) {
+  if (!Array.isArray(ruler) || ruler.length < 2) return 0;
+  let dist = 0;
+  if (window.turf && typeof turf.distance === 'function'){
+    for (let i = 0; i < ruler.length - 1; i++) {
+      dist += turf.distance(turf.point(ruler[i]), turf.point(ruler[i + 1]), { units: 'kilometers' });
+    }
+  } else {
+    for (let i = 0; i < ruler.length - 1; i++) { dist += haversineKm(ruler[i], ruler[i + 1]); }
+  }
+  return dist;
+}
+
+/* ===== Лічильники ===== */
+function updateCounters(){
+  const routeCount = points.length;
+  const startCount = startRuler.length;
+  const endCount   = endRuler.length;
+  const total      = routeCount + startCount + endCount;
+  const byId = id => document.getElementById(id);
+  byId('countRoute').textContent = routeCount;
+  byId('countStart').textContent = startCount;
+  byId('countEnd').textContent   = endCount;
+  byId('countTotal').textContent = total;
+}
+
+/* ===== Route rendering ===== */
+function splitIntoChunks(array, chunkSize) {
+  const chunks = [];
+  for (let i = 0; i < array.length - 1; i += chunkSize - 1) {
+    const chunk = array.slice(i, i + chunkSize);
+    if (chunk.length >= 2) chunks.push(chunk);
+  }
+  return chunks;
+}
+
+function clearRouteLayers() {
+  routeLayers.forEach(id => {
+    if (map.getLayer(id)) map.removeLayer(id);
+    if (map.getSource(id)) map.removeSource(id);
+  });
+  routeLayers = [];
+}
+
+async function updateRoute() {
+  if (points.length < 2) {
+    document.getElementById('distance').textContent =
+      (calculateRulerDistance(startRuler) + calculateRulerDistance(endRuler)).toFixed(2);
+    updateCounters(); clearRouteLayers(); return;
+  }
+  const chunks = splitIntoChunks(points, 20);
+  let totalDistance = 0;
+  clearRouteLayers();
+
+  for (let i = 0; i < chunks.length; i++) {
+    const chunk = chunks[i];
+    const coordsStr = chunk.map(p => p.join(',')).join(';');
+    const url = `https://api.mapbox.com/directions/v5/mapbox/driving/${coordsStr}?geometries=geojson&access_token=${mapboxgl.accessToken}`;
+    try {
+      const res = await fetch(url);
+      const data = await res.json();
+      if (data.routes && data.routes[0]) {
+        const route = data.routes[0];
+        totalDistance += route.distance;
+        const layerId = `route-part-${i}`;
+        map.addSource(layerId, { type: 'geojson', data: { type: 'Feature', geometry: route.geometry } });
+        map.addLayer({
+          id: layerId, type: 'line', source: layerId,
+          layout: { 'line-join': 'round', 'line-cap': 'round' },
+          paint: { 'line-color': `hsl(${(i * 60) % 360}, 100%, 50%)`, 'line-width': 5 }
+        });
+        routeLayers.push(layerId);
+      }
+    } catch (e) { console.error('Помилка маршруту:', e); }
+  }
+
+  totalDistance = (totalDistance / 1000) + calculateRulerDistance(startRuler) + calculateRulerDistance(endRuler);
+  document.getElementById('distance').textContent = totalDistance.toFixed(2);
+  updateCounters();
+}
+
+/* turf */
+const turfScript = document.createElement('script');
+turfScript.src = 'https://cdn.jsdelivr.net/npm/@turf/turf@6.5.0/turf.min.js';
+turfScript.onload = () => { updateRoute(); };
+document.head.appendChild(turfScript);
+
+/* ===================== Firebase ===================== */
+const firebaseConfig = {
+  apiKey: "AIzaSyDjDBZkmy-skuDEQF8-AkRma7yw6TugoQc",
+  authDomain: "my-map-app-58312.firebaseapp.com",
+  projectId: "my-map-app-58312",
+  storageBucket: "my-map-app-58312.firebasestorage.app",
+  messagingSenderId: "53260611353",
+  appId: "1:53260611353:web:f25e120996ad8305405f88",
+  measurementId: "G-9LRX1FLTKL"
+};
+
+let db = null, auth = null;
+try {
+  const fbApp = firebase.apps && firebase.apps.length ? firebase.app() : firebase.initializeApp(firebaseConfig);
+  db = firebase.firestore();
+  auth = firebase.auth();
+  console.log('✅ Firebase ініціалізовано:', firebaseConfig.projectId);
+  firebase.firestore().enablePersistence({ synchronizeTabs: true }).catch((e) => {
+    console.warn('Firestore persistence is off:', e.code || e.message);
+  });
+} catch (e) {
+  console.error('❌ Firebase не ініціалізовано:', e);
+}
+
+/* ===================== Directory / helpers / UI ===================== */
+
+// індекси довідника по КЛЮЧУ (стабільний id) та по КОДУ (кеш для відображення)
+const dirByKey  = {};   // key -> { name, enterprise, department, code }
+const keyByName = {};   // "Назва" -> key
+const codeToName = {};  // code -> display_name
+
+const routesLookup = {};
+const logistById = {};
+const logistIdByName = {};
+
+let ACTIVE_CODES_YEAR = null;
+
+/* кеш довідника: окремо на кожен рік */
+const DIR_CACHE_PREFIX = 'sowingsCache.v1.'; // реальний ключ = + рік
+const DIR_CACHE_TTL_MS = 12 * 60 * 60 * 1000;
+
+/* налаштування року (pref) */
+const YEAR_PREF_KEY = 'sowingsYearPref.v1';
+
+const LOGISTS_CACHE_KEY = 'logistsCache.v1';
+const LOGISTS_CACHE_TTL_MS = 12 * 60 * 60 * 1000;
+
+function _norm(s){ return String(s||'').trim().toLowerCase(); }
+
+function readYearPref(){ try { return localStorage.getItem(YEAR_PREF_KEY) || 'auto'; } catch { return 'auto'; } }
+function writeYearPref(v){ try { localStorage.setItem(YEAR_PREF_KEY, v); } catch {} }
+
+function getNameByKey(key){ return (dirByKey[key]?.name) || ''; }
+function getNameByCode(code){ return codeToName[code] || ''; }
+
+function getKeyByInput(inputId){
+  const raw = document.getElementById(inputId).value || '';
+  const name = raw.trim();
+  if (!name) return null;
+  if (keyByName[name]) return keyByName[name];
+  const n = _norm(name);
+  for (const [label, key] of Object.entries(keyByName)){
+    if (_norm(label) === n) return key;
+  }
+  const candidates = Object.entries(keyByName).filter(([label]) => _norm(label).includes(n));
+  if (candidates.length === 1) return candidates[0][1];
+  return null;
+}
+
+function formatRouteTitle(d) {
+  const fromName = d.fromKey ? (dirByKey[d.fromKey]?.name || 'невідомо') :
+                   (d.fromCode ? (getNameByCode(d.fromCode) || d.fromCode) : 'невідомо');
+  const toName   = d.toKey   ? (dirByKey[d.toKey]?.name   || 'невідомо') :
+                   (d.toCode   ? (getNameByCode(d.toCode)   || d.toCode)   : 'невідомо');
+  const type = d.routeType || 'Основний';
+  const parts = [type]; if (d.purpose) parts.push(d.purpose);
+  return `${fromName} → ${toName} [${parts.join(' • ')}]`;
+}
+
+function updateRouteName() {
+  const fromKey = getKeyByInput('fromName');
+  const toKey   = getKeyByInput('toName');
+  const routeType = document.getElementById('routeType').value;
+  const routePurpose = document.getElementById('routePurpose').value;
+  if (!fromKey || !toKey) return;
+
+  const from = dirByKey[fromKey] || {};
+  const to   = dirByKey[toKey] || {};
+  const fromLabel = [from.name, from.department, from.enterprise].filter(Boolean).join(' • ');
+  const toLabel   = [to.name,   to.department,   to.enterprise].filter(Boolean).join(' • ');
+  const parts = [routeType]; if (routePurpose) parts.push(routePurpose);
+  document.getElementById('routeName').value = `${fromLabel} → ${toLabel} [${parts.join(' • ')}]`;
+}
+
+function fillDirectoryUI(rows){
+  const list = document.getElementById('directoryList');
+  list.innerHTML = '';
+  Object.keys(dirByKey).forEach(k => delete dirByKey[k]);
+  Object.keys(keyByName).forEach(k => delete keyByName[k]);
+  Object.keys(codeToName).forEach(k => delete codeToName[k]);
+
+  for (const r of rows){
+    const { key, name, enterprise, department, code } = r;
+    dirByKey[key]  = { name, enterprise, department, code };
+    if (code) codeToName[code] = name;
+    if (!(name in keyByName)) keyByName[name] = key;
+
+    const opt = document.createElement('option');
+    opt.value = name;
+    opt.label = [name, department, enterprise].filter(Boolean).join(' • ');
+    list.appendChild(opt);
+  }
+  updateActiveYearChip();
+}
+
+/* Відображення активного року */
+function updateActiveYearChip(){
+  const chip = document.getElementById('activeYearChip');
+  chip.textContent = 'Активний: ' + (ACTIVE_CODES_YEAR ?? '–');
+}
+
+/* Список доступних років у селекті */
+async function loadAvailableYears(){
+  const yearSel = document.getElementById('yearSelect');
+  yearSel.innerHTML = '';
+
+  const optAuto = document.createElement('option');
+  optAuto.value = 'auto';
+  optAuto.textContent = 'Авто';
+  yearSel.appendChild(optAuto);
+
+  try{
+    const yearsSnap = await db.collection('codes').get();
+    const years = yearsSnap.docs
+      .map(d => parseInt(d.id,10))
+      .filter(n => Number.isFinite(n))
+      .sort((a,b)=>b-a);
+    years.forEach(y=>{
+      const o = document.createElement('option');
+      o.value = String(y);
+      o.textContent = String(y);
+      yearSel.appendChild(o);
+    });
+  }catch(e){
+    console.warn('Не вдалося завантажити список років:', e?.message || e);
+  }
+
+  const pref = readYearPref();
+  if ([...yearSel.options].some(o => o.value === pref)) yearSel.value = pref;
+  else yearSel.value = 'auto';
+
+  yearSel.addEventListener('change', async () => {
+    writeYearPref(yearSel.value);
+    // перезавантажимо довідник під новий рік
+    ACTIVE_CODES_YEAR = null; // нехай loadDirectory визначить (або поставить вибраний)
+    await loadDirectory(true);
+  });
+}
+
+/* Визначення актуального року */
+async function detectActiveYear(){
+  const current = new Date().getFullYear();
+  try{
+    const test = await db.collection('codes').doc(String(current)).collection('sowings').limit(1).get();
+    if (!test.empty) return current;
+  }catch{}
+  try{
+    const yearsSnap = await db.collection('codes').get();
+    const years = yearsSnap.docs
+      .map(d => parseInt(d.id,10))
+      .filter(n => Number.isFinite(n))
+      .sort((a,b)=>b-a);
+    for (const y of years){
+      const test = await db.collection('codes').doc(String(y)).collection('sowings').limit(1).get();
+      if (!test.empty) return y;
+    }
+  }catch{}
+  return current;
+}
+
+/* Завантаження довідника з codes/{YEAR}/sowings */
+async function loadDirectory(force=false){
+  // врахуємо преференцію користувача
+  const pref = readYearPref();
+  if (pref && pref !== 'auto' && Number.isFinite(parseInt(pref,10))) {
+    ACTIVE_CODES_YEAR = parseInt(pref,10);
+  }
+  if (!ACTIVE_CODES_YEAR) ACTIVE_CODES_YEAR = await detectActiveYear();
+
+  const DIR_CACHE_KEY = `${DIR_CACHE_PREFIX}${ACTIVE_CODES_YEAR}`;
+
+  try{
+    if (!force){
+      const raw = localStorage.getItem(DIR_CACHE_KEY);
+      if (raw){
+        const { ts, rows } = JSON.parse(raw);
+        if (Array.isArray(rows) && Date.now() - ts < DIR_CACHE_TTL_MS){
+          fillDirectoryUI(rows); updateRouteName(); refreshRoutesList();
+          console.log(`📒 Directory ${ACTIVE_CODES_YEAR} from cache:`, rows.length);
+          return;
+        }
+      }
+    }
+  }catch{}
+
+  let snap = null;
+  try {
+    snap = await db.collection('codes').doc(String(ACTIVE_CODES_YEAR))
+                   .collection('sowings').get({ source: force ? 'default' : 'cache' });
+  } catch {}
+  if (!snap || snap.empty) {
+    snap = await db.collection('codes').doc(String(ACTIVE_CODES_YEAR)).collection('sowings').get();
+  }
+
+  const rows = [];
+  snap.forEach(doc => {
+    const d = doc.data() || {};
+    rows.push({
+      key: doc.id,
+      name: d.display_name || '',
+      enterprise: d.enterprise || '',
+      department: d.department || '',
+      code: d.code || ''
+    });
+  });
+
+  fillDirectoryUI(rows);
+  updateRouteName();
+  refreshRoutesList();
+
+  try{ localStorage.setItem(DIR_CACHE_KEY, JSON.stringify({ ts: Date.now(), rows })); }catch{}
+  console.log(`📒 Directory loaded ${ACTIVE_CODES_YEAR} from Firestore:`, rows.length, 'force=', force);
+}
+
+/* ---- Logists ---- */
+function fillLogistsUI(rows){
+  const list = document.getElementById('logistsList');
+  list.innerHTML = '';
+  Object.keys(logistById).forEach(k=> delete logistById[k]);
+  Object.keys(logistIdByName).forEach(k=> delete logistIdByName[k]);
+
+  rows.forEach(r=>{
+    logistById[r.id] = r; logistIdByName[r.name] = r.id;
+    const opt = document.createElement('option'); opt.value = r.name; list.appendChild(opt);
+  });
+
+  if (rows.length === 0) { console.warn('👥 Logists: пусто.'); }
+}
+
+async function loadLogists(allowServer=true){
+  const msg = document.getElementById('logistsMsg');
+  const showMsg = (t) => { msg.textContent = t || ''; msg.style.display = t ? 'block' : 'none'; };
+
+  try{
+    const raw = localStorage.getItem(LOGISTS_CACHE_KEY);
+    if(raw){
+      const { ts, rows } = JSON.parse(raw);
+      if (Array.isArray(rows) && Date.now() - ts < LOGISTS_CACHE_TTL_MS){
+        fillLogistsUI(rows); showMsg('');
+        console.log('👥 Logists from cache:', rows.length);
+        return;
+      }
+    }
+    if (!allowServer) { showMsg('Увійдіть, щоб побачити список логістів.'); return; }
+
+    let snap = null;
+    try { snap = await db.collection('logists').get({ source: 'default' }); }
+    catch (e) {
+      if (e && (e.code === 'permission-denied' || /insufficient permissions/i.test(e.message))) {
+        console.warn('permission-denied для logists');
+        showMsg('Увійдіть, щоб побачити список логістів.');
+        return;
+      }
+      throw e;
+    }
+
+    let rows = [];
+    snap.forEach(doc=>{
+      const d = doc.data() || {};
+      rows.push({ id: doc.id, name: d.name || doc.id, active: d.active !== false, sort: typeof d.sort === 'number' ? d.sort : 0 });
+    });
+
+    rows = rows.filter(r=>r.active).sort((a,b)=> (a.sort-b.sort) || a.name.localeCompare(b.name,'ук'));
+    fillLogistsUI(rows);
+    try{ localStorage.setItem(LOGISTS_CACHE_KEY, JSON.stringify({ ts: Date.now(), rows })); }catch{}
+    showMsg('');
+    console.log('👥 Logists loaded from Firestore:', rows.length);
+  } catch (e) {
+    console.error('❌ Logists load error:', e);
+    showMsg('Не вдалось завантажити логістів.');
+  }
+}
+
+function getLogistIdByInput(inputId){
+  const name = (document.getElementById(inputId).value || '').trim();
+  if(!name) return null;
+  if (logistIdByName[name]) return logistIdByName[name];
+  const n = _norm(name);
+  for (const [label, id] of Object.entries(logistIdByName)){ if (_norm(label) === n) return id; }
+  const candidates = Object.entries(logistIdByName).filter(([label])=> _norm(label).includes(n));
+  if (candidates.length === 1) return candidates[0][1];
+  return null;
+}
+function getLogistNameById(id){ return (logistById[id]?.name) || ''; }
+
+/* Helpers for route points */
+function toObjPoints(arr) { return (arr || []).map(p => ({ lng: p[0], lat: p[1] })); }
+function fromObjPoints(arr) { return (arr || []).map(p => [p.lng, p.lat]); }
+
+/* ===== DUPLICATES / SEARCH ===== */
+function sanitizeId(s){ return String(s||'').replace(/[\/\\#?\[\]]/g,'_'); }
+
+async function findExistingRouteByKeySeason(fromKey, toKey, routeType, seasonYear){
+  try{
+    let q = db.collection('routes')
+      .where('fromKey','==',fromKey)
+      .where('toKey','==',toKey)
+      .where('routeType','==',routeType);
+    if (typeof seasonYear === 'number') q = q.where('seasonYear','==',seasonYear);
+    const snap = await q.limit(1).get();
+    let found = null; snap.forEach(doc => { if (!found) found = doc; });
+    return found;
+  }catch(e){ console.warn('findExistingRouteByKeySeason error:', e?.message || e); return null; }
+}
+
+function makeCopyId(baseSafeId){ return `${baseSafeId}__${Date.now()}`; }
+
+const $dupModal = document.getElementById('dupModal');
+const $dupText = document.getElementById('dupText');
+const $dupOverwrite = document.getElementById('dupOverwrite');
+const $dupCopy = document.getElementById('dupCopy');
+const $dupCancel = document.getElementById('dupCancel');
+
+function askDuplicateAction(existingName){
+  return new Promise((resolve)=>{
+    $dupText.textContent = `Маршрут із такими параметрами вже існує:\n“${existingName}”.\nОберіть дію:`;
+    $dupModal.classList.add('show');
+    const onEsc = (e)=>{ if(e.key==='Escape'){ cleanup(); resolve('cancel'); } };
+    function cleanup(){ document.removeEventListener('keydown', onEsc); $dupModal.classList.remove('show'); }
+    $dupOverwrite.onclick = ()=>{ cleanup(); resolve('overwrite'); };
+    $dupCopy.onclick = ()=>{ cleanup(); resolve('copy'); };
+    $dupCancel.onclick = ()=>{ cleanup(); resolve('cancel'); };
+    $dupModal.onclick = (e)=>{ if(e.target===$dupModal){ cleanup(); resolve('cancel'); } };
+    document.addEventListener('keydown', onEsc, { once:false });
+  });
+}
+
+/* ===== Local JSON save/load ===== */
+const fileInput = document.getElementById('fileInput');
+
+document.getElementById('saveRoute').onclick = () => {
+  if (readOnly) { alert('⛔ Недостатньо прав'); return; }
+  const fromKey = getKeyByInput('fromName');
+  const toKey   = getKeyByInput('toName');
+  const routeType = document.getElementById('routeType').value;
+  const purpose   = document.getElementById('routePurpose').value;
+  const intermediateText = document.getElementById('intermediateText').value.trim();
+  const logistId = getLogistIdByInput('logistInput');
+  const logistName = logistId ? getLogistNameById(logistId) : '';
+
+  const routeData = {
+    name: (document.getElementById('routeName').value || 'Без назви'),
+    fromKey, toKey,
+    // кеш коду для активного року
+    fromCode: fromKey ? (dirByKey[fromKey]?.code || '') : '',
+    toCode:   toKey   ? (dirByKey[toKey]?.code   || '') : '',
+    routeType, purpose, intermediateText,
+    points: toObjPoints(points),
+    startRuler: toObjPoints(startRuler),
+    endRuler: toObjPoints(endRuler),
+    logisticId: logistId || null,
+    logisticName: logistName || '',
+    distance_km: parseFloat(document.getElementById('distance').textContent) || 0,
+    seasonYear: ACTIVE_CODES_YEAR,
+    date: new Date().toISOString()
+  };
+  const blob = new Blob([JSON.stringify(routeData, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  const safe = String(routeData.name || 'route').replace(/[\/\\#?[\]:]/g,'_');
+  a.href = url; a.download = `route_${safe}_${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+};
+
+document.getElementById('loadRoute').onclick = () => {
+  if (readOnly) { alert('⛔ Недостатньо прав'); return; }
+  fileInput.value = null; fileInput.click();
+};
+
+fileInput.onchange = (event) => {
+  if (readOnly) return;
+  const file = event.target.files && event.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    try {
+      const routeData = JSON.parse(e.target.result);
+      const arrFrom = (pts) => {
+        if (!Array.isArray(pts)) return [];
+        if (pts.length && typeof pts[0] === 'object' && pts[0] !== null && 'lng' in pts[0]) { return fromObjPoints(pts); }
+        return pts;
+      };
+
+      points = arrFrom(routeData.points || []);
+      startRuler = arrFrom(routeData.startRuler || []);
+      endRuler = arrFrom(routeData.endRuler || []);
+
+      if (routeData.fromKey) document.getElementById('fromName').value = getNameByKey(routeData.fromKey) || '';
+      else if (routeData.fromCode) document.getElementById('fromName').value = getNameByCode(routeData.fromCode) || '';
+
+      if (routeData.toKey)   document.getElementById('toName').value   = getNameByKey(routeData.toKey) || '';
+      else if (routeData.toCode)   document.getElementById('toName').value   = getNameByCode(routeData.toCode) || '';
+
+      if (routeData.routeType) document.getElementById('routeType').value = routeData.routeType;
+      if (routeData.purpose)   document.getElementById('routePurpose').value = routeData.purpose;
+      document.getElementById('intermediateText').value = routeData.intermediateText || '';
+      document.getElementById('routeName').value = routeData.name || '';
+
+      document.getElementById('logistInput').value =
+        routeData.logisticName || (routeData.logisticId ? getLogistNameById(routeData.logisticId) : '');
+
+      rebuildMarkers(); drawRulers(); updateRoute();
+      if (points.length > 0) map.flyTo({ center: points[0], zoom: 12 });
+      alert('Маршрут успішно завантажено з файлу!');
+    } catch (err) { alert('Помилка при завантаженні: ' + err.message); }
+  };
+  reader.readAsText(file);
+};
+
+/* ================= NEW routeKey helpers ================= */
+function firstLetter(str){
+  const s = String(str || '').trim();
+  if (!s) return 'X';
+  const re = /[A-Za-zА-Яа-яЁёІіЇїЄєҐґ]/u;
+  for (const ch of s){
+    if (re.test(ch)) return ch.toUpperCase();
+  }
+  return 'X';
+}
+function randomDigits(len=10){
+  const a = new Uint32Array(len);
+  (crypto && crypto.getRandomValues) ? crypto.getRandomValues(a) : a.fill(Math.floor(Math.random()*10));
+  return Array.from(a, n => (n % 10).toString()).join('');
+}
+async function reserveKeyTx(tx, prefix, docId, meta){
+  for (let tries = 0; tries < 10; tries++){
+    const key = `${prefix}-${randomDigits(10)}`;
+    const keyRef = db.collection('routeKeys').doc(key);
+    const snap = await tx.get(keyRef);
+    if (!snap.exists){
+      tx.set(keyRef, {
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        routeId: docId,
+        fromKey: meta.fromKey, toKey: meta.toKey,
+        fromName: meta.fromName, toName: meta.toName
+      });
+      return key;
+    }
+  }
+  throw new Error('Не вдалося згенерувати унікальний код маршруту (спробуйте ще раз).');
+}
+/* ======================================================= */
+
+/* ===== Firestore: save/list/load/delete ===== */
+async function saveToDB() {
+  try {
+    if (!db) { alert('БД не ініціалізована'); return; }
+    if (readOnly) { alert('⛔ Недостатньо прав'); return; }
+    if (points.length === 0 && startRuler.length === 0 && endRuler.length === 0) { alert('Немає що зберігати'); return; }
+
+    const fromKey = getKeyByInput('fromName');
+    const toKey   = getKeyByInput('toName');
+    const routeType = document.getElementById('routeType').value;
+    const purpose   = document.getElementById('routePurpose').value;
+    const intermediateText = document.getElementById('intermediateText').value.trim();
+    const logistId = getLogistIdByInput('logistInput');
+    if (!fromKey || !toKey) { alert('Оберіть значення “Від” та “До” зі списку довідника.'); return; }
+    if (!logistId) { alert('Оберіть логіста зі списку.'); return; }
+
+    const from = dirByKey[fromKey] || {};
+    const to   = dirByKey[toKey] || {};
+    const fromLabel = [from.name, from.department, from.enterprise].filter(Boolean).join(' • ');
+    const toLabel   = [to.name,   to.department,   to.enterprise].filter(Boolean).join(' • ');
+    const generatedName = `${fromLabel} → ${toLabel} [${routeType}${purpose ? ' • '+purpose : ''}]`;
+
+    const manual = (document.getElementById('routeName').value || '').trim();
+    const finalName = manual || generatedName;
+
+    const user = auth?.currentUser || null;
+
+    // кешуємо коди поточного року для зручного експорту
+    const fromCode = from.code || '';
+    const toCode   = to.code   || '';
+
+    const payload = {
+      name: finalName,
+      fromKey, toKey,
+      fromCode, toCode,
+      routeType, purpose, intermediateText,
+      points: toObjPoints(points),
+      startRuler: toObjPoints(startRuler),
+      endRuler: toObjPoints(endRuler),
+      logisticId: logistId,
+      logisticName: getLogistNameById(logistId),
+      seasonYear: ACTIVE_CODES_YEAR,
+      createdByUid: user?.uid || null,
+      createdByEmail: user?.email || null,
+      distance_km: parseFloat(document.getElementById('distance').textContent) || 0,
+      updatedAt: new Date().toISOString()
+    };
+
+    // шукаємо дублікат саме в межах сезону
+    const existing = await findExistingRouteByKeySeason(fromKey, toKey, routeType, payload.seasonYear);
+
+    // стабільний id: назва + рік (щоб різні роки гарантовано роз'їжджалися)
+    const baseIdCore = sanitizeId(finalName);
+    const defaultId = `${baseIdCore}__${payload.seasonYear}`;
+    let docId = existing ? existing.id : defaultId;
+    let mode = existing ? 'overwrite' : 'new'; // 'new' | 'overwrite' | 'copy'
+
+    if (existing){
+      const existingName = existing.data()?.name || existing.id;
+      const choice = await askDuplicateAction(existingName);
+      if (choice === 'cancel'){ alert('❎ Збереження скасовано'); return; }
+      if (choice === 'overwrite'){ docId = existing.id; mode = 'overwrite'; }
+      if (choice === 'copy'){ docId = makeCopyId(defaultId); payload.name = `${payload.name} (копія)`; mode = 'copy'; }
+    }
+
+    const prefix = firstLetter(from.name) + firstLetter(to.name);
+    const meta = { fromKey, toKey, fromName: from.name || '', toName: to.name || '' };
+
+    let routeKeySaved = null;
+
+    await db.runTransaction(async (tx) => {
+      const routeRef = db.collection('routes').doc(docId);
+      const routeSnap = await tx.get(routeRef);
+
+      let routeKey = null;
+
+      if (mode === 'overwrite' && routeSnap.exists && routeSnap.data()?.routeKey) {
+        routeKey = String(routeSnap.data().routeKey);
+        const keyRef = db.collection('routeKeys').doc(routeKey);
+        await tx.get(keyRef);
+        tx.set(keyRef, {
+          routeId: docId,
+          updatedAt: new Date().toISOString(),
+          fromKey, toKey,
+          fromName: meta.fromName, toName: meta.toName
+        }, { merge: true });
+      } else {
+        routeKey = await reserveKeyTx(tx, prefix, docId, meta);
+      }
+
+      routeKeySaved = routeKey;
+      tx.set(routeRef, { ...payload, routeKey }, { merge: true });
+    });
+
+    alert(`✅ Збережено в БД: ${payload.name}\nСезон: ${payload.seasonYear}\nКод маршруту: ${routeKeySaved}`);
+    await refreshRoutesList();
+  } catch (err) {
+    console.error('❌ Помилка збереження в Firestore:', err);
+    alert('❌ Не вдалося зберегти в БД: ' + (err?.message || err));
+  }
+}
+
+/* === Копія маршруту в інший рік (з оновленням кодів під рік) === */
+async function getCodeForYearByKey(year, key){
+  if (!year || !key) return null;
+  try{
+    const snap = await db.collection('codes').doc(String(year))
+      .collection('sowings').doc(String(key)).get();
+    if (snap.exists){
+      const d = snap.data() || {};
+      return d.code || null;
+    }
+  }catch(e){ console.warn('getCodeForYearByKey error:', e?.message || e); }
+  return null;
+}
+
+async function copyCurrentRouteToYear(){
+  try{
+    if (!db) { alert('БД не ініціалізована'); return; }
+    if (readOnly) { alert('⛔ Недостатньо прав'); return; }
+
+    // беремо дані з форми (припускаємо, що маршрут відкритий/заповнений)
+    const fromKey = getKeyByInput('fromName');
+    const toKey   = getKeyByInput('toName');
+    const routeType = document.getElementById('routeType').value;
+    const purpose   = document.getElementById('routePurpose').value;
+    const intermediateText = document.getElementById('intermediateText').value.trim();
+    const logistId = getLogistIdByInput('logistInput');
+    const logistName = logistId ? getLogistNameById(logistId) : '';
+    const finalName = (document.getElementById('routeName').value || '').trim();
+
+    if (!fromKey || !toKey){ alert('Спершу оберіть “Від” і “До” зі списку довідника.'); return; }
+    if (!finalName){ alert('Вкажіть назву маршруту.'); return; }
+    if (!logistId){ alert('Оберіть логіста зі списку.'); return; }
+
+    const yearStr = prompt('Вкажіть рік, у який створити копію (напр. 2026):', String((new Date().getFullYear())+1));
+    if (!yearStr) return;
+    const targetYear = parseInt(yearStr, 10);
+    if (!Number.isFinite(targetYear) || targetYear < 2000 || targetYear > 2100){
+      alert('Невірний рік. Спробуйте ще раз.'); return;
+    }
+
+    // підтягнемо коди для ЦЬОГО ж fromKey/toKey але ІНШОГО року
+    const newFromCode = await getCodeForYearByKey(targetYear, fromKey);
+    const newToCode   = await getCodeForYearByKey(targetYear, toKey);
+    if (!newFromCode || !newToCode){
+      alert('Не знайдено коди для одного з ключів у вибраному році. Перевірте довідник codes/'+targetYear+'/sowings.');
+      return;
+    }
+
+    const from = dirByKey[fromKey] || {};
+    const to   = dirByKey[toKey] || {};
+    const user = auth?.currentUser || null;
+
+    const payload = {
+      name: finalName,
+      fromKey, toKey,
+      fromCode: newFromCode,
+      toCode: newToCode,
+      routeType, purpose, intermediateText,
+      points: toObjPoints(points),
+      startRuler: toObjPoints(startRuler),
+      endRuler: toObjPoints(endRuler),
+      logisticId: logistId,
+      logisticName: logistName,
+      seasonYear: targetYear,
+      createdByUid: user?.uid || null,
+      createdByEmail: user?.email || null,
+      distance_km: parseFloat(document.getElementById('distance').textContent) || 0,
+      updatedAt: new Date().toISOString()
+    };
+
+    // чи є вже такий самий (за ключами/типом) у ЦЬОМУ році?
+    const existing = await findExistingRouteByKeySeason(fromKey, toKey, routeType, targetYear);
+
+    // базовий id — назва + рік
+    const baseIdCore = sanitizeId(finalName);
+    const defaultId  = `${baseIdCore}__${targetYear}`;
+    let docId = existing ? existing.id : defaultId;
+    let mode = existing ? 'overwrite' : 'new';
+
+    if (existing){
+      const existingName = existing.data()?.name || existing.id;
+      const choice = await askDuplicateAction(existingName);
+      if (choice === 'cancel'){ alert('❎ Операцію скасовано'); return; }
+      if (choice === 'overwrite'){ docId = existing.id; mode = 'overwrite'; }
+      if (choice === 'copy'){ docId = makeCopyId(defaultId); payload.name = `${payload.name} (копія)`; mode = 'copy'; }
+    }
+
+    const prefix = firstLetter(from.name || '') + firstLetter(to.name || '');
+    const meta = { fromKey, toKey, fromName: from.name || '', toName: to.name || '' };
+
+    let routeKeySaved = null;
+
+    await db.runTransaction(async (tx) => {
+      const routeRef = db.collection('routes').doc(docId);
+      const routeSnap = await tx.get(routeRef);
+
+      let routeKey = null;
+      if (mode === 'overwrite' && routeSnap.exists && routeSnap.data()?.routeKey) {
+        routeKey = String(routeSnap.data().routeKey);
+        const keyRef = db.collection('routeKeys').doc(routeKey);
+        await tx.get(keyRef);
+        tx.set(keyRef, {
+          routeId: docId,
+          updatedAt: new Date().toISOString(),
+          fromKey, toKey,
+          fromName: meta.fromName, toName: meta.toName
+        }, { merge: true });
+      } else {
+        routeKey = await reserveKeyTx(tx, prefix, docId, meta);
+      }
+
+      routeKeySaved = routeKey;
+      tx.set(routeRef, { ...payload, routeKey }, { merge: true });
+    });
+
+    alert(`✅ Створено копію маршруту на ${targetYear}\nКод маршруту: ${routeKeySaved}\nКоди: ${newFromCode} → ${newToCode}`);
+    await refreshRoutesList();
+
+  }catch(err){
+    console.error('copyCurrentRouteToYear error:', err);
+    alert('❌ Не вдалось створити копію: ' + (err?.message || err));
+  }
+}
+
+let isRefreshingRoutes = false;
+async function refreshRoutesList(limitNum = 100) {
+  if (!db || isRefreshingRoutes) return;
+  isRefreshingRoutes = true;
+
+  const sel  = document.getElementById('remoteRoutes');
+  const list = document.getElementById('routesList');
+  const current = sel.value;
+
+  const q = db.collection('routes').orderBy('updatedAt','desc').limit(limitNum);
+
+  const render = (snap) => {
+    sel.innerHTML = '<option value="">— вибери маршрут з БД —</option>';
+    list.innerHTML = '';
+    for (const k in routesLookup) delete routesLookup[k];
+
+    snap.forEach(doc => {
+      const d = doc.data();
+      const km = (typeof d.distance_km === 'number') ? ` (${d.distance_km.toFixed(2)} км)` : '';
+      const labelNow = formatRouteTitle(d);
+      const suffixYear = d.seasonYear ? ` • ${d.seasonYear}` : '';
+      const label = labelNow + suffixYear + km;
+
+      const opt = document.createElement('option');
+      opt.value = doc.id; opt.textContent = label; sel.appendChild(opt);
+
+      routesLookup[label] = doc.id;
+      const sOpt = document.createElement('option'); sOpt.value = label; list.appendChild(sOpt);
+    });
+
+    if (Array.from(sel.options).some(o => o.value === current)) { sel.value = current; }
+  };
+
+  try {
+    const snapCache = await q.get({ source: 'cache' }).catch(()=>null);
+    if (snapCache && !snapCache.empty) render(snapCache);
+    const snapServer = await q.get({ source: 'default' }).catch(()=>null);
+    if (snapServer) render(snapServer);
+  } finally { isRefreshingRoutes = false; }
+}
+
+async function loadFromDB() {
+  try {
+    if (!db) { alert('БД не ініціалізована'); return; }
+    const sel = document.getElementById('remoteRoutes');
+    const id = sel.value;
+    if (!id) { alert('Оберіть маршрут у списку'); return; }
+
+    const docRef = db.collection('routes').doc(id);
+    const docSnap = await docRef.get();
+    if (!docSnap.exists) { alert('Маршрут не знайдено'); return; }
+    const data = docSnap.data();
+    updateRouteName();
+
+    document.getElementById('fromName').value = data.fromKey ? (getNameByKey(data.fromKey) || '') : (data.fromCode ? (getNameByCode(data.fromCode) || '') : '');
+    document.getElementById('toName').value   = data.toKey   ? (getNameByKey(data.toKey)   || '') : (data.toCode   ? (getNameByCode(data.toCode)   || '') : '');
+    document.getElementById('routeType').value = data.routeType || 'Основний';
+    document.getElementById('routePurpose').value = data.purpose || 'Зерно';
+    document.getElementById('intermediateText').value = data.intermediateText || '';
+    document.getElementById('routeName').value = formatRouteTitle(data);
+
+    document.getElementById('logistInput').value =
+      data.logisticName || (data.logisticId ? getLogistNameById(data.logisticId) : '');
+
+    points = fromObjPoints(data.points || []);
+    startRuler = fromObjPoints(data.startRuler || []);
+    endRuler = fromObjPoints(data.endRuler || []);
+
+    rebuildMarkers(); drawRulers(); updateRoute();
+    if (points.length > 0) map.flyTo({ center: points[0], zoom: 12 });
+    alert('Маршрут завантажено з БД: ' + id + (data.routeKey ? `\nКод: ${data.routeKey}` : ''));
+  } catch (err) {
+    console.error('❌ Помилка завантаження з БД:', err);
+    alert('❌ Не вдалося завантажити: ' + (err?.message || err));
+  }
+}
+
+async function deleteFromDB() {
+  try {
+    if (!db) { alert('БД не ініціалізована'); return; }
+    if (readOnly) { alert('⛔ Недостатньо прав'); return; }
+    const sel = document.getElementById('remoteRoutes');
+    const id = sel.value;
+    if (!id) { alert('Оберіть маршрут у списку'); return; }
+    if (!confirm(`Точно видалити маршрут "${id}"?`)) return;
+
+    await db.collection('routes').doc(id).delete();
+    alert('Видалено з БД: ' + id);
+    await refreshRoutesList();
+  } catch (err) {
+    console.error('❌ Помилка видалення з БД:', err);
+    alert('❌ Не вдалося видалити: ' + (err?.message || err));
+  }
+}
+
+/* ===== Buttons bindings ===== */
+document.getElementById('saveToDB').onclick = saveToDB;
+let lastRefreshClick = 0;
+document.getElementById('refreshList').onclick = () => {
+  const now = Date.now();
+  if (now - lastRefreshClick < 500) return;
+  lastRefreshClick = now;
+  refreshRoutesList();
+};
+document.getElementById('loadFromDB').onclick = loadFromDB;
+document.getElementById('deleteFromDB').onclick = deleteFromDB;
+document.getElementById('clearForm').onclick = clearForm;
+document.getElementById('copyToYear').onclick = copyCurrentRouteToYear;
+
+/* Directory buttons */
+document.getElementById('refreshDirectory').onclick = () => loadDirectory(true);
+document.getElementById('clearDirCache').onclick = () => {
+  try {
+    // видалимо всі ключі кешу довідника незалежно від року
+    const keys = [];
+    for (let i=0;i<localStorage.length;i++){
+      const k = localStorage.key(i);
+      if (k && k.startsWith(DIR_CACHE_PREFIX)) keys.push(k);
+    }
+    keys.forEach(k => localStorage.removeItem(k));
+  } catch {}
+  loadDirectory(true);
+};
+
+/* Logists buttons */
+document.getElementById('refreshLogists').onclick = async () => {
+  const isLogged = !!(auth && auth.currentUser);
+  await loadLogists(isLogged);
+};
+document.getElementById('clearLogistsCache').onclick = () => {
+  try { localStorage.removeItem(LOGISTS_CACHE_KEY); } catch {}
+  const isLogged = !!(auth && auth.currentUser);
+  loadLogists(isLogged);
+};
+
+/* Search helper */
+const routeSearch = document.getElementById('routeSearch');
+const remoteRoutesSel = document.getElementById('remoteRoutes');
+routeSearch.addEventListener('input', () => {
+  const q = routeSearch.value.trim().toLowerCase();
+  let matched = false;
+  for (const opt of remoteRoutesSel.options) {
+    const text = (opt.textContent || '').toLowerCase();
+    if (text.includes(q) && opt.value) { remoteRoutesSel.value = opt.value; matched = true; break; }
+  }
+  if (!matched) remoteRoutesSel.value = '';
+});
+routeSearch.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') {
+    if (!remoteRoutesSel.value) routeSearch.dispatchEvent(new Event('input'));
+    if (remoteRoutesSel.value) document.getElementById('loadFromDB').click();
+  }
+});
+
+/* Load by ?rid= */
+async function loadRouteById(rid) {
+  try {
+    const snap = await db.collection('routes').doc(rid).get();
+    if (!snap.exists) { alert('Маршрут з таким ID не знайдено: ' + rid); return; }
+    const data = snap.data();
+    document.getElementById('fromName').value = data.fromKey ? (getNameByKey(data.fromKey) || '') : (data.fromCode ? (getNameByCode(data.fromCode) || '') : '');
+    document.getElementById('toName').value   = data.toKey   ? (getNameByKey(data.toKey)   || '') : (data.toCode   ? (getNameByCode(data.toCode)   || '') : '');
+    document.getElementById('routeType').value = data.routeType || 'Основний';
+    document.getElementById('routePurpose').value = data.purpose || 'Зерно';
+    document.getElementById('intermediateText').value = data.intermediateText || '';
+    document.getElementById('routeName').value = formatRouteTitle(data);
+
+    document.getElementById('logistInput').value =
+      data.logisticName || (data.logisticId ? getLogistNameById(data.logisticId) : '');
+
+    points     = fromObjPoints(data.points || []);
+    startRuler = fromObjPoints(data.startRuler || []);
+    endRuler   = fromObjPoints(data.endRuler || []);
+    rebuildMarkers(); drawRulers(); updateRoute();
+    if (points.length) {
+      const b = new mapboxgl.LngLatBounds(points[0], points[0]);
+      for (const p of points) b.extend(p);
+      map.fitBounds(b, { padding: 40 });
+    }
+    if (data.routeKey) alert('Код маршруту: ' + data.routeKey);
+  } catch (e) {
+    console.error('loadRouteById error:', e);
+    alert('Не вдалося завантажити маршрут: ' + (e?.message || e));
+  }
+}
+
+function clearForm() {
+  document.getElementById('fromName').value = '';
+  document.getElementById('toName').value = '';
+  document.getElementById('routeType').value = 'Основний';
+  document.getElementById('routePurpose').value = 'Зерно';
+  document.getElementById('intermediateText').value = '';
+  document.getElementById('routeName').value = '';
+  document.getElementById('logistInput').value = '';
+  document.getElementById('distance').textContent = '0';
+  points = []; startRuler = []; endRuler = [];
+  rebuildMarkers(); drawRulers(); updateRoute();
+  document.getElementById('remoteRoutes').value = '';
+  alert('Форма очищена');
+}
+
+/* ===== Panel toggle ===== */
+const panelToggleBtn = document.getElementById('panelToggle');
+function updatePanelToggleLabel(){
+  const hidden = document.body.classList.contains('controls-hidden');
+  panelToggleBtn.textContent = hidden ? '▶ Панель' : '◀ Сховати';
+  if (typeof map?.resize === 'function') requestAnimationFrame(() => map.resize());
+}
+panelToggleBtn.addEventListener('click', () => {
+  document.body.classList.toggle('controls-hidden'); updatePanelToggleLabel();
+});
+updatePanelToggleLabel();
+
+/* ===== Auth ===== */
+const authHello = document.getElementById('authHello');
+const authEmail = document.getElementById('authEmail');
+const authPass  = document.getElementById('authPass');
+const loginBtn  = document.getElementById('authLogin');
+const logoutBtn  = document.getElementById('authLogout');
+
+document.getElementById('mobileAuthToggle').addEventListener('click', () => {
+  document.getElementById('authBar').classList.toggle('collapsed');
+  requestAnimationFrame(updateLayoutHeights);
+});
+
+loginBtn.onclick = async () => {
+  try{ await auth.signInWithEmailAndPassword(authEmail.value.trim(), authPass.value); }
+  catch(e){ alert('🚫 Вхід не виконано: ' + (e?.message || e)); }
+};
+logoutBtn.onclick = async () => {
+  try{ await auth.signOut(); }
+  finally{
+    // після виходу — на повноекранну сторінку входу
+    location.replace('/login?next=' + encodeURIComponent('/index.html'));
+  }
+};
+
+auth?.onAuthStateChanged(async (user) => {
+  if (user){
+    authHello.textContent = 'Увійшли як ' + (user.email || user.uid);
+    loginBtn.style.display='none'; authEmail.style.display='none'; authPass.style.display='none';
+    logoutBtn.style.display='inline-block';
+    if (window.matchMedia('(max-width: 640px)').matches) {
+      document.getElementById('authBar').classList.add('collapsed');
+    }
+    requestAnimationFrame(updateLayoutHeights);
+    let role = 'user';
+    try{
+      const r = await db.collection('roles').doc(user.uid).get();
+      if (r.exists && r.data()?.role) role = String(r.data().role);
+    }catch{}
+    applyRoleUI(role);
+    await loadLogists(true);
+  } else {
+    authHello.textContent = 'Гість';
+    loginBtn.style.display='inline-block'; authEmail.style.display='inline-block'; authPass.style.display='inline-block';
+    logoutBtn.style.display='none';
+    requestAnimationFrame(updateLayoutHeights);
+    applyRoleUI('guest');
+    await loadLogists(false);
+  }
+});
+
+/* ===== Start ===== */
+window.addEventListener('load', async () => {
+  if (!db) return;
+  await loadAvailableYears();  // спершу заповнити селект років
+  await loadDirectory(true);   // і одразу підвантажити довідник під вибір
+  await refreshRoutesList();
+  const rid = new URLSearchParams(location.search).get('rid');
+  if (rid) await loadRouteById(rid);
+  requestAnimationFrame(updateLayoutHeights);
+});
+
+document.getElementById('logistInput').addEventListener('focus', function(){
+  const isLogged = !!(auth && auth.currentUser);
+  loadLogists(isLogged);
+  try { this.dispatchEvent(new KeyboardEvent('keydown', {key:'ArrowDown'})); } catch {}
+});
+
+document.getElementById('fromName').addEventListener('change', updateRouteName);
+document.getElementById('toName').addEventListener('change', updateRouteName);
+document.getElementById('routeType').addEventListener('change', updateRouteName);
+document.getElementById('routePurpose').addEventListener('change', updateRouteName);
+</script>
+</body>
+</html>
