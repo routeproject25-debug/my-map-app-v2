@@ -1,11 +1,9 @@
 <!DOCTYPE html>
-<html lang="uk">
+<html>
 <head>
   <meta charset="utf-8" />
   <title>🚚Маршрути Mapbox</title>
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
-
-  <!-- Mapbox -->
   <script src="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.js"></script>
   <link href="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.css" rel="stylesheet" />
 
@@ -27,9 +25,6 @@
     display:flex; align-items:center; justify-content:space-between; gap:10px; padding:8px;
     background:#2563eb; color:#fff;
   }
-  /* якщо випадково з’явилися дві шапки — показуємо лише першу */
-  header.topbar + header.topbar{ display:none !important; }
-
   header.topbar a{ color:#fff; text-decoration:none; margin-right:12px; white-space:nowrap; }
   header .left, header .right{ display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
   header .spacer{ flex:1 1 auto; }
@@ -139,9 +134,10 @@
 <header class="topbar">
   <div class="left">
     <button id="panelToggle" class="btn xs" title="Сховати/показати панель">◀ Сховати</button>
-    <a href="/">🏠 Карта</a>
-    <a href="/export/">📤 Експорт</a>
-    <a href="/import/">📥 Імпорт</a>
+    <!-- CHANGED: робимо відносні посилання -->
+    <a href="./">🏠 Карта</a>
+    <a href="./export/">📤 Експорт</a>
+    <a href="./import/">📥 Імпорт</a>
   </div>
 
   <div class="spacer"></div>
@@ -236,6 +232,8 @@
     </div>
   </div>
 
+  <small class="muted">У БД зберігаються <b>коди</b> “Від/До”. Назва маршруту генерується з актуальних назв довідника.</small>
+
   <details>
     <summary><b>Стиль карти</b></summary>
     <div id="styleSelector" style="margin-top:10px;">
@@ -255,19 +253,7 @@
   </details>
 
   <div id="dirControls" class="section">
-    <div class="row">
-      <div>
-        <label>Рік довідника</label>
-        <select id="codesYear">
-          <option value="">— немає —</option>
-        </select>
-      </div>
-      <div></div>
-    </div>
-
-    <small class="muted">Коди беруться з колекції <b>codes/{рік}/sowings</b>. «Назва» — це <i>display_name</i> із довідника.</small>
-
-    <div class="btn-row" style="margin-top:6px;">
+    <div class="btn-row">
       <button id="refreshDirectory" class="btn xs">🔄 Оновити довідник</button>
       <button id="clearDirCache" class="btn xs">🧹 Очистити кеш</button>
     </div>
@@ -319,9 +305,10 @@
   </div>
 </div>
 
-<!-- AUTH GUARD: редірект неавторизованих на /login -->
+<!-- ⬇️⬇️⬇️ AUTH GUARD: редірект неавторизованих на login -->
 <script>
 (function(){
+  // сховаємо сторінку, щоб не миготіла незалогінена
   document.documentElement.style.visibility = 'hidden';
 
   const firebaseConfig = {
@@ -337,14 +324,19 @@
   try { firebase.apps?.length ? firebase.app() : firebase.initializeApp(firebaseConfig); } catch(e) {}
 
   const auth = firebase.auth();
-  const loginURL = '/login?next=' + encodeURIComponent(location.pathname + location.search);
+
+  // CHANGED: використовуємо відносний шлях до сторінки логіну
+  // якщо у тебе логін у корені як login.html — просто заміни рядок нижче на './login.html'
+  const LOGIN_PATH = './login/index.html';
+  const loginURL = LOGIN_PATH + '?next=' + encodeURIComponent(location.pathname + location.search);
 
   auth.onAuthStateChanged(u => {
-    if (!u) { location.replace(loginURL); return; }
+    if (!u) { location.href = loginURL; return; } // CHANGED: href замість replace
     document.documentElement.style.visibility = '';
   });
 })();
 </script>
+<!-- ⬆️⬆️⬆️ AUTH GUARD -->
 
 <script>
 /* ===================== Mapbox init ===================== */
@@ -353,16 +345,9 @@ let currentStyle = 'mapbox://styles/mapbox/streets-v12';
 const map = new mapboxgl.Map({ container: 'map', style: currentStyle, center: [30.5238, 50.4547], zoom: 10 });
 
 /* === Динамічна висота шапки === */
-function getTopbarHeight(){
-  const headers = Array.from(document.querySelectorAll('header.topbar'))
-    .filter(el => el.offsetParent !== null);
-  if (headers.length > 1){
-    for (let i = 1; i < headers.length; i++) headers[i].style.display = 'none';
-  }
-  return headers[0]?.offsetHeight || 56;
-}
+const topbarEl = document.querySelector('header.topbar');
 function updateLayoutHeights(){
-  const h = getTopbarHeight();
+  const h = (topbarEl?.offsetHeight || 56);
   document.documentElement.style.setProperty('--nav-real', h + 'px');
   try { map.resize(); } catch(_) {}
 }
@@ -383,9 +368,7 @@ function applyUkrainianLabels(){
     }
   });
 }
-map.on('style.load', () => { applyUkrainianLabels(); updateRoute(); drawRulers(); });
 
-/* ===== UI/State ===== */
 let addMode = false, startLineMode = false, endLineMode = false;
 let insertAfterMode = false;
 let points = [], markers = [], startRuler = [], endRuler = [], rulerLines = [], routeLayers = [];
@@ -449,6 +432,7 @@ deletePointBtn.onclick = (e) => {
 };
 document.addEventListener('click', () => { contextMenu.style.display = 'none'; });
 
+map.on('style.load', () => { applyUkrainianLabels(); updateRoute(); drawRulers(); });
 document.getElementById('mapStyle').addEventListener('change', function() {
   currentStyle = this.value; map.setStyle(currentStyle);
 });
@@ -459,6 +443,7 @@ function toggleButton(id, flag) {
   btn.textContent = btn.textContent.split(':')[0] + `: ${flag ? 'УВІМКНЕНО.' : 'ВИМКНЕНО.'}`;
   if (flag) btn.classList.add('active'); else btn.classList.remove('active');
 }
+
 document.getElementById('toggleAdd').onclick = () => {
   if (readOnly) return;
   addMode = !addMode; startLineMode = false; endLineMode = false; insertAfterMode = false;
@@ -477,6 +462,7 @@ document.getElementById('endLineMode').onclick = () => {
   setActiveRuler(endLineMode ? 'end' : null);
   toggleButton('endLineMode', endLineMode); toggleButton('startLineMode', false); toggleButton('toggleAdd', false);
 };
+
 document.getElementById('popRulerPoint').onclick = () => {
   if (readOnly) return;
   const choose = () => activeRuler || lastActiveRuler || (startRuler.length >= endRuler.length ? 'start' : 'end');
@@ -488,6 +474,7 @@ document.getElementById('popRulerPoint').onclick = () => {
   if (target === 'end' && endRuler.length) { endRuler.pop(); did = true; }
   if (did){ drawRulers(); updateRoute(); }
 };
+
 document.getElementById('clearRulers').onclick = () => {
   if (readOnly) return;
   if (activeRuler === 'start') { startRuler = []; }
@@ -499,6 +486,7 @@ document.getElementById('clearRulers').onclick = () => {
   }
   drawRulers(); updateRoute();
 };
+
 document.getElementById('clearRoute').onclick = () => {
   if (readOnly) return;
   points = []; markers.forEach(m => m.remove()); markers = [];
@@ -683,7 +671,7 @@ const firebaseConfig = {
 
 let db = null, auth = null;
 try {
-  firebase.apps && firebase.apps.length ? firebase.app() : firebase.initializeApp(firebaseConfig);
+  const fbApp = firebase.apps && firebase.apps.length ? firebase.app() : firebase.initializeApp(firebaseConfig);
   db = firebase.firestore();
   auth = firebase.auth();
   console.log('✅ Firebase ініціалізовано:', firebaseConfig.projectId);
@@ -701,52 +689,15 @@ const routesLookup = {};
 const logistById = {};
 const logistIdByName = {};
 
-const DIR_CACHE_KEY_PREFIX = 'codesDirCache.v1.'; // + year
-const YEARS_CACHE_KEY = 'codesYears.v1';
+const DIR_CACHE_KEY = 'directoryCache.v2';
 const DIR_CACHE_TTL_MS = 12 * 60 * 60 * 1000;
 
 const LOGISTS_CACHE_KEY = 'logistsCache.v1';
 const LOGISTS_CACHE_TTL_MS = 12 * 60 * 60 * 1000;
 
-const ACTIVE_YEAR_KEY = 'activeCodesYear';
-
 function _norm(s){ return String(s||'').trim().toLowerCase(); }
 
-/* ---- Years list ---- */
-async function loadYears(){
-  const sel = document.getElementById('codesYear');
-  const fromLS = (()=>{ try{ return JSON.parse(localStorage.getItem(YEARS_CACHE_KEY)||'[]'); }catch{return []} })();
-  const use = (years) => {
-    sel.innerHTML = '';
-    if (!years.length){
-      sel.innerHTML = '<option value="">— немає —</option>';
-      sel.disabled = true;
-      return;
-    }
-    years.sort((a,b)=> (+b)-(+a));
-    years.forEach(y=>{
-      const o=document.createElement('option'); o.value=y; o.textContent=y; sel.appendChild(o);
-    });
-    sel.disabled = false;
-    const saved = localStorage.getItem(ACTIVE_YEAR_KEY);
-    const want  = new URLSearchParams(location.search).get('year') || saved || years[0];
-    sel.value = years.includes(want) ? want : years[0];
-  };
-
-  if (fromLS.length) use(fromLS);
-
-  try{
-    const snap = await db.collection('codes').get();
-    const years = [];
-    snap.forEach(doc=>{ if (/^\d{4}$/.test(doc.id)) years.push(doc.id); });
-    use(years);
-    try{ localStorage.setItem(YEARS_CACHE_KEY, JSON.stringify(years)); }catch{}
-  }catch(e){
-    console.warn('Не вдалося завантажити список років codes:', e);
-  }
-}
-
-/* ---- Directory from codes/{year}/sowings ---- */
+/* ---- Directory ---- */
 function fillDirectoryUI(rows){
   const list = document.getElementById('directoryList');
   list.innerHTML = '';
@@ -765,63 +716,37 @@ function fillDirectoryUI(rows){
   }
 }
 
-async function loadDirectoryFromCodes(year, force=false){
-  const cacheKey = DIR_CACHE_KEY_PREFIX + year;
-  if (!force){
-    try{
-      const raw = localStorage.getItem(cacheKey);
+async function loadDirectory(force=false){
+  try{
+    if (!force){
+      const raw = localStorage.getItem(DIR_CACHE_KEY);
       if (raw){
         const { ts, rows } = JSON.parse(raw);
         if (Array.isArray(rows) && Date.now() - ts < DIR_CACHE_TTL_MS){
-          fillDirectoryUI(rows); updateRouteName(); return;
+          fillDirectoryUI(rows); updateRouteName(); refreshRoutesList();
+          console.log('📒 Directory from localStorage cache:', rows.length);
+          return;
         }
       }
-    }catch{}
-  }
-
-  try{
-    const col = db.collection('codes').doc(String(year)).collection('sowings');
-    let snap = await col.get({ source: 'default' }).catch(()=>null);
-    if (!snap || snap.empty){ snap = await col.get().catch(()=>null); }
-    const rows = [];
-    if (snap){
-      snap.forEach(doc=>{
-        const d = doc.data() || {};
-        rows.push({
-          code: d.code || '',
-          name: d.display_name || d.name || d.title || '',
-          company: d.enterprise || '',
-          unit: d.department || ''
-        });
-      });
     }
-    const filtered = rows.filter(r => r.code && r.name);
-    if (!filtered.length){
-      console.warn('codes/{year}/sowings порожньо. Спробую старий directory як фолбек.');
-      await loadDirectoryLegacy(true);
-      return;
-    }
-    fillDirectoryUI(filtered);
-    updateRouteName();
-    try{ localStorage.setItem(cacheKey, JSON.stringify({ ts: Date.now(), rows: filtered })); }catch{}
-  }catch(e){
-    console.error('Помилка завантаження довідника з codes:', e);
-    await loadDirectoryLegacy(true);
-  }
-}
+  }catch{}
 
-/* ---- Старий directory (fallback) ---- */
-async function loadDirectoryLegacy(force=false){
   let snap = null;
   try { snap = await db.collection('directory').get({ source: force ? 'default' : 'cache' }); } catch {}
   if (!snap || snap.empty) snap = await db.collection('directory').get();
+
   const rows = [];
   snap.forEach(doc => {
     const d = doc.data() || {};
     rows.push({ code: doc.id, name: d.name || doc.id, company: d.company || '', unit: d.unit || '' });
   });
+
   fillDirectoryUI(rows);
   updateRouteName();
+  refreshRoutesList();
+
+  try{ localStorage.setItem(DIR_CACHE_KEY, JSON.stringify({ ts: Date.now(), rows })); }catch{}
+  console.log('📒 Directory loaded from Firestore:', rows.length, 'force=', force);
 }
 
 /* ---- Logists ---- */
@@ -835,7 +760,10 @@ function fillLogistsUI(rows){
     logistById[r.id] = r; logistIdByName[r.name] = r.id;
     const opt = document.createElement('option'); opt.value = r.name; list.appendChild(opt);
   });
+
+  if (rows.length === 0) { console.warn('👥 Logists: пусто.'); }
 }
+
 async function loadLogists(allowServer=true){
   const msg = document.getElementById('logistsMsg');
   const showMsg = (t) => { msg.textContent = t || ''; msg.style.display = t ? 'block' : 'none'; };
@@ -845,7 +773,9 @@ async function loadLogists(allowServer=true){
     if(raw){
       const { ts, rows } = JSON.parse(raw);
       if (Array.isArray(rows) && Date.now() - ts < LOGISTS_CACHE_TTL_MS){
-        fillLogistsUI(rows); showMsg(''); return;
+        fillLogistsUI(rows); showMsg('');
+        console.log('👥 Logists from cache:', rows.length);
+        return;
       }
     }
     if (!allowServer) { showMsg('Увійдіть, щоб побачити список логістів.'); return; }
@@ -854,7 +784,9 @@ async function loadLogists(allowServer=true){
     try { snap = await db.collection('logists').get({ source: 'default' }); }
     catch (e) {
       if (e && (e.code === 'permission-denied' || /insufficient permissions/i.test(e.message))) {
-        showMsg('Увійдіть, щоб побачити список логістів.'); return;
+        console.warn('permission-denied для logists');
+        showMsg('Увійдіть, щоб побачити список логістів.');
+        return;
       }
       throw e;
     }
@@ -864,10 +796,12 @@ async function loadLogists(allowServer=true){
       const d = doc.data() || {};
       rows.push({ id: doc.id, name: d.name || doc.id, active: d.active !== false, sort: typeof d.sort === 'number' ? d.sort : 0 });
     });
+
     rows = rows.filter(r=>r.active).sort((a,b)=> (a.sort-b.sort) || a.name.localeCompare(b.name,'uk'));
     fillLogistsUI(rows);
     try{ localStorage.setItem(LOGISTS_CACHE_KEY, JSON.stringify({ ts: Date.now(), rows })); }catch{}
     showMsg('');
+    console.log('👥 Logists loaded from Firestore:', rows.length);
   } catch (e) {
     console.error('❌ Logists load error:', e);
     showMsg('Не вдалось завантажити логістів.');
@@ -886,7 +820,7 @@ function getLogistIdByInput(inputId){
 }
 function getLogistNameById(id){ return (logistById[id]?.name) || ''; }
 
-/* Helpers for route points and directory */
+/* Helpers for route points */
 function toObjPoints(arr) { return (arr || []).map(p => ({ lng: p[0], lat: p[1] })); }
 function fromObjPoints(arr) { return (arr || []).map(p => [p.lng, p.lat]); }
 
@@ -901,8 +835,8 @@ function getCodeByInput(inputId) {
   if (candidates.length === 1) return candidates[0][1];
   return null;
 }
-function getNameByCode(code) { return (dirByCode[code]?.name) || ''; }
 
+function getNameByCode(code) { return (dirByCode[code]?.name) || ''; }
 function formatRouteTitle(data) {
   const from = dirByCode[data.fromCode]?.name || 'невідомо';
   const to   = dirByCode[data.toCode]?.name   || 'невідомо';
@@ -1134,7 +1068,7 @@ async function saveToDB() {
       if (mode === 'overwrite' && routeSnap.exists && routeSnap.data()?.routeKey) {
         routeKey = String(routeSnap.data().routeKey);
         const keyRef = db.collection('routeKeys').doc(routeKey);
-        await tx.get(keyRef); // ensure exists / lock
+        const keySnap = await tx.get(keyRef);
         tx.set(keyRef, {
           routeId: docId,
           updatedAt: new Date().toISOString(),
@@ -1166,13 +1100,15 @@ async function refreshRoutesList(limitNum = 100) {
   const list = document.getElementById('routesList');
   const current = sel.value;
 
+  const q = db.collection('routes').orderBy('updatedAt','desc').limit(limitNum);
+
   const render = (snap) => {
     sel.innerHTML = '<option value="">— вибери маршрут з БД —</option>';
     list.innerHTML = '';
     for (const k in routesLookup) delete routesLookup[k];
 
     snap.forEach(doc => {
-      const d = doc.data() || {};
+      const d = doc.data();
       const km = (typeof d.distance_km === 'number') ? ` (${d.distance_km.toFixed(2)} км)` : '';
       const labelNow = formatRouteTitle(d);
       const label = labelNow + km;
@@ -1188,18 +1124,9 @@ async function refreshRoutesList(limitNum = 100) {
   };
 
   try {
-    // Основний запит — за датою оновлення
-    const q = db.collection('routes').orderBy('updatedAt','desc').limit(limitNum);
-
-    let snapCache = null, snapServer = null;
-    try { snapCache  = await q.get({ source: 'cache' });  } catch {}
+    const snapCache = await q.get({ source: 'cache' }).catch(()=>null);
     if (snapCache && !snapCache.empty) render(snapCache);
-
-    try { snapServer = await q.get({ source: 'default' }); }
-    catch (e) {
-      console.warn('orderBy(updatedAt) не спрацював, фолбек без сортування:', e?.message || e);
-      snapServer = await db.collection('routes').limit(limitNum).get({ source: 'default' });
-    }
+    const snapServer = await q.get({ source: 'default' }).catch(()=>null);
     if (snapServer) render(snapServer);
   } finally { isRefreshingRoutes = false; }
 }
@@ -1272,27 +1199,11 @@ document.getElementById('deleteFromDB').onclick = deleteFromDB;
 document.getElementById('clearForm').onclick = clearForm;
 
 /* Directory buttons */
-document.getElementById('refreshDirectory').onclick = () => {
-  const year = document.getElementById('codesYear').value;
-  if (year){ loadDirectoryFromCodes(year, true); }
-  else { loadDirectoryLegacy(true); }
-};
+document.getElementById('refreshDirectory').onclick = () => loadDirectory(true);
 document.getElementById('clearDirCache').onclick = () => {
-  try {
-    const year = document.getElementById('codesYear').value;
-    if (year) localStorage.removeItem(DIR_CACHE_KEY_PREFIX + year);
-  } catch {}
-  const year = document.getElementById('codesYear').value;
-  if (year){ loadDirectoryFromCodes(year, true); } else { loadDirectoryLegacy(true); }
+  try { localStorage.removeItem(DIR_CACHE_KEY); } catch {}
+  loadDirectory(true);
 };
-
-/* Year change */
-document.getElementById('codesYear').addEventListener('change', (e)=>{
-  const year = e.target.value;
-  try{ localStorage.setItem(ACTIVE_YEAR_KEY, year || ''); }catch{}
-  if (year){ loadDirectoryFromCodes(year, true); }
-  else { loadDirectoryLegacy(true); }
-});
 
 /* Logists buttons */
 document.getElementById('refreshLogists').onclick = async () => {
@@ -1402,7 +1313,9 @@ loginBtn.onclick = async () => {
 logoutBtn.onclick = async () => {
   try{ await auth.signOut(); }
   finally{
-    location.replace('/login?next=' + encodeURIComponent('/index.html'));
+    // CHANGED: після виходу — редірект на відносний шлях логіну
+    const LOGIN_PATH = './login/index.html'; // якщо в тебе login.html у корені — заміни на './login.html'
+    location.replace(LOGIN_PATH + '?next=' + encodeURIComponent('./index.html'));
   }
 };
 
@@ -1435,10 +1348,7 @@ auth?.onAuthStateChanged(async (user) => {
 /* ===== Start ===== */
 window.addEventListener('load', async () => {
   if (!db) return;
-  await loadYears();
-  const year = document.getElementById('codesYear').value;
-  if (year){ await loadDirectoryFromCodes(year, true); }
-  else { await loadDirectoryLegacy(true); }
+  await loadDirectory(true);
   await refreshRoutesList();
   const rid = new URLSearchParams(location.search).get('rid');
   if (rid) await loadRouteById(rid);
