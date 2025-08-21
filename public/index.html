@@ -328,7 +328,7 @@
   // CHANGED: використовуємо відносний шлях до сторінки логіну
   // якщо у тебе логін у корені як login.html — просто заміни рядок нижче на './login.html'
   const LOGIN_PATH = './login.html';              // ← було ./login/index.html
-const loginURL   = LOGIN_PATH + '?next=' + encodeURIComponent(location.pathname + location.search);
+const loginURL = '/login.html?next=' + encodeURIComponent(location.pathname + location.search);
 
   auth.onAuthStateChanged(u => {
     if (!u) { location.href = loginURL; return; } // CHANGED: href замість replace
@@ -1013,6 +1013,7 @@ async function saveToDB() {
     const purpose   = document.getElementById('routePurpose').value;
     const intermediateText = document.getElementById('intermediateText').value.trim();
     const logistId = getLogistIdByInput('logistInput');
+
     if (!fromCode || !toCode) { alert('Оберіть значення “Від” та “До” зі списку довідника.'); return; }
     if (!logistId) { alert('Оберіть логіста зі списку.'); return; }
 
@@ -1027,6 +1028,7 @@ async function saveToDB() {
 
     const user = auth?.currentUser || null;
 
+    // 👇 вирівнюємо імена полів під правила: distanceKm (camelCase)
     const payload = {
       name: finalName,
       fromCode, toCode, routeType, purpose, intermediateText,
@@ -1037,8 +1039,8 @@ async function saveToDB() {
       logisticName: getLogistNameById(logistId),
       createdByUid: user?.uid || null,
       createdByEmail: user?.email || null,
-      distance_km: parseFloat(document.getElementById('distance').textContent) || 0,
-      updatedAt: new Date().toISOString()
+      distanceKm: parseFloat(document.getElementById('distance').textContent) || 0,
+      updatedAt: firebase.firestore.FieldValue.serverTimestamp()
     };
 
     const existing = await findExistingRoute(fromCode, toCode, routeType);
@@ -1068,7 +1070,7 @@ async function saveToDB() {
       if (mode === 'overwrite' && routeSnap.exists && routeSnap.data()?.routeKey) {
         routeKey = String(routeSnap.data().routeKey);
         const keyRef = db.collection('routeKeys').doc(routeKey);
-        const keySnap = await tx.get(keyRef);
+        await tx.get(keyRef); // читаємо для послідовності
         tx.set(keyRef, {
           routeId: docId,
           updatedAt: new Date().toISOString(),
@@ -1076,6 +1078,7 @@ async function saveToDB() {
           fromName: meta.fromName, toName: meta.toName
         }, { merge: true });
       } else {
+        // резервуємо новий ключ
         routeKey = await reserveKeyTx(tx, prefix, docId, meta);
       }
 
@@ -1087,7 +1090,9 @@ async function saveToDB() {
     await refreshRoutesList();
   } catch (err) {
     console.error('❌ Помилка збереження в Firestore:', err);
-    alert('❌ Не вдалося зберегти в БД: ' + (err?.message || err));
+    const code = err?.code || err?.name || '';
+    const msg  = err?.message || String(err);
+    alert(`❌ Не вдалося зберегти в БД (${code}): ${msg}`);
   }
 }
 
