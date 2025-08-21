@@ -327,8 +327,8 @@
 
   // CHANGED: використовуємо відносний шлях до сторінки логіну
   // якщо у тебе логін у корені як login.html — просто заміни рядок нижче на './login.html'
-  const LOGIN_PATH = './login/index.html';
-  const loginURL = LOGIN_PATH + '?next=' + encodeURIComponent(location.pathname + location.search);
+  const LOGIN_PATH = './login.html';              // ← було ./login/index.html
+const loginURL   = LOGIN_PATH + '?next=' + encodeURIComponent(location.pathname + location.search);
 
   auth.onAuthStateChanged(u => {
     if (!u) { location.href = loginURL; return; } // CHANGED: href замість replace
@@ -1314,7 +1314,7 @@ logoutBtn.onclick = async () => {
   try{ await auth.signOut(); }
   finally{
     // CHANGED: після виходу — редірект на відносний шлях логіну
-    const LOGIN_PATH = './login/index.html'; // якщо в тебе login.html у корені — заміни на './login.html'
+    const LOGIN_PATH = './login.html';              // ← було ./login/index.html
     location.replace(LOGIN_PATH + '?next=' + encodeURIComponent('./index.html'));
   }
 };

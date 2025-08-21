@@ -5,10 +5,9 @@
   <title>Вхід • Маршрути</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
 
-  <!-- Firebase -->
+  <!-- Firebase (compat) -->
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 
   <style>
     :root{ --card:#fff; --line:#e5e7eb; --pad:clamp(12px,2vw,24px); }
@@ -17,9 +16,8 @@
     body{
       margin:0;
       font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
-      background:#1d4ed8; /* fallback, якщо картинка не завантажилась */
+      background:#1d4ed8;
     }
-    /* Фон-картинка + легке затемнення для читабельності */
     body::before{
       content:""; position:fixed; inset:0;
       background:url("/img/login-bg.jpg") center/cover no-repeat fixed;
@@ -27,13 +25,11 @@
     }
     body::after{
       content:""; position:fixed; inset:0;
-      background:linear-gradient( to bottom right, rgba(0,0,0,.18), rgba(0,0,0,.28) );
+      background:linear-gradient(to bottom right, rgba(0,0,0,.18), rgba(0,0,0,.28));
       z-index:-1;
     }
 
     .wrap{ min-height:100%; padding:var(--pad) }
-
-    /* Картка в правому верхньому куті */
     .card{
       position:fixed; top:var(--pad); right:var(--pad);
       width:min(420px,94vw);
@@ -44,7 +40,6 @@
       backdrop-filter:blur(6px);
       padding:22px;
     }
-    /* На мобілках притискаємо до країв */
     @media (max-width:640px){
       .card{ left:var(--pad); right:var(--pad); top:var(--pad); width:auto; }
     }
@@ -56,18 +51,22 @@
       width:100%; padding:10px 12px; border:1px solid var(--line); border-radius:10px; font-size:14px;
       background:#fff; outline:none;
     }
-    .row{ display:grid; gap:10px }
+    .actions{ display:flex; gap:10px; margin-top:14px; flex-wrap:wrap }
     .btn{
       cursor:pointer; border:1px solid var(--line); background:#2563eb; color:#fff; font-weight:600;
       border-radius:10px; padding:10px 12px; width:100%;
     }
     .btn[disabled]{ opacity:.6; cursor:not-allowed }
     .btn.ghost{ background:#fff; color:#111 }
-    .actions{ display:flex; gap:10px; margin-top:10px; flex-wrap:wrap }
-    .msg{ margin:8px 0 0; font-size:13px }
+    .msg{ margin:10px 0 0; font-size:13px; min-height:1.25em }
     .msg.err{ color:#b91c1c }
     .brand{ display:flex; align-items:center; gap:10px; margin-bottom:10px }
     .brand svg{ width:28px; height:28px }
+    .links{ display:flex; gap:10px; margin-top:10px; flex-wrap:wrap }
+    .a-btn{
+      display:inline-flex; align-items:center; justify-content:center; padding:10px 12px; border-radius:10px;
+      border:1px solid var(--line); background:#fff; color:#111; text-decoration:none; width:100%; font-weight:600;
+    }
   </style>
 </head>
 <body>
@@ -85,18 +84,23 @@
       <label for="pass" style="margin-top:10px">Пароль</label>
       <input id="pass" type="password" placeholder="••••••••" autocomplete="current-password" />
 
-      <div class="actions" style="margin-top:14px">
+      <div class="actions">
         <button id="btnLogin" class="btn" type="button">Увійти</button>
         <button id="btnReset" class="btn ghost" type="button">Нагадати пароль</button>
       </div>
 
       <div id="msg" class="msg"></div>
-      <p class="muted" style="margin-top:14px">Питання доступу — до адміністратора.</p>
+
+      <div class="links">
+        <a id="backLink" href="/index.html" class="a-btn">Повернутися на карту</a>
+      </div>
+
+      <p class="muted" style="margin-top:10px">Питання доступу — до адміністратора.</p>
     </div>
   </div>
 
 <script>
-/* Firebase */
+/* ==== Firebase ==== */
 const firebaseConfig = {
   apiKey: "AIzaSyDjDBZkmy-skuDEQF8-AkRma7yw6TugoQc",
   authDomain: "my-map-app-58312.firebaseapp.com",
@@ -106,58 +110,76 @@ const firebaseConfig = {
   appId: "1:53260611353:web:f25e120996ad8305405f88",
   measurementId: "G-9LRX1FLTKL"
 };
-const app  = firebase.apps?.length ? firebase.app() : firebase.initializeApp(firebaseConfig);
+try{ firebase.apps?.length ? firebase.app() : firebase.initializeApp(firebaseConfig); }catch(e){}
 const auth = firebase.auth();
-
-// Персистентність один раз (до логіну)
 auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch(()=>{});
 
-/* Якщо вже увійшов — одразу на next */
-auth.onAuthStateChanged(u => { if (u) goNext(); });
-
-function goNext(){
-  const p = new URLSearchParams(location.search);
-  const next = p.get('next') || '/index.html';
-  location.replace(next);
-}
-
-function showMsg(text, isErr=false){
-  const el = document.getElementById('msg');
-  el.textContent = text || '';
-  el.className = 'msg' + (isErr ? ' err' : '');
-}
-
-const $btnLogin = document.getElementById('btnLogin');
-
-async function doLogin(){
-  const email = document.getElementById('email').value.trim();
-  const pass  = document.getElementById('pass').value;
-  if (!email || !pass) { showMsg('Заповни email і пароль', true); return; }
+/* ==== Навігація після входу ==== */
+function sanitizeNext(val){
+  // дозволяємо лише відносні шляхи поточного сайту
+  if (!val) return "/index.html";
   try{
-    $btnLogin.disabled = true;
-    showMsg('Входимо…');
-    await auth.signInWithEmailAndPassword(email, pass);
-    showMsg('Готово, перенаправляю…');
-    goNext();
-  }catch(e){
-    showMsg(e?.message || 'Помилка входу', true);
-  }finally{
-    $btnLogin.disabled = false;
+    // абсолютні URL відкинемо
+    const u = new URL(val, location.origin);
+    if (u.origin !== location.origin) return "/index.html";
+    // лише шляхи в межах сайту
+    return u.pathname + u.search + u.hash || "/index.html";
+  }catch{ return "/index.html"; }
+}
+const params = new URLSearchParams(location.search);
+let next = sanitizeNext(params.get("next"));
+document.getElementById("backLink").href = next;
+
+auth.onAuthStateChanged(u => { if (u) location.replace(next); });
+
+/* ==== UI helpers ==== */
+const $ = id => document.getElementById(id);
+function showMsg(text, isErr=false){
+  const el = $("msg");
+  el.textContent = text || "";
+  el.className = "msg" + (isErr ? " err" : "");
+}
+function humanizeError(e){
+  const code = (e && e.code) || "";
+  switch(code){
+    case "auth/invalid-email": return "Невірний формат email.";
+    case "auth/user-disabled": return "Обліковий запис вимкнено адміністратором.";
+    case "auth/user-not-found":
+    case "auth/wrong-password": return "Невірний email або пароль.";
+    case "auth/too-many-requests": return "Забагато спроб. Спробуй пізніше.";
+    default: return e?.message || "Сталася помилка.";
   }
 }
 
-$btnLogin.onclick = doLogin;
-// Сабміт по Enter
-document.getElementById('email').addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
-document.getElementById('pass').addEventListener('keydown',  e => { if (e.key === 'Enter') doLogin(); });
+/* ==== Дії ==== */
+async function doLogin(){
+  const email = $("email").value.trim();
+  const pass  = $("pass").value;
+  if (!email || !pass){ showMsg("Заповни email і пароль", true); return; }
+  $("btnLogin").disabled = true;
+  showMsg("Входимо…");
+  try{
+    await auth.signInWithEmailAndPassword(email, pass);
+    showMsg("Готово, перенаправляю…");
+    location.replace(next);
+  }catch(e){
+    showMsg(humanizeError(e), true);
+  }finally{
+    $("btnLogin").disabled = false;
+  }
+}
 
-document.getElementById('btnReset').onclick = async () => {
-  const email = document.getElementById('email').value.trim();
-  if (!email){ showMsg('Вкажи email для відновлення', true); return; }
+$("btnLogin").onclick = doLogin;
+$("email").addEventListener("keydown", e => { if (e.key === "Enter") doLogin(); });
+$("pass").addEventListener("keydown",  e => { if (e.key === "Enter") doLogin(); });
+
+$("btnReset").onclick = async () => {
+  const email = $("email").value.trim();
+  if (!email){ showMsg("Вкажи email для відновлення", true); return; }
   try{
     await auth.sendPasswordResetEmail(email);
-    showMsg('Надіслано лист для відновлення пароля.');
-  }catch(e){ showMsg(e?.message || 'Не вдалося надіслати лист', true); }
+    showMsg("Надіслано лист для відновлення пароля.");
+  }catch(e){ showMsg(humanizeError(e), true); }
 };
 </script>
 </body>
