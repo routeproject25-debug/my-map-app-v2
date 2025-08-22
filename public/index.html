@@ -15,11 +15,9 @@
   <style>
   :root { --nav-h:56px; --nav-real:56px; --card:#fff; --line:#e5e7eb; --muted:#6b7280; }
 
-  /* base */
   *{box-sizing:border-box}
   body{margin:0;padding:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
 
-  /* top bar */
   header.topbar{
     position:sticky; top:0; z-index:5000; min-height:var(--nav-h);
     display:flex; align-items:center; justify-content:space-between; gap:10px; padding:8px;
@@ -29,7 +27,6 @@
   header .left, header .right{ display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
   header .spacer{ flex:1 1 auto; }
 
-  /* auth bar */
   #authBar{ display:flex; align-items:center; gap:6px; flex-wrap:wrap; }
   #authBar input{
     height:34px; padding:6px 10px; border-radius:8px; border:1px solid rgba(255,255,255,.35);
@@ -46,7 +43,6 @@
     background:#fff; color:#111; cursor:pointer; touch-action:manipulation;
   }
 
-  /* mobile auth toggle */
   #mobileAuthToggle{ display:none; }
   @media (max-width: 640px){
     #mobileAuthToggle{
@@ -59,10 +55,8 @@
     #authBar.collapsed #authLogout{ display:none !important; }
   }
 
-  /* map */
   #map{position:absolute; top:var(--nav-real); bottom:0; width:100%}
 
-  /* side panel */
   #controls{
     position:absolute; z-index:3000; top:calc(var(--nav-real) + 8px); left:8px;
     background:var(--card); border:1px solid var(--line); border-radius:12px;
@@ -134,10 +128,9 @@
 <header class="topbar">
   <div class="left">
     <button id="panelToggle" class="btn xs" title="Сховати/показати панель">◀ Сховати</button>
-    <!-- CHANGED: робимо відносні посилання -->
-    <a href="./">🏠 Карта</a>
-    <a href="./export/">📤 Експорт</a>
-    <a href="./import/">📥 Імпорт</a>
+    <a href="/">🏠 Карта</a>
+    <a href="/export/">📤 Експорт</a>
+    <a href="/import/">📥 Імпорт</a>
   </div>
 
   <div class="spacer"></div>
@@ -232,7 +225,7 @@
     </div>
   </div>
 
-  <small class="muted">У БД зберігаються <b>коди</b> “Від/До”. Назва маршруту генерується з актуальних назв довідника.</small>
+  <small class="muted">Маршрут прив’язується за ключем <b>Підприємство + Підрозділ + Назва поля</b>. Поле <i>code</i> у довіднику — лише довідкове.</small>
 
   <details>
     <summary><b>Стиль карти</b></summary>
@@ -305,12 +298,10 @@
   </div>
 </div>
 
-<!-- ⬇️⬇️⬇️ AUTH GUARD: редірект неавторизованих на login -->
+<!-- AUTH GUARD -->
 <script>
 (function(){
-  // сховаємо сторінку, щоб не миготіла незалогінена
   document.documentElement.style.visibility = 'hidden';
-
   const firebaseConfig = {
     apiKey: "AIzaSyDjDBZkmy-skuDEQF8-AkRma7yw6TugoQc",
     authDomain: "my-map-app-58312.firebaseapp.com",
@@ -320,23 +311,15 @@
     appId: "1:53260611353:web:f25e120996ad8305405f88",
     measurementId: "G-9LRX1FLTKL"
   };
-
   try { firebase.apps?.length ? firebase.app() : firebase.initializeApp(firebaseConfig); } catch(e) {}
-
   const auth = firebase.auth();
-
-  // CHANGED: використовуємо відносний шлях до сторінки логіну
-  // якщо у тебе логін у корені як login.html — просто заміни рядок нижче на './login.html'
-  const LOGIN_PATH = './login.html';              // ← було ./login/index.html
-const loginURL = '/login.html?next=' + encodeURIComponent(location.pathname + location.search);
-
+  const loginURL = '/login?next=' + encodeURIComponent(location.pathname + location.search);
   auth.onAuthStateChanged(u => {
-    if (!u) { location.href = loginURL; return; } // CHANGED: href замість replace
+    if (!u) { location.replace(loginURL); return; }
     document.documentElement.style.visibility = '';
   });
 })();
 </script>
-<!-- ⬆️⬆️⬆️ AUTH GUARD -->
 
 <script>
 /* ===================== Mapbox init ===================== */
@@ -541,7 +524,7 @@ document.getElementById('toggleMarkers').onclick = () => {
   document.getElementById('toggleMarkers').textContent = markersVisible ? '📍 Приховати точки' : '📍 Показати точки';
 };
 
-/* ===== Rulers (draw + distance) ===== */
+/* ===== Rulers ===== */
 function drawRulers() {
   rulerLines.forEach(id => { if (map.getLayer(id)) map.removeLayer(id); if (map.getSource(id)) map.removeSource(id); });
   rulerLines = [];
@@ -682,36 +665,46 @@ try {
   console.error('❌ Firebase не ініціалізовано:', e);
 }
 
-/* ===================== Directory / helpers / UI ===================== */
-const dirByCode = {};
-const codeByName = {};
-const routesLookup = {};
-const logistById = {};
-const logistIdByName = {};
+/* ===================== Directory / helpers / UI (KEY-ONLY) ===================== */
+// Тримачі довідника
+let dirByKey = {};         // key -> row {key, name, unit, company, code, label}
+let keyByLabel = {};       // "Name • Unit • Company" -> key
+let keyByCode  = {};       // code -> key (для старих маршрутів)
 
-const DIR_CACHE_KEY = 'directoryCache.v2';
+const DIR_CACHE_KEY = 'directoryCache.key.v1';
 const DIR_CACHE_TTL_MS = 12 * 60 * 60 * 1000;
 
 const LOGISTS_CACHE_KEY = 'logistsCache.v1';
 const LOGISTS_CACHE_TTL_MS = 12 * 60 * 60 * 1000;
 
 function _norm(s){ return String(s||'').trim().toLowerCase(); }
+function sanitizeId(s){ return String(s||'').replace(/[\/\\#?\[\]]/g,'_'); }
+
+// Композитний ключ
+function makeKey({name, company, unit}){
+  return sanitizeId([company||'', unit||'', name||''].join('||').toLowerCase());
+}
+
+function displayLabel({name, unit, company}){
+  return [name, unit, company].filter(Boolean).join(' • ');
+}
 
 /* ---- Directory ---- */
 function fillDirectoryUI(rows){
   const list = document.getElementById('directoryList');
   list.innerHTML = '';
-  Object.keys(dirByCode).forEach(k => delete dirByCode[k]);
-  Object.keys(codeByName).forEach(k => delete codeByName[k]);
+  dirByKey = {}; keyByLabel = {}; keyByCode = {};
 
   for (const r of rows){
-    const { code, name, company, unit } = r;
-    dirByCode[code] = { name, company, unit };
-    if (!(name in codeByName)) codeByName[name] = code;
+    const key   = makeKey(r);
+    const label = displayLabel(r);
+    const row = { key, name:r.name, unit:r.unit, company:r.company, code:r.code||'', label };
+    dirByKey[key] = row;
+    keyByLabel[label] = key;
+    if (row.code) keyByCode[row.code] = key;
 
     const opt = document.createElement('option');
-    opt.value = name;
-    opt.label = [name, unit, company].filter(Boolean).join(' • ');
+    opt.value = label;
     list.appendChild(opt);
   }
 }
@@ -731,6 +724,7 @@ async function loadDirectory(force=false){
     }
   }catch{}
 
+  // Читаємо з колекції directory; поля гнучкі: company|enterprise, unit|department, code?
   let snap = null;
   try { snap = await db.collection('directory').get({ source: force ? 'default' : 'cache' }); } catch {}
   if (!snap || snap.empty) snap = await db.collection('directory').get();
@@ -738,7 +732,12 @@ async function loadDirectory(force=false){
   const rows = [];
   snap.forEach(doc => {
     const d = doc.data() || {};
-    rows.push({ code: doc.id, name: d.name || doc.id, company: d.company || '', unit: d.unit || '' });
+    rows.push({
+      name: d.name || d.display_name || doc.id,
+      company: d.company ?? d.enterprise ?? '',
+      unit: d.unit ?? d.department ?? '',
+      code: d.code ?? ''
+    });
   });
 
   fillDirectoryUI(rows);
@@ -749,7 +748,9 @@ async function loadDirectory(force=false){
   console.log('📒 Directory loaded from Firestore:', rows.length, 'force=', force);
 }
 
-/* ---- Logists ---- */
+/* ---- Logists (без змін) ---- */
+const logistById = {};
+const logistIdByName = {};
 function fillLogistsUI(rows){
   const list = document.getElementById('logistsList');
   list.innerHTML = '';
@@ -760,10 +761,7 @@ function fillLogistsUI(rows){
     logistById[r.id] = r; logistIdByName[r.name] = r.id;
     const opt = document.createElement('option'); opt.value = r.name; list.appendChild(opt);
   });
-
-  if (rows.length === 0) { console.warn('👥 Logists: пусто.'); }
 }
-
 async function loadLogists(allowServer=true){
   const msg = document.getElementById('logistsMsg');
   const showMsg = (t) => { msg.textContent = t || ''; msg.style.display = t ? 'block' : 'none'; };
@@ -807,7 +805,6 @@ async function loadLogists(allowServer=true){
     showMsg('Не вдалось завантажити логістів.');
   }
 }
-
 function getLogistIdByInput(inputId){
   const name = (document.getElementById(inputId).value || '').trim();
   if(!name) return null;
@@ -824,47 +821,42 @@ function getLogistNameById(id){ return (logistById[id]?.name) || ''; }
 function toObjPoints(arr) { return (arr || []).map(p => ({ lng: p[0], lat: p[1] })); }
 function fromObjPoints(arr) { return (arr || []).map(p => [p.lng, p.lat]); }
 
-function getCodeByInput(inputId) {
-  const raw = document.getElementById(inputId).value;
-  const name = raw.trim();
-  if (!name) return null;
-  if (codeByName[name]) return codeByName[name];
-  const n = _norm(name);
-  for (const [label, code] of Object.entries(codeByName)){ if (_norm(label) === n) return code; }
-  const candidates = Object.entries(codeByName).filter(([label]) => _norm(label).includes(n));
+/* ===== Key helpers for inputs ===== */
+function getKeyByInput(inputId) {
+  const label = (document.getElementById(inputId).value || '').trim();
+  if (!label) return null;
+  if (keyByLabel[label]) return keyByLabel[label];
+  const n = _norm(label);
+  const candidates = Object.entries(keyByLabel).filter(([lbl]) => _norm(lbl).includes(n));
   if (candidates.length === 1) return candidates[0][1];
   return null;
 }
+function getRowByKey(key){ return dirByKey[key] || null; }
+function getLabelByKey(key){ return dirByKey[key]?.label || ''; }
 
-function getNameByCode(code) { return (dirByCode[code]?.name) || ''; }
-function formatRouteTitle(data) {
-  const from = dirByCode[data.fromCode]?.name || 'невідомо';
-  const to   = dirByCode[data.toCode]?.name   || 'невідомо';
-  const type = data.routeType || 'Основний';
-  const parts = [type]; if (data.purpose) parts.push(data.purpose);
-  return `${from} → ${to} [${parts.join(' • ')}]`;
+function titleFromKeys(fromKey, toKey, routeType, purpose){
+  const from = getRowByKey(fromKey) || {};
+  const to   = getRowByKey(toKey)   || {};
+  const fromLabel = displayLabel(from);
+  const toLabel   = displayLabel(to);
+  const parts = [routeType || 'Основний']; if (purpose) parts.push(purpose);
+  return `${fromLabel} → ${toLabel} [${parts.join(' • ')}]`;
 }
+
 function updateRouteName() {
-  const fromCode = getCodeByInput('fromName');
-  const toCode = getCodeByInput('toName');
+  const fromKey = getKeyByInput('fromName');
+  const toKey   = getKeyByInput('toName');
+  if (!fromKey || !toKey) return;
   const routeType = document.getElementById('routeType').value;
   const routePurpose = document.getElementById('routePurpose').value;
-  if (!fromCode || !toCode) return;
-  const from = dirByCode[fromCode] || {};
-  const to   = dirByCode[toCode] || {};
-  const fromLabel = [from.name, from.unit, from.company].filter(Boolean).join(' • ');
-  const toLabel   = [to.name, to.unit, to.company].filter(Boolean).join(' • ');
-  const parts = [routeType]; if (routePurpose) parts.push(routePurpose);
-  document.getElementById('routeName').value = `${fromLabel} → ${toLabel} [${parts.join(' • ')}]`;
+  document.getElementById('routeName').value = titleFromKeys(fromKey, toKey, routeType, routePurpose);
 }
 
 /* ===== DUPLICATES ===== */
-function sanitizeId(s){ return String(s||'').replace(/[\/\\#?\[\]]/g,'_'); }
-
-async function findExistingRoute(fromCode, toCode, routeType){
+async function findExistingRoute(fromKey, toKey, routeType){
   try{
     const snap = await db.collection('routes')
-      .where('fromCode','==',fromCode).where('toCode','==',toCode).where('routeType','==',routeType)
+      .where('fromKey','==',fromKey).where('toKey','==',toKey).where('routeType','==',routeType)
       .limit(1).get();
     let found = null; snap.forEach(doc => { if (!found) found = doc; });
     return found;
@@ -897,8 +889,8 @@ const fileInput = document.getElementById('fileInput');
 
 document.getElementById('saveRoute').onclick = () => {
   if (readOnly) { alert('⛔ Недостатньо прав'); return; }
-  const fromCode = getCodeByInput('fromName');
-  const toCode   = getCodeByInput('toName');
+  const fromKey = getKeyByInput('fromName');
+  const toKey   = getKeyByInput('toName');
   const routeType = document.getElementById('routeType').value;
   const purpose   = document.getElementById('routePurpose').value;
   const intermediateText = document.getElementById('intermediateText').value.trim();
@@ -907,13 +899,13 @@ document.getElementById('saveRoute').onclick = () => {
 
   const routeData = {
     name: (document.getElementById('routeName').value || 'Без назви'),
-    fromCode, toCode, routeType, purpose, intermediateText,
+    fromKey, toKey, routeType, purpose, intermediateText,
     points: toObjPoints(points),
     startRuler: toObjPoints(startRuler),
     endRuler: toObjPoints(endRuler),
     logisticId: logistId || null,
     logisticName: logistName || '',
-    distance_km: parseFloat(document.getElementById('distance').textContent) || 0,
+    distanceKm: parseFloat(document.getElementById('distance').textContent) || 0,
     date: new Date().toISOString()
   };
   const blob = new Blob([JSON.stringify(routeData, null, 2)], { type: 'application/json' });
@@ -947,8 +939,14 @@ fileInput.onchange = (event) => {
       startRuler = arrFrom(routeData.startRuler || []);
       endRuler = arrFrom(routeData.endRuler || []);
 
-      if (routeData.fromCode) document.getElementById('fromName').value = getNameByCode(routeData.fromCode) || '';
-      if (routeData.toCode)   document.getElementById('toName').value   = getNameByCode(routeData.toCode)   || '';
+      // Визначаємо ключі (нові або через код зі старих файлів)
+      let fromKey = routeData.fromKey;
+      let toKey   = routeData.toKey;
+      if (!fromKey && routeData.fromCode) fromKey = keyByCode[routeData.fromCode] || null;
+      if (!toKey   && routeData.toCode)   toKey   = keyByCode[routeData.toCode]   || null;
+
+      if (fromKey) document.getElementById('fromName').value = getLabelByKey(fromKey) || '';
+      if (toKey)   document.getElementById('toName').value   = getLabelByKey(toKey)   || '';
       if (routeData.routeType) document.getElementById('routeType').value = routeData.routeType;
       if (routeData.purpose)   document.getElementById('routePurpose').value = routeData.purpose;
       document.getElementById('intermediateText').value = routeData.intermediateText || '';
@@ -990,7 +988,7 @@ async function reserveKeyTx(tx, prefix, docId, meta){
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
         routeId: docId,
-        fromCode: meta.fromCode, toCode: meta.toCode,
+        fromKey: meta.fromKey, toKey: meta.toKey,
         fromName: meta.fromName, toName: meta.toName
       });
       return key;
@@ -998,7 +996,6 @@ async function reserveKeyTx(tx, prefix, docId, meta){
   }
   throw new Error('Не вдалося згенерувати унікальний код маршруту (спробуйте ще раз).');
 }
-/* ======================================================= */
 
 /* ===== Firestore: save/list/load/delete ===== */
 async function saveToDB() {
@@ -1007,31 +1004,27 @@ async function saveToDB() {
     if (readOnly) { alert('⛔ Недостатньо прав'); return; }
     if (points.length === 0 && startRuler.length === 0 && endRuler.length === 0) { alert('Немає що зберігати'); return; }
 
-    const fromCode = getCodeByInput('fromName');
-    const toCode   = getCodeByInput('toName');
+    const fromKey = getKeyByInput('fromName');
+    const toKey   = getKeyByInput('toName');
     const routeType = document.getElementById('routeType').value;
     const purpose   = document.getElementById('routePurpose').value;
     const intermediateText = document.getElementById('intermediateText').value.trim();
     const logistId = getLogistIdByInput('logistInput');
-
-    if (!fromCode || !toCode) { alert('Оберіть значення “Від” та “До” зі списку довідника.'); return; }
+    if (!fromKey || !toKey) { alert('Оберіть “Від” та “До” зі списку довідника.'); return; }
     if (!logistId) { alert('Оберіть логіста зі списку.'); return; }
 
-    const from = dirByCode[fromCode] || {};
-    const to   = dirByCode[toCode] || {};
-    const fromLabel = [from.name, from.unit, from.company].filter(Boolean).join(' • ');
-    const toLabel   = [to.name, to.unit, to.company].filter(Boolean).join(' • ');
-    const generatedName = `${fromLabel} → ${toLabel} [${routeType}${purpose ? ' • '+purpose : ''}]`;
+    const from = getRowByKey(fromKey) || {};
+    const to   = getRowByKey(toKey)   || {};
+    const generatedName = titleFromKeys(fromKey, toKey, routeType, purpose);
 
     const manual = (document.getElementById('routeName').value || '').trim();
     const finalName = manual || generatedName;
 
     const user = auth?.currentUser || null;
 
-    // 👇 вирівнюємо імена полів під правила: distanceKm (camelCase)
     const payload = {
       name: finalName,
-      fromCode, toCode, routeType, purpose, intermediateText,
+      fromKey, toKey, routeType, purpose, intermediateText,
       points: toObjPoints(points),
       startRuler: toObjPoints(startRuler),
       endRuler: toObjPoints(endRuler),
@@ -1043,10 +1036,10 @@ async function saveToDB() {
       updatedAt: firebase.firestore.FieldValue.serverTimestamp()
     };
 
-    const existing = await findExistingRoute(fromCode, toCode, routeType);
+    const existing = await findExistingRoute(fromKey, toKey, routeType);
     const baseId = sanitizeId(finalName);
     let docId = baseId;
-    let mode = 'new'; // 'new' | 'overwrite' | 'copy'
+    let mode = 'new';
 
     if (existing){
       const existingName = existing.data()?.name || existing.id;
@@ -1057,7 +1050,7 @@ async function saveToDB() {
     }
 
     const prefix = firstLetter(from.name) + firstLetter(to.name);
-    const meta = { fromCode, toCode, fromName: from.name || '', toName: to.name || '' };
+    const meta = { fromKey, toKey, fromName: from.name || '', toName: to.name || '' };
 
     let routeKeySaved = null;
 
@@ -1070,15 +1063,14 @@ async function saveToDB() {
       if (mode === 'overwrite' && routeSnap.exists && routeSnap.data()?.routeKey) {
         routeKey = String(routeSnap.data().routeKey);
         const keyRef = db.collection('routeKeys').doc(routeKey);
-        await tx.get(keyRef); // читаємо для послідовності
+        await tx.get(keyRef);
         tx.set(keyRef, {
           routeId: docId,
           updatedAt: new Date().toISOString(),
-          fromCode, toCode,
+          fromKey, toKey,
           fromName: meta.fromName, toName: meta.toName
         }, { merge: true });
       } else {
-        // резервуємо новий ключ
         routeKey = await reserveKeyTx(tx, prefix, docId, meta);
       }
 
@@ -1097,6 +1089,15 @@ async function saveToDB() {
 }
 
 let isRefreshingRoutes = false;
+function labelForRouteDoc(d){
+  // підтримка старих документів з fromCode/toCode через code->key
+  const fk = d.fromKey || (d.fromCode ? keyByCode[d.fromCode] : null);
+  const tk = d.toKey   || (d.toCode   ? keyByCode[d.toCode]   : null);
+  const km = (typeof d.distanceKm === 'number') ? ` (${d.distanceKm.toFixed(2)} км)` :
+             (typeof d.distance_km === 'number') ? ` (${d.distance_km.toFixed(2)} км)` : '';
+  return titleFromKeys(fk, tk, d.routeType || 'Основний', d.purpose || '') + km;
+}
+
 async function refreshRoutesList(limitNum = 100) {
   if (!db || isRefreshingRoutes) return;
   isRefreshingRoutes = true;
@@ -1110,13 +1111,11 @@ async function refreshRoutesList(limitNum = 100) {
   const render = (snap) => {
     sel.innerHTML = '<option value="">— вибери маршрут з БД —</option>';
     list.innerHTML = '';
-    for (const k in routesLookup) delete routesLookup[k];
+    Object.keys(routesLookup || {}).forEach(k => delete routesLookup[k]);
 
     snap.forEach(doc => {
       const d = doc.data();
-      const km = (typeof d.distance_km === 'number') ? ` (${d.distance_km.toFixed(2)} км)` : '';
-      const labelNow = formatRouteTitle(d);
-      const label = labelNow + km;
+      const label = labelForRouteDoc(d);
 
       const opt = document.createElement('option');
       opt.value = doc.id; opt.textContent = label; sel.appendChild(opt);
@@ -1147,21 +1146,24 @@ async function loadFromDB() {
     const docSnap = await docRef.get();
     if (!docSnap.exists) { alert('Маршрут не знайдено'); return; }
     const data = docSnap.data();
-    updateRouteName();
 
-    document.getElementById('fromName').value = getNameByCode(data.fromCode) || '';
-    document.getElementById('toName').value   = getNameByCode(data.toCode) || '';
+    const fromKey = data.fromKey || (data.fromCode ? keyByCode[data.fromCode] : null);
+    const toKey   = data.toKey   || (data.toCode   ? keyByCode[data.toCode]   : null);
+
+    if (fromKey) document.getElementById('fromName').value = getLabelByKey(fromKey) || '';
+    if (toKey)   document.getElementById('toName').value   = getLabelByKey(toKey)   || '';
+
     document.getElementById('routeType').value = data.routeType || 'Основний';
     document.getElementById('routePurpose').value = data.purpose || 'Зерно';
     document.getElementById('intermediateText').value = data.intermediateText || '';
-    document.getElementById('routeName').value = formatRouteTitle(data);
+    document.getElementById('routeName').value = labelForRouteDoc(data).replace(/\s\(\d+(\.\d+)?\sкм\)$/, '');
 
     document.getElementById('logistInput').value =
       data.logisticName || (data.logisticId ? getLogistNameById(data.logisticId) : '');
 
-    points = fromObjPoints(data.points || []);
+    points     = fromObjPoints(data.points || []);
     startRuler = fromObjPoints(data.startRuler || []);
-    endRuler = fromObjPoints(data.endRuler || []);
+    endRuler   = fromObjPoints(data.endRuler || []);
 
     rebuildMarkers(); drawRulers(); updateRoute();
     if (points.length > 0) map.flyTo({ center: points[0], zoom: 12 });
@@ -1224,6 +1226,7 @@ document.getElementById('clearLogistsCache').onclick = () => {
 /* Search helper */
 const routeSearch = document.getElementById('routeSearch');
 const remoteRoutesSel = document.getElementById('remoteRoutes');
+const routesLookup = {};
 routeSearch.addEventListener('input', () => {
   const q = routeSearch.value.trim().toLowerCase();
   let matched = false;
@@ -1246,12 +1249,16 @@ async function loadRouteById(rid) {
     const snap = await db.collection('routes').doc(rid).get();
     if (!snap.exists) { alert('Маршрут з таким ID не знайдено: ' + rid); return; }
     const data = snap.data();
-    document.getElementById('fromName').value = getNameByCode(data.fromCode) || '';
-    document.getElementById('toName').value   = getNameByCode(data.toCode) || '';
+
+    const fromKey = data.fromKey || (data.fromCode ? keyByCode[data.fromCode] : null);
+    const toKey   = data.toKey   || (data.toCode   ? keyByCode[data.toCode]   : null);
+
+    document.getElementById('fromName').value = fromKey ? getLabelByKey(fromKey) : '';
+    document.getElementById('toName').value   = toKey   ? getLabelByKey(toKey)   : '';
     document.getElementById('routeType').value = data.routeType || 'Основний';
     document.getElementById('routePurpose').value = data.purpose || 'Зерно';
     document.getElementById('intermediateText').value = data.intermediateText || '';
-    document.getElementById('routeName').value = formatRouteTitle(data);
+    document.getElementById('routeName').value = titleFromKeys(fromKey, toKey, data.routeType || 'Основний', data.purpose || '');
 
     document.getElementById('logistInput').value =
       data.logisticName || (data.logisticId ? getLogistNameById(data.logisticId) : '');
@@ -1318,9 +1325,7 @@ loginBtn.onclick = async () => {
 logoutBtn.onclick = async () => {
   try{ await auth.signOut(); }
   finally{
-    // CHANGED: після виходу — редірект на відносний шлях логіну
-    const LOGIN_PATH = './login.html';              // ← було ./login/index.html
-    location.replace(LOGIN_PATH + '?next=' + encodeURIComponent('./index.html'));
+    location.replace('/login?next=' + encodeURIComponent('/index.html'));
   }
 };
 
