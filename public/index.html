@@ -11,6 +11,8 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+  <!-- ⬇️ ДОДАНО: Firebase Storage -->
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
 
   <style>
   :root { --nav-h:56px; --nav-real:56px; --card:#fff; --line:#e5e7eb; --muted:#6b7280; }
@@ -267,7 +269,7 @@
     <select id="remoteRoutes" style="min-width:260px">
       <option value="">— вибери маршрут з БД —</option>
     </select>
-    <div class="btn-row" style="margin-top:6px%;">
+    <div class="btn-row" style="margin-top:6%;">
       <button id="refreshList" class="btn">🔄 Оновити список</button>
       <button id="loadFromDB" class="btn">⬇️ Завантажити з БД</button>
       <button id="deleteFromDB" class="btn">🗑 Видалити з БД</button>
@@ -417,7 +419,12 @@ deletePointBtn.onclick = (e) => {
 };
 document.addEventListener('click', () => { contextMenu.style.display = 'none'; });
 
-map.on('style.load', () => { applyUkrainianLabels(); updateRoute(); drawRulers(); });
+map.on('style.load', () => {
+  applyUkrainianLabels(); updateRoute(); drawRulers();
+  // ⬇️ ДОДАНО: відновити геозони після зміни стилю
+  if (geozonesDataCache) addGeozones(geozonesDataCache);
+});
+
 document.getElementById('mapStyle').addEventListener('change', function() {
   currentStyle = this.value; map.setStyle(currentStyle);
 });
@@ -655,10 +662,14 @@ const firebaseConfig = {
 };
 
 let db = null, auth = null;
+/* ⬇️ ДОДАНО: Storage */
+let storage = null;
+
 try {
   firebase.apps && firebase.apps.length ? firebase.app() : firebase.initializeApp(firebaseConfig);
   db = firebase.firestore();
   auth = firebase.auth();
+  storage = firebase.storage(); // ⬅️
   console.log('✅ Firebase ініціалізовано:', firebaseConfig.projectId);
   firebase.firestore().enablePersistence({ synchronizeTabs: true }).catch((e) => {
     console.warn('Firestore persistence is off:', e.code || e.message);
@@ -834,15 +845,12 @@ function getNameByCode(code) { return (dirByCode[code]?.name) || ''; }
 
 /* Назву будуємо стійко — працює і для code, і для key, і для збережених label */
 function prettyFromTo(data){
-  // 1) якщо збережені підписи
   if (data.fromLabel || data.toLabel){
     return [data.fromLabel || '', data.toLabel || ''];
   }
-  // 2) якщо збережені коди
   if (data.fromCode || data.toCode){
     return [makeDirLabelByCode(data.fromCode) || '', makeDirLabelByCode(data.toCode) || ''];
   }
-  // 3) старий формат з ключами "підприємство|підрозділ|поле"
   if (data.fromKey || data.toKey){
     const fmt = k => String(k||'').split('|').map(s=>s.trim()).filter(Boolean).join(' • ');
     return [fmt(data.fromKey), fmt(data.toKey)];
@@ -1043,7 +1051,7 @@ async function saveToDB() {
     const payload = {
       name: finalName,
       fromCode, toCode, routeType, purpose, intermediateText,
-      fromLabel, toLabel, // ⬅️ зберігаємо підписи
+      fromLabel, toLabel,
       points: toObjPoints(points),
       startRuler: toObjPoints(startRuler),
       endRuler: toObjPoints(endRuler),
@@ -1073,7 +1081,6 @@ async function saveToDB() {
 
     let routeKeySaved = null;
 
-    // Основний шлях — через транзакцію (routeKeys + routes)
     try{
       await db.runTransaction(async (tx) => {
         const routeRef = db.collection('routes').doc(docId);
@@ -1084,7 +1091,7 @@ async function saveToDB() {
         if (mode === 'overwrite' && routeSnap.exists && routeSnap.data()?.routeKey) {
           routeKey = String(routeSnap.data().routeKey);
           const keyRef = db.collection('routeKeys').doc(routeKey);
-          await tx.get(keyRef); // перевіримо існування
+          await tx.get(keyRef);
           tx.set(keyRef, {
             routeId: docId,
             updatedAt: new Date().toISOString(),
@@ -1102,13 +1109,11 @@ async function saveToDB() {
       alert(`✅ Збережено в БД: ${payload.name}\nКод маршруту: ${routeKeySaved}`);
     } catch (txErr) {
       console.warn('Транзакція (routeKeys) не вдалася:', txErr?.code || txErr, txErr?.message);
-
-      // Fallback: збережемо сам маршрут без коду (на час налагодження правил)
       try{
         await db.collection('routes').doc(docId).set(payload, { merge:true });
         alert('⚠️ Збережено маршрут БЕЗ коду (routeKey).\nПричина відхилення коду: ' + (txErr?.message || txErr));
       }catch(saveErr){
-        throw saveErr; // уже покажемо як загальну помилку
+        throw saveErr;
       }
     }
 
@@ -1171,7 +1176,6 @@ async function loadFromDB() {
     if (!docSnap.exists) { alert('Маршрут не знайдено'); return; }
     const data = docSnap.data();
 
-    // Повертаємо назви в інпути (name з довідника або збережений label)
     const fName = getNameByCode(data.fromCode) || parseNameFromLabel(data.fromLabel);
     const tName = getNameByCode(data.toCode)   || parseNameFromLabel(data.toLabel);
 
@@ -1325,6 +1329,141 @@ panelToggleBtn.addEventListener('click', () => {
 });
 updatePanelToggleLabel();
 
+/* ======== ⬇️ ГЕОЗОНИ зі STORAGE (geozones/all.geojson) ========= */
+const STORAGE_GEOJSON_PATH = 'geozones/all.geojson';
+let geozonesDataCache = null;
+let geozonesFitted = false;
+let geoClickHandler = null;
+
+function removeLayerIfExists(id){ try{ if(map.getLayer(id)) map.removeLayer(id); }catch{} }
+function removeSourceIfExists(id){ try{ if(map.getSource(id)) map.removeSource(id); }catch{} }
+
+function buildLabel(props){
+  const name = props.label || props.name || props.Name || props.Name_crops || props.field || props.title || props['Назва поля'] || props['Назва'] || '';
+  const unit = props.unit || props['Підрозділ'] || props.department || '';
+  const comp = props.company || props.enterprise || props['Підприємство'] || '';
+  const code = props.code || props['Код'] || '';
+  const parts = [name, unit, comp].filter(Boolean);
+  if (parts.length) return parts.join(' • ');
+  return code ? String(code) : 'Поле';
+}
+
+function normalizeGeoJSON(obj){
+  if (!obj || !obj.features) return obj;
+  return {
+    type: 'FeatureCollection',
+    features: obj.features.map(f=>{
+      const p = f.properties || {};
+      return {
+        ...f,
+        properties: { ...p, _label: buildLabel(p) }
+      };
+    })
+  };
+}
+
+function attachGeozoneHandlers(){
+  const layers = ['geozones-fill','geozones-outline','geozones-point','geozones-label'];
+  if (geoClickHandler){
+    layers.forEach(id=>{ try{ map.off('click', id, geoClickHandler); }catch{} });
+  }
+  geoClickHandler = (e)=>{
+    const feat = e.features && e.features[0];
+    if (!feat) return;
+    const p = feat.properties || {};
+    const label = p._label || 'Поле';
+    // невеличка вивідка властивостей
+    const rows = Object.keys(p)
+      .filter(k=>k !== '_label')
+      .slice(0, 12) // щоб попап не розростався надто
+      .map(k=>`<div><b>${k}</b>: ${String(p[k])}</div>`)
+      .join('');
+    new mapboxgl.Popup({ closeButton:true, closeOnClick:true })
+      .setLngLat(e.lngLat)
+      .setHTML(`<div style="min-width:220px"><div style="font-weight:700;margin-bottom:6px">${label}</div>${rows||''}</div>`)
+      .addTo(map);
+  };
+  layers.forEach(id=>{ if (map.getLayer(id)) map.on('click', id, geoClickHandler); });
+}
+
+function addGeozones(obj){
+  geozonesDataCache = normalizeGeoJSON(obj);
+  // чистимо, якщо були
+  removeLayerIfExists('geozones-label');
+  removeLayerIfExists('geozones-point');
+  removeLayerIfExists('geozones-outline');
+  removeLayerIfExists('geozones-fill');
+  removeSourceIfExists('geozones');
+
+  map.addSource('geozones', { type:'geojson', data: geozonesDataCache });
+
+  const isPoly = ['any',
+    ['==', ['geometry-type'], 'Polygon'],
+    ['==', ['geometry-type'], 'MultiPolygon']
+  ];
+  const isPoint = ['==', ['geometry-type'], 'Point'];
+
+  map.addLayer({
+    id:'geozones-fill', type:'fill', source:'geozones', filter:isPoly,
+    paint:{ 'fill-color':'#22c55e', 'fill-opacity':0.18 }
+  });
+
+  map.addLayer({
+    id:'geozones-outline', type:'line', source:'geozones', filter:isPoly,
+    paint:{ 'line-color':'#16a34a', 'line-width':1.2 }
+  });
+
+  map.addLayer({
+    id:'geozones-point', type:'circle', source:'geozones', filter:isPoint,
+    paint:{ 'circle-radius':4, 'circle-color':'#f59e0b', 'circle-stroke-width':1, 'circle-stroke-color':'#fff' }
+  });
+
+  map.addLayer({
+    id:'geozones-label', type:'symbol', source:'geozones',
+    layout:{
+      'text-field':['get','_label'],
+      'text-size':12,
+      'text-offset':[0,0.8],
+      'text-allow-overlap':false,
+      'text-anchor':'top'
+    },
+    paint:{
+      'text-color':'#111',
+      'text-halo-color':'#fff',
+      'text-halo-width':1.2
+    }
+  });
+
+  attachGeozoneHandlers();
+}
+
+function fitGeozones(){
+  try{
+    if (!geozonesDataCache || geozonesFitted === true || !window.turf) return;
+    const b = turf.bbox(geozonesDataCache); // [minX, minY, maxX, maxY]
+    if (!b || b.some(v=>!isFinite(v))) return;
+    geozonesFitted = true;
+    map.fitBounds([[b[0], b[1]],[b[2], b[3]]], { padding: 40, maxZoom: 14 });
+  }catch(e){ console.warn('fitGeozones:', e?.message||e); }
+}
+
+async function loadGeozonesFromStorage(path = STORAGE_GEOJSON_PATH, force=false){
+  try{
+    if (!storage){ console.warn('Storage не ініціалізовано'); return; }
+    let url = await storage.ref(path).getDownloadURL();
+    if (force) url += (url.includes('?')?'&':'?') + 'v=' + Date.now(); // bust cache
+    const res = await fetch(url);
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const obj = await res.json();
+    addGeozones(obj);
+    fitGeozones();
+    console.log('🌐 GeoJSON геозони завантажено зі Storage:', path);
+  }catch(e){
+    console.warn('Не вдалося завантажити геозони зі Storage:', e?.message||e);
+  }
+}
+/* ========= ⬆️ ГЕОЗОНИ ========= */
+
 /* ===== Auth ===== */
 const authHello = document.getElementById('authHello');
 const authEmail = document.getElementById('authEmail');
@@ -1364,6 +1503,10 @@ auth?.onAuthStateChanged(async (user) => {
     }catch{}
     applyRoleUI(role);
     await loadLogists(true);
+
+    /* ⬇️ ДОДАНО: автозавантаження геозон після входу */
+    await loadGeozonesFromStorage(STORAGE_GEOJSON_PATH, /*force*/true);
+
   } else {
     authHello.textContent = 'Гість';
     loginBtn.style.display='inline-block'; authEmail.style.display='inline-block'; authPass.style.display='inline-block';
