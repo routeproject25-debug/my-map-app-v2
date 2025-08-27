@@ -254,7 +254,6 @@ btnLogout.addEventListener('click', async () => { try{ await auth.signOut(); }ca
 auth?.onAuthStateChanged(async (u) => {
   currentUser = u || null;
   if (!u){
-    // 🔒 якщо не увійшов — одразу на /login.html?next=...
     const next = encodeURIComponent(location.pathname + location.search);
     location.replace(`/login.html?next=${next}`);
     return;
@@ -389,7 +388,7 @@ function formatDate(dt){ if (!dt) return ''; const d=new Date(dt); if (isNaN(d))
 function toLonLat(p){
   if (Array.isArray(p) && p.length>=2){ const a=Number(p[0]); const b=Number(p[1]); return (Math.abs(a)<=90 && Math.abs(b)<=180)?[b,a]:[a,b]; }
   if (typeof p==='string'){ const parts=p.split(/[;, ]+/).map(Number).filter(v=>!Number.isNaN(v)); if (parts.length>=2) return toLonLat(parts); }
-  if (p && typeof p==='object'){ const lat=Number(p.lat ?? p.latitude ?? p.Lat ?? p.Latitude); const lon=Number(p.lon ?? p.lng ?? p.longitude ?? p.Lon ?? p.Lng ?? p.Longitude); if (!Number.isNaN(lat)&&!Number.isNaN(lon)) return [lon,lat]; }
+  if (p && typeof п==='object'){ const lat=Number(p.lat ?? p.latitude ?? p.Lat ?? p.Latitude); const lon=Number(p.lon ?? p.lng ?? p.longitude ?? p.Lon ?? p.Lng ?? p.Longitude); if (!Number.isNaN(lat)&&!Number.isNaN(lon)) return [lon,lat]; }
   return null;
 }
 function normalizePoints(raw){
@@ -605,12 +604,18 @@ function renderTable(rows){
   updateStats(rows);
 }
 
-/* ---------- Експорт у Excel (клікабельні посилання) ---------- */
+/* ---------- Експорт у Excel (КОРОТКЕ клікабельне посилання) ---------- */
 function exportToExcel(rows){
   const header = ['Код Від','Код До','Від','До','Відстань, км','Тип','Логіст','Оновлено','Код маршруту','ID','URL (Карта)'];
 
   const body = rows.map(r => {
     const mapUrl = `${location.origin}${MAP_URL}?rid=${encodeURIComponent(r.id)}`;
+
+    // ⬇️ ВАЖЛИВО: показуємо акуратний текст, а не довжелезний URL
+    const linkText = '🗺️ Відкрити';
+    // Якщо хочеш — можна так:
+    // const linkText = `🗺️ ${r.fromName || 'Від'} → ${r.toName || 'До'}`;
+
     return [
       r.fromCode,
       r.toCode,
@@ -622,14 +627,16 @@ function exportToExcel(rows){
       r.updatedAt,
       r.routeKey || '',
       r.id,
-      // комірка-гіперпосилання: показує повний URL і відкриває його по кліку
-      { t: 's', v: mapUrl, l: { Target: mapUrl, Tooltip: 'Відкрити маршрут на карті' } }
+      { t: 's', v: linkText, l: { Target: mapUrl, Tooltip: 'Відкрити маршрут на карті' } }
     ];
   });
 
   const ws = XLSX.utils.aoa_to_sheet([header, ...body]);
-  ws['!cols'] = [12,12,28,28,12,16,22,22,18,36,60].map(w => ({ wch: w }));
-  // автоп фільтр (зручно)
+
+  // Колонка з посиланням тепер вузька, бо текст короткий
+  ws['!cols'] = [12,12,28,28,12,16,22,22,18,36,18].map(w => ({ wch: w }));
+
+  // Автофільтр
   ws['!autofilter'] = { ref: XLSX.utils.encode_range({ s:{c:0,r:0}, e:{c:10,r:body.length} }) };
 
   const wb = XLSX.utils.book_new();
@@ -692,7 +699,6 @@ document.querySelector('#resTable tbody').addEventListener('click', async (ev)=>
 (async ()=>{
   if (!db) return;
   statusEl.textContent = 'Увійдіть';
-  // Якщо авторизації ще нема — незабаром onAuthStateChanged зробить редірект
   if (auth?.currentUser) { await Promise.all([loadDirectory(), loadLogists(true)]); }
 })();
 
