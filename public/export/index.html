@@ -605,19 +605,33 @@ function renderTable(rows){
   updateStats(rows);
 }
 
-/* ---------- Експорт у Excel ---------- */
+/* ---------- Експорт у Excel (клікабельні посилання) ---------- */
 function exportToExcel(rows){
-  const data = [
-    ['Код Від','Код До','Від','До','Відстань, км','Тип','Логіст','Оновлено','Код маршруту','ID','URL (Карта)'],
-    ...rows.map(r => [
-      r.fromCode, r.toCode, r.fromName, r.toName,
+  const header = ['Код Від','Код До','Від','До','Відстань, км','Тип','Логіст','Оновлено','Код маршруту','ID','URL (Карта)'];
+
+  const body = rows.map(r => {
+    const mapUrl = `${location.origin}${MAP_URL}?rid=${encodeURIComponent(r.id)}`;
+    return [
+      r.fromCode,
+      r.toCode,
+      r.fromName,
+      r.toName,
       Number.isFinite(r.distance_km) ? Number(r.distance_km.toFixed(3)) : '',
-      r.type, r.logisticName || '', r.updatedAt, r.routeKey || '', r.id,
-      `${location.origin}${MAP_URL}?rid=${encodeURIComponent(r.id)}`
-    ])
-  ];
-  const ws = XLSX.utils.aoa_to_sheet(data);
-  ws['!cols'] = [12,12,28,28,12,16,22,22,18,36,40].map(w => ({ wch: w }));
+      r.type,
+      r.logisticName || '',
+      r.updatedAt,
+      r.routeKey || '',
+      r.id,
+      // комірка-гіперпосилання: показує повний URL і відкриває його по кліку
+      { t: 's', v: mapUrl, l: { Target: mapUrl, Tooltip: 'Відкрити маршрут на карті' } }
+    ];
+  });
+
+  const ws = XLSX.utils.aoa_to_sheet([header, ...body]);
+  ws['!cols'] = [12,12,28,28,12,16,22,22,18,36,60].map(w => ({ wch: w }));
+  // автоп фільтр (зручно)
+  ws['!autofilter'] = { ref: XLSX.utils.encode_range({ s:{c:0,r:0}, e:{c:10,r:body.length} }) };
+
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Маршрути');
   XLSX.writeFile(wb, 'routes_export.xlsx');
