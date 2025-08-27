@@ -254,6 +254,7 @@ btnLogout.addEventListener('click', async () => { try{ await auth.signOut(); }ca
 auth?.onAuthStateChanged(async (u) => {
   currentUser = u || null;
   if (!u){
+    // 🔒 якщо не увійшов — одразу на /login.html?next=...
     const next = encodeURIComponent(location.pathname + location.search);
     location.replace(`/login.html?next=${next}`);
     return;
@@ -604,18 +605,12 @@ function renderTable(rows){
   updateStats(rows);
 }
 
-/* ---------- Експорт у Excel (клікабельні, короткі посилання) ---------- */
+/* ---------- Експорт у Excel (клікабельні посилання) ---------- */
 function exportToExcel(rows){
   const header = ['Код Від','Код До','Від','До','Відстань, км','Тип','Логіст','Оновлено','Код маршруту','ID','URL (Карта)'];
 
   const body = rows.map(r => {
     const mapUrl = `${location.origin}${MAP_URL}?rid=${encodeURIComponent(r.id)}`;
-
-    // Лаконічний підпис для гіперпосилання:
-    const linkText = '🗺️ Відкрити';
-    // Якщо хочеш показувати напрямок, розкоментуй наступний рядок:
-    // const linkText = `🗺️ ${r.fromName || 'Від'} → ${r.toName || 'До'}`;
-
     return [
       r.fromCode,
       r.toCode,
@@ -627,14 +622,14 @@ function exportToExcel(rows){
       r.updatedAt,
       r.routeKey || '',
       r.id,
-      // Клікабельна комірка з дружнім текстом
-      { t: 's', v: linkText, l: { Target: mapUrl, Tooltip: 'Відкрити маршрут на карті' } }
+      // комірка-гіперпосилання: показує повний URL і відкриває його по кліку
+      { t: 's', v: mapUrl, l: { Target: mapUrl, Tooltip: 'Відкрити маршрут на карті' } }
     ];
   });
 
   const ws = XLSX.utils.aoa_to_sheet([header, ...body]);
-  // Колонка з посиланням тепер вузька
-  ws['!cols'] = [12,12,28,28,12,16,22,22,18,36,18].map(w => ({ wch: w }));
+  ws['!cols'] = [12,12,28,28,12,16,22,22,18,36,60].map(w => ({ wch: w }));
+  // автоп фільтр (зручно)
   ws['!autofilter'] = { ref: XLSX.utils.encode_range({ s:{c:0,r:0}, e:{c:10,r:body.length} }) };
 
   const wb = XLSX.utils.book_new();
@@ -697,6 +692,7 @@ document.querySelector('#resTable tbody').addEventListener('click', async (ev)=>
 (async ()=>{
   if (!db) return;
   statusEl.textContent = 'Увійдіть';
+  // Якщо авторизації ще нема — незабаром onAuthStateChanged зробить редірект
   if (auth?.currentUser) { await Promise.all([loadDirectory(), loadLogists(true)]); }
 })();
 
