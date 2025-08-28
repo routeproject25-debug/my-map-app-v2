@@ -38,6 +38,8 @@
     pre#log{
       background:#0b1020; color:#e2e8f0; padding:12px; border-radius:10px;
       max-height:60vh; min-height:240px; overflow:auto; resize:vertical; margin-top:8px;
+      white-space:pre-wrap;              /* ⬅️ перенос довгих рядків */
+      word-break:break-word;
     }
     code{background:#f1f5f9; padding:2px 6px; border-radius:6px}
     .toolbar{display:flex; gap:10px; flex-wrap:wrap}
@@ -157,7 +159,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const $ = (id) => document.getElementById(id);
   function log(msg, type=''){
     const el = $('log');
-    el.textContent += (type ? '['+type+'] ' : '') + msg + "\\n";
+    el.textContent += (type ? '['+type+'] ' : '') + msg + '\n';   // ⬅️ справжній перенос рядка
     el.scrollTop = el.scrollHeight;
   }
   function setStatus(html){ $('status').innerHTML = html; }
