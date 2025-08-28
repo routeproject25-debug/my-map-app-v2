@@ -168,6 +168,12 @@
         <div class="chip" id="statAvg">Середня: —</div>
       </div>
 
+      <!-- Пагінація -->
+      <div class="bar" id="moreBox" style="gap:6px; display:none; margin:6px 0 10px;">
+        <button id="btnMore" class="btn sm">+ Завантажити ще</button>
+        <button id="btnAll" class="btn sm">Завантажити все</button>
+      </div>
+
       <div style="overflow:auto;">
         <table id="resTable">
           <colgroup>
@@ -244,11 +250,15 @@ const btnLogout = document.getElementById('btnLogout');
 const btnPreview = document.getElementById('btnPreview');
 const btnExport  = document.getElementById('btnExport');
 const btnRefresh = document.getElementById('btnRefresh');
+const btnMore    = document.getElementById('btnMore');
+const btnAll     = document.getElementById('btnAll');
 
 function setBusy(b){
   btnPreview.disabled = b || !currentUser;
   btnExport.disabled  = b || !currentUser;
   btnRefresh.disabled = b || !currentUser;
+  if (btnMore) btnMore.disabled = b;
+  if (btnAll)  btnAll.disabled  = b;
   statusEl.textContent = b ? 'Виконується…' : (currentUser ? 'Готово' : 'Увійдіть');
 }
 
@@ -434,35 +444,23 @@ function normalizeSegments(source){
   scan(source); return segments;
 }
 
-/* --- мемо стан вибірки --- */
-let lastQueryKey = ''; let lastAllRows = null;
+/* ---------- ПАГІНАЦІЯ / СТАН ---------- */
+const PAGE_SIZE = 1000;
+let _baseQuery = null;      // Базовий запит з фільтрами
+let _cursor = null;         // Останній документ сторінки
+let _hasMore = false;       // Чи є наступна сторінка
+let allRows = [];           // Накопичені рядки
+let FORCE_SERVER = false;   // Читати тільки з сервера
 
-function getFiltersSignature(){
-  const fromCode = getCodeByNameInput('fromName');
-  const toCode   = getCodeByNameInput('toName');
-  const type     = document.getElementById('routeType')?.value || '';
-  const df       = document.getElementById('dateFrom')?.value || '';
-  const dt       = document.getElementById('dateTo')?.value || '';
-  const unit     = document.getElementById('unitFilter')?.value || '';
-  const dmin     = document.getElementById('distMin')?.value || '';
-  const dmax     = document.getElementById('distMax')?.value || '';
-  const logist   = document.getElementById('logistFilter')?.value || '';
-  return JSON.stringify({ fromCode, toCode, type, df, dt, unit, dmin, dmax, logist });
-}
-
-/* ---------- Вибірка з Firestore ---------- */
-const ROUTES_LIMIT = 1000;
-
-async function queryRoutes(forceServer){
+function buildBaseQuery(){
   if (!db || !currentUser) throw new Error('Необхідно увійти');
-
   let q = db.collection('routes');
+
   const fromCode = getCodeByNameInput('fromName');
   const toCode   = getCodeByNameInput('toName');
   const type     = document.getElementById('routeType')?.value;
   const df       = document.getElementById('dateFrom')?.value;
   const dt       = document.getElementById('dateTo')?.value;
-
   const logistId = getLogistIdByInput('logistFilter');
 
   if (fromCode) q = q.where('fromCode','==',fromCode);
@@ -474,10 +472,10 @@ async function queryRoutes(forceServer){
   if (df) q = q.where('updatedAt','>=', dayStartISO(df));
   if (dt) q = q.where('updatedAt','<=', dayEndISO(dt));
 
-  let snap = null;
-  try { snap = await q.limit(ROUTES_LIMIT).get({ source: forceServer ? 'server' : 'cache' }); } catch {}
-  if (!snap || snap.empty) { snap = await q.limit(ROUTES_LIMIT).get({ source: 'default' }); }
+  return q;
+}
 
+function parseSnap(snap){
   const rows=[];
   snap.forEach(doc=>{
     const d=doc.data()||{};
@@ -498,16 +496,45 @@ async function queryRoutes(forceServer){
       updatedAt: formatDate(d.updatedAt)
     });
   });
+  const lastDoc = snap.docs[snap.docs.length-1] || null;
+  return { rows, lastDoc };
+}
+
+async function loadFirstPage(forceServer=false){
+  FORCE_SERVER = !!forceServer;
+  _baseQuery = buildBaseQuery();
+  _cursor = null; _hasMore = false; allRows = [];
+  let snap = null;
+  try { snap = await _baseQuery.limit(PAGE_SIZE).get({source: FORCE_SERVER ? 'server' : 'default'}); }
+  catch(e){
+    console.warn('loadFirstPage fallback:', e?.message||e);
+    try { snap = await _baseQuery.limit(PAGE_SIZE).get({source:'cache'}); } catch(_){}
+  }
+  if (!snap) return [];
+  const { rows, lastDoc } = parseSnap(snap);
+  allRows = rows;
+  _cursor = lastDoc;
+  _hasMore = !!lastDoc && snap.size === PAGE_SIZE;
   return rows;
 }
 
-async function getFilteredRows(forceServer){
-  const key = getFiltersSignature();
-  if (!forceServer && lastAllRows && key === lastQueryKey){ return applyClientFilters(lastAllRows); }
-  const all = await queryRoutes(!!forceServer); lastQueryKey = key; lastAllRows = all; return applyClientFilters(all);
+async function loadNextPage(){
+  if (!_baseQuery || !_cursor) return [];
+  let snap = null;
+  try { snap = await _baseQuery.startAfter(_cursor).limit(PAGE_SIZE).get({source: FORCE_SERVER ? 'server' : 'default'}); }
+  catch(e){
+    console.warn('loadNextPage fallback:', e?.message||e);
+    try { snap = await _baseQuery.startAfter(_cursor).limit(PAGE_SIZE).get({source:'cache'}); } catch(_){}
+  }
+  if (!snap) return [];
+  const { rows, lastDoc } = parseSnap(snap);
+  _cursor = lastDoc;
+  _hasMore = !!lastDoc && snap.size === PAGE_SIZE;
+  allRows = allRows.concat(rows);
+  return rows;
 }
 
-/* ---------- Додаткові фільтри ---------- */
+/* ---------- Клієнтські фільтри ---------- */
 function applyClientFilters(rows){
   const unit = document.getElementById('unitFilter')?.value.trim() || '';
   const dmin = parseFloat(document.getElementById('distMin')?.value);
@@ -611,18 +638,17 @@ function renderTable(rows){
   updateStats(rows);
 }
 
-/* ---------- Експорт у Excel (коротке клікабельне посилання) ---------- */
+/* ---------- Експорт у Excel (клікабельне посилання + автофільтр) ---------- */
 function exportToExcel(rows){
   const header = ['Код Від','Код До','Від','До','Відстань, км','Тип','Логіст','Оновлено','Код маршруту','ID','URL (Карта)'];
 
   const body = rows.map(r => {
     const mapUrl = `${location.origin}${MAP_URL}?rid=${encodeURIComponent(r.id)}`;
-    const linkText = '🗺️ Відкрити';
     return [
       r.fromCode, r.toCode, r.fromName, r.toName,
       Number.isFinite(r.distance_km) ? Number(r.distance_km.toFixed(3)) : '',
       r.type, r.logisticName || '', r.updatedAt, r.routeKey || '', r.id,
-      { t: 's', v: linkText, l: { Target: mapUrl, Tooltip: 'Відкрити маршрут на карті' } }
+      { t: 's', v: '🗺️ Відкрити', l: { Target: mapUrl, Tooltip: 'Відкрити маршрут на карті' } }
     ];
   });
 
@@ -635,33 +661,82 @@ function exportToExcel(rows){
   XLSX.writeFile(wb, 'routes_export.xlsx');
 }
 
+/* ---------- UI допоміжне ---------- */
+function updatePagerUI(){
+  const moreBox = document.getElementById('moreBox');
+  moreBox.style.display = allRows.length ? '' : 'none';
+  btnMore.style.display = _hasMore ? '' : 'none';
+  btnAll.style.display  = _hasMore ? '' : 'none';
+}
+
 /* ---------- Оновити базу (форс із сервера) ---------- */
 async function refreshAll(){
   try{
     setBusy(true);
-    // Почистити локальні кеші довідників
     try{ localStorage.removeItem(DIR_CACHE_KEY); }catch{}
     try{ localStorage.removeItem(LOGISTS_CACHE_KEY); }catch{}
-    // Перечитати довідники з сервера
     await Promise.all([loadDirectory(true), loadLogists(true)]);
-    // Скинути мемо і підтягнути маршрути напряму з сервера
-    lastAllRows = null; lastQueryKey = '';
-    const fresh = await getFilteredRows(true);
-    renderTable(fresh);
+    await loadFirstPage(true);
+    const rows = applyClientFilters(allRows);
+    renderTable(rows);
+    updatePagerUI();
   }catch(e){ handleFirestoreError(e); }
   finally{ setBusy(false); }
 }
 
 /* ---------- Події ---------- */
 btnPreview.addEventListener('click', async ()=>{
-  try{ setBusy(true); const rows = await getFilteredRows(); renderTable(rows); }
-  catch(e){ handleFirestoreError(e); }
+  try{
+    setBusy(true);
+    await loadFirstPage(false);
+    const rows = applyClientFilters(allRows);
+    renderTable(rows);
+    updatePagerUI();
+  }catch(e){ handleFirestoreError(e); }
+  finally{ setBusy(false); }
+});
+
+btnMore.addEventListener('click', async ()=>{
+  try{
+    setBusy(true);
+    await loadNextPage();
+    const rows = applyClientFilters(allRows);
+    renderTable(rows);
+    updatePagerUI();
+  }catch(e){ handleFirestoreError(e); }
+  finally{ setBusy(false); }
+});
+
+btnAll.addEventListener('click', async ()=>{
+  try{
+    setBusy(true);
+    const MAX_ROWS = 50000; // запобіжник
+    while(_hasMore && allRows.length < MAX_ROWS){ await loadNextPage(); }
+    const rows = applyClientFilters(allRows);
+    renderTable(rows);
+    updatePagerUI();
+    if (_hasMore) alert(`Досягнуто ліміт ${MAX_ROWS.toLocaleString()} рядків. Звузьте фільтри або експортуйте частинами.`);
+  }catch(e){ handleFirestoreError(e); }
   finally{ setBusy(false); }
 });
 
 btnExport.addEventListener('click', async ()=>{
-  try{ setBusy(true); const rows = await getFilteredRows(); exportToExcel(rows); }
-  catch(e){ handleFirestoreError(e); }
+  try{
+    setBusy(true);
+    if (!allRows.length){
+      await loadFirstPage(false);
+    }
+    if (_hasMore){
+      const agree = confirm(`Завантажити ВСІ сторінки перед експортом? Зараз у пам'яті ${allRows.length}+ рядків.`);
+      if (agree){
+        const MAX_ROWS = 50000;
+        while(_hasMore && allRows.length < MAX_ROWS){ await loadNextPage(); }
+        if (_hasMore) alert(`Досягнуто ліміт ${MAX_ROWS.toLocaleString()} рядків. Експорт відбудеться по перших ${MAX_ROWS.toLocaleString()}.`);
+      }
+    }
+    const rows = applyClientFilters(allRows);
+    exportToExcel(rows);
+  }catch(e){ handleFirestoreError(e); }
   finally{ setBusy(false); }
 });
 
