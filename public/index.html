@@ -490,6 +490,42 @@ document.getElementById('mapStyle').addEventListener('change', function() {
   map.setStyle(currentStyle);
 });
 
+// Popup для геозон
+const popup = new mapboxgl.Popup({
+  closeButton: false,
+  closeOnClick: false
+});
+
+// Коли наводимо на геозону
+map.on('mousemove', 'tileset-fill', (e) => {
+  map.getCanvas().style.cursor = 'pointer';
+
+  if (e.features.length > 0) {
+    const props = e.features[0].properties;
+    const full = props.Name_crops;
+
+    // Розділяємо по комі
+    const parts = full.split(',');
+    const fieldName = parts[0] ? parts[0].trim() : '';
+    const culture = parts[1] ? parts[1].trim() : '';
+    const area = parts[2] ? parts[2].trim() : '';
+
+    const html = `
+      <b>Назва поля:</b> ${fieldName}<br/>
+      <b>Культура:</b> ${culture}<br/>
+      <b>Площа:</b> ${area}
+    `;
+
+    popup.setLngLat(e.lngLat).setHTML(html).addTo(map);
+  }
+});
+
+// При виході мишки — прибираємо popup
+map.on('mouseleave', 'tileset-fill', () => {
+  map.getCanvas().style.cursor = '';
+  popup.remove();
+});
+
 /* ===== Buttons state ===== */
 function toggleButton(id, flag) {
   const btn = document.getElementById(id);
