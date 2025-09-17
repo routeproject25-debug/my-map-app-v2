@@ -451,24 +451,30 @@ function addGeozonesTileset(){
       }
     });
 
-    // Підписи
-    map.addLayer({
-      id: 'geozones-labels',
-      type: 'symbol',
-      source: 'geozones-tileset',
-      'source-layer': '4321-ba54a2',
-      layout: {
-        'text-field': ['get', 'Name_crops'],  // 👈 підпис з properties.Name_crops
-        'text-font': ['Open Sans Bold', 'Arial Unicode MS Bold'],
-        'text-size': 12,
-        'text-anchor': 'center'
-      },
-      paint: {
-        'text-color': '#1f2937',
-        'text-halo-color': '#ffffff',
-        'text-halo-width': 1.2
-      }
-    });
+    /// Підписи (тільки назва поля до першої коми)
+map.addLayer({
+  id: 'geozones-labels',
+  type: 'symbol',
+  source: 'geozones-tileset',
+  'source-layer': '4321-ba54a2',
+  layout: {
+    'text-field': [
+      'case',
+      ['!', ['get', 'Name_crops']], '', // якщо пусто
+      ['concat',
+        ['slice', ['get', 'Name_crops'], 0, ['index-of', ',', ['get', 'Name_crops']]]
+      ]
+    ],
+    'text-font': ['Open Sans Bold', 'Arial Unicode MS Bold'],
+    'text-size': 12,
+    'text-anchor': 'center'
+  },
+  paint: {
+    'text-color': '#1f2937',
+    'text-halo-color': '#ffffff',
+    'text-halo-width': 1.2
+  }
+});
   }
 }
 /* ========= ⬆️ Геозони з Mapbox Tileset ========= */
