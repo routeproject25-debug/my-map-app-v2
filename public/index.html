@@ -420,6 +420,70 @@ deletePointBtn.onclick = (e) => {
 };
 document.addEventListener('click', () => { contextMenu.style.display = 'none'; });
 
+// === helpers для підписів геозон по центроїдах ===
+function debounce(fn, ms){ let t; return (...a)=>{ clearTimeout(t); t=setTimeout(()=>fn(...a), ms); }; }
+
+function firstPartBeforeComma(s){
+  s = String(s||'').trim();
+  const i = s.indexOf(',');
+  return (i >= 0 ? s.slice(0, i) : s).trim();
+}
+
+function buildGeozoneCentroids(){
+  if (!window.turf) return; // чек, чи підключився turf
+
+  const feats = map.queryRenderedFeatures({ layers: ['tileset-fill'] }) || [];
+  const seen = new Set();
+  const out = [];
+
+  for (const f of feats){
+    const p = f.properties || {};
+    const raw = String(p.Name_crops || '');
+    const label = firstPartBeforeComma(raw);
+
+    // ключ для дедуплікації; підстав, що є у твоєму тайлсеті
+    const key = p.id || p.fid || p.OBJECTID || p.OBJECTID_1 || raw;
+    if (seen.has(key)) continue;
+
+    let center = null;
+    try { center = turf.centerOfMass(f).geometry.coordinates; }
+    catch(_){
+      try { const b = turf.bbox(f); center = [(b[0]+b[2])/2,(b[1]+b[3])/2]; } catch(_){}
+    }
+    if (!center) continue;
+
+    out.push({ type:'Feature', geometry:{ type:'Point', coordinates:center }, properties:{ label } });
+    seen.add(key);
+  }
+
+  const fc = { type:'FeatureCollection', features: out };
+
+  if (map.getSource('geozones-centroids')){
+    map.getSource('geozones-centroids').setData(fc);
+  } else {
+    map.addSource('geozones-centroids', { type:'geojson', data: fc });
+    map.addLayer({
+      id: 'geozones-labels',
+      type: 'symbol',
+      source: 'geozones-centroids',
+      layout: {
+        'text-field': ['get','label'],
+        'text-font': ['Open Sans Bold', 'Arial Unicode MS Bold'],
+        'text-size': 12,
+        'text-anchor': 'center',
+        'text-allow-overlap': false
+      },
+      paint: {
+        'text-color': '#1f2937',
+        'text-halo-color': '#ffffff',
+        'text-halo-width': 1.2
+      }
+    });
+  }
+}
+
+const rebuildLabelsOnce = debounce(buildGeozoneCentroids, 150);
+
 /* ========= ⬇️ Геозони з Mapbox Tileset ========= */
 function addGeozonesTileset(){
   if (!map.getSource('geozones-tileset')){
@@ -452,32 +516,11 @@ function addGeozonesTileset(){
       }
     });
 
-    // Підписи (лише до першої коми)
-map.addLayer({
-  id: 'geozones-labels',
-  type: 'symbol',
-  source: 'geozones-tileset',
-  'source-layer': '4321-ba54a2',
-  layout: {
-    'symbol-placement': 'point',
-    'text-field': [
-      'let', 'name', ['coalesce', ['to-string', ['get','Name_crops']], ''],
-      ['case',
-        ['>=', ['index-of', ',', ['var','name']], 0],
-        ['slice', ['var','name'], 0, ['index-of', ',', ['var','name']]],
-        ['var','name']
-      ]
-    ],
-    'text-font': ['Open Sans Bold', 'Arial Unicode MS Bold'],
-    'text-size': 12,
-    'text-anchor': 'center'
-  },
-  paint: {
-    'text-color': '#1f2937',
-    'text-halo-color': '#ffffff',
-    'text-halo-width': 1.2
-  }
-});
+    // Підписи тепер робимо з центроїдів (один підпис на поле)
+buildGeozoneCentroids();
+map.off('moveend', rebuildLabelsOnce);   // щоб не дублювати підписників при повторному виклику
+map.on('moveend', rebuildLabelsOnce);
+
   }
 }
 /* ========= ⬆️ Геозони з Mapbox Tileset ========= */
