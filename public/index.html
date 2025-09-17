@@ -1547,19 +1547,17 @@ function normalizeGeoJSON(obj){
 
 function geozoneCardHTML(props){
   const { client, code, name, farm, area } = getFieldProps(props || {});
-  const row = (label, val) => (val || val === 0) ? `
-    <div style="display:flex;justify-content:space-between;gap:10px;border-bottom:1px dashed #e5e7eb;padding:4px 0;">
-      <div style="color:#6b7280">${label}</div>
-      <div style="font-weight:600">«${val}»</div>
-    </div>` : '';
-  const areaRow = (area || area === 0) ? row('Area', `${fmtArea(area)} га`) : '';
-
+  const row = (label, val) => (val || val === 0) ?
+    `<div style="display:flex;justify-content:space-between;gap:10px;border-bottom:1px dashed #e5e7eb;padding:4px 0;">
+       <div style="color:#6b7280">${label}</div>
+       <div style="font-weight:600">${esc(val)}</div>
+     </div>` : '';
   return `<div style="min-width:260px;font-size:13px;line-height:1.35">
-    ${areaRow}
-    ${row('Client', client)}
-    ${row('Code', code)}
-    ${row('Farm', farm)}
-    ${row('Name', name)}
+    ${row('Площа', (area || area === 0) ? (fmtArea(area) + ' га') : '')}
+    ${row('Підприємство', client)}
+    ${row('Код', code)}
+    ${row('Підрозділ', farm)}
+    ${row('Назва', name)}
   </div>`;
 }
 function attachGeozoneHandlers(){
