@@ -503,14 +503,14 @@ function addGeozonesTileset(){
   if (!map.getSource('geozones-tileset')){
     map.addSource('geozones-tileset', {
       type: 'vector',
-      url: 'mapbox://tkchk.2r88i9pu'
+      url: 'mapbox://tkchk.bb2bwfuq'
     });
 
     map.addLayer({
       id: 'tileset-fill',
       type: 'fill',
       source: 'geozones-tileset',
-      'source-layer': '4321-ba54a2',
+      'source-layer': '_-0k20q9',
       paint: { 'fill-color': '#22c55e', 'fill-opacity': 0.18 }
     });
 
@@ -518,7 +518,7 @@ function addGeozonesTileset(){
       id: 'tileset-outline',
       type: 'line',
       source: 'geozones-tileset',
-      'source-layer': '4321-ba54a2',
+      'source-layer': '_-0k20q9',
       paint: { 'line-color': '#16a34a', 'line-width': 1.2 }
     });
 
