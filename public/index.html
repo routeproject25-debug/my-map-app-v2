@@ -348,11 +348,12 @@ function applyUkrainianLabels(){
   const ukTextExpr = [
     'coalesce',['get','name_uk'],['get','name:uk'],['get','name_ua'],['get','name:ua'],['get','name_local'],['get','name']
   ];
+  const skip = new Set(['geozones-labels','geozones-label']);
   style.layers.forEach(l => {
-    if (l.type === 'symbol') {
-      const hasTextField = map.getLayoutProperty(l.id, 'text-field') !== undefined;
-      if (hasTextField) { try { map.setLayoutProperty(l.id, 'text-field', ukTextExpr); } catch(_) {} }
-    }
+    if (l.type !== 'symbol') return;
+    if (skip.has(l.id)) return; // 👈 не чіпаємо наші підписи полів
+    const hasTextField = map.getLayoutProperty(l.id, 'text-field') !== undefined;
+    if (hasTextField) { try { map.setLayoutProperty(l.id, 'text-field', ukTextExpr); } catch(_) {} }
   });
 }
 
@@ -451,18 +452,20 @@ function addGeozonesTileset(){
       }
     });
 
-    /// Підписи (тільки назва поля до першої коми)
+    // Підписи (лише до першої коми)
 map.addLayer({
   id: 'geozones-labels',
   type: 'symbol',
   source: 'geozones-tileset',
   'source-layer': '4321-ba54a2',
   layout: {
+    'symbol-placement': 'point',
     'text-field': [
-      'case',
-      ['!', ['get', 'Name_crops']], '', // якщо пусто
-      ['concat',
-        ['slice', ['get', 'Name_crops'], 0, ['index-of', ',', ['get', 'Name_crops']]]
+      'let', 'name', ['coalesce', ['to-string', ['get','Name_crops']], ''],
+      ['case',
+        ['>=', ['index-of', ',', ['var','name']], 0],
+        ['slice', ['var','name'], 0, ['index-of', ',', ['var','name']]],
+        ['var','name']
       ]
     ],
     'text-font': ['Open Sans Bold', 'Arial Unicode MS Bold'],
@@ -496,40 +499,54 @@ document.getElementById('mapStyle').addEventListener('change', function() {
   map.setStyle(currentStyle);
 });
 
-// Popup для геозон
-const popup = new mapboxgl.Popup({
-  closeButton: false,
-  closeOnClick: false
-});
+// Popup для геозон (парсить "108 га" або "45,2 га")
+const popup = new mapboxgl.Popup({ closeButton: false, closeOnClick: false });
 
-// Коли наводимо на геозону
-map.on('mousemove', 'tileset-fill', (e) => {
-  map.getCanvas().style.cursor = 'pointer';
+function parseNameCrops(s){
+  s = String(s || '').trim();
 
-  if (e.features.length > 0) {
-    const props = e.features[0].properties;
-    const full = props.Name_crops;
+  // 1) Назва — до першої коми
+  let name = s, rest = '';
+  const idx = s.indexOf(',');
+  if (idx >= 0){ name = s.slice(0, idx).trim(); rest = s.slice(idx + 1).trim(); }
 
-    // Розділяємо по комі
-    const parts = full.split(',');
-    const fieldName = parts[0] ? parts[0].trim() : '';
-    const culture = parts[1] ? parts[1].trim() : '';
-    const area = parts[2] ? parts[2].trim() : '';
-
-    const html = `
-      <b>Назва поля:</b> ${fieldName}<br/>
-      <b>Культура:</b> ${culture}<br/>
-      <b>Площа:</b> ${area}
-    `;
-
-    popup.setLngLat(e.lngLat).setHTML(html).addTo(map);
+  // 2) Площа — число (крапка/кома) + "га"
+  const m = s.match(/(\d+(?:[.,]\d+)?)\s*га\b/i);
+  let areaText = '';
+  if (m){
+    areaText = m[1].replace('.', ',') + ' га';
+    if (rest) rest = rest.replace(m[0], '').trim(); // прибираємо з культури знайдену площу
   }
-});
 
-// При виході мишки — прибираємо popup
-map.on('mouseleave', 'tileset-fill', () => {
+  // 3) Культура — те, що лишилось після назви та площі
+  return { name, culture: rest, areaText };
+}
+
+function popupHTML(props){
+  const { name, culture, areaText } = parseNameCrops(props?.Name_crops);
+  return `
+    <div style="font-size:13px;line-height:1.35;">
+      <div><b>Назва поля:</b> ${name || '—'}</div>
+      <div><b>Культура:</b> ${culture || '—'}</div>
+      <div><b>Площа:</b> ${areaText || '—'}</div>
+    </div>`;
+}
+
+function onHover(e){
+  const f = e.features && e.features[0];
+  if (!f) return;
+  map.getCanvas().style.cursor = 'pointer';
+  popup.setLngLat(e.lngLat).setHTML(popupHTML(f.properties || {})).addTo(map);
+}
+function onLeave(){
   map.getCanvas().style.cursor = '';
   popup.remove();
+}
+
+// нав’язуємо на заливку і контур
+['tileset-fill','tileset-outline'].forEach(id=>{
+  map.on('mousemove',  id, onHover);
+  map.on('mouseleave', id, onLeave);
 });
 
 /* ===== Buttons state ===== */
