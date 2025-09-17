@@ -363,7 +363,7 @@ function getFieldProps(props){
     code:   pickProp(props, 'Code', 'code', 'Код'),
     name:   pickProp(props, 'Name', 'name', 'Назва', 'Назва поля'),
     farm:   pickProp(props, 'Farm', 'farm', 'Підрозділ', 'Виробничий підрозділ', 'department', 'unit'),
-    area:   pickProp(props, 'Area', 'area', 'Площа', 'Площа, га')
+    area:   pickProp(props, 'Area', 'area', 'Area_ha', 'Area (ha)', 'Площа', 'Площа, га')
   };
 }
 
@@ -581,24 +581,41 @@ document.getElementById('mapStyle').addEventListener('change', function() {
   map.setStyle(currentStyle);
 });
 
-// Popup для tileset (Name + Area)
+/* ==== POPUP (повний паспорт поля) ==== */
 const popup = new mapboxgl.Popup({ closeButton: false, closeOnClick: false });
 
-function hoverPopupHTML(props){
-  const { name, area } = getFieldProps(props || {});
-  const areaText = fmtArea(area);
-  return `
-    <div style="font-size:13px;line-height:1.35;">
-      <div><b>${name || 'Поле'}</b></div>
-      ${areaText ? `<div>Площа: ${areaText} га</div>` : ''}
-    </div>`;
+// просте екранування значень, щоб не зламати HTML
+function esc(v){
+  return String(v ?? '').replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
 }
+
+function hoverPopupHTML(props){
+  const { name, client, farm, code, area } = getFieldProps(props || {});
+  const rows = [
+    ['Назва',         name],
+    ['Підприємство',  client],
+    ['Підрозділ',     farm],
+    ['Код',           code],
+    ['Площа',         (area !== '' && area !== null && area !== undefined) ? (fmtArea(area) + ' га') : '']
+  ];
+
+  const htmlRows = rows.map(([label, val]) =>
+    `<div><b>${label}:</b> ${esc(val) || '—'}</div>`
+  ).join('');
+
+  return `<div style="font-size:13px;line-height:1.35;">${htmlRows}</div>`;
+}
+
 function onHover(e){
   const f = e.features && e.features[0];
   if (!f) return;
   map.getCanvas().style.cursor = 'pointer';
-  popup.setLngLat(e.lngLat).setHTML(hoverPopupHTML(f.properties || {})).addTo(map);
+  popup
+    .setLngLat(e.lngLat)
+    .setHTML(hoverPopupHTML(f.properties || {}))
+    .addTo(map);
 }
+
 function onLeave(){
   map.getCanvas().style.cursor = '';
   popup.remove();
