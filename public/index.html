@@ -332,6 +332,18 @@ mapboxgl.accessToken = 'pk.eyJ1IjoidGtjaGsiLCJhIjoiY21keTN0bXVlMjN6djJrczZ2NDk5b
 let currentStyle = 'mapbox://styles/mapbox/streets-v12';
 const map = new mapboxgl.Map({ container: 'map', style: currentStyle, center: [30.5238, 50.4547], zoom: 10 });
 
+/* ==== MULTI TILESETS CONFIG (додавай тут нові) ==== */
+const TILESETS = [
+  { key: 'bb2', url: 'mapbox://tkchk.bb2bwfuq', layer: '_-0k20q9' },
+  { key: '06s', url: 'mapbox://tkchk.06suqqy1', layer: '_-6bzqyf' },
+  { key: '61a', url: 'mapbox://tkchk.61afrgjj', layer: '_-9gplys' },
+];
+
+// трекатимемо створені id шарів, щоб наводити/підсвічувати
+let TS_FILL_IDS = [];
+let TS_OUTLINE_IDS = [];
+let BOUND_HOVER_LAYERS = new Set(); // щоб не дублювати підписки на події
+
 /* ===== Helpers для нової схеми GeoJSON (Client, Code, Name, Farm, Area) ===== */
 function pickProp(obj, ...keys){
   for (const k of keys){
@@ -443,21 +455,25 @@ deletePointBtn.onclick = (e) => {
 };
 document.addEventListener('click', () => { contextMenu.style.display = 'none'; });
 
-/* ========= ⬇️ Геозони з Mapbox Tileset ========= */
-function buildGeozoneCentroids(){
-  if (!window.turf) return;
+/* ========= ⬇️ Геозони з Mapbox Tilesets (multi) ========= */
 
-  const feats = map.queryRenderedFeatures({ layers: ['tileset-fill'] }) || [];
+// перерахунок центроїдів для підписів з УСІХ tileset fill-шарів
+function buildGeozoneCentroids(){
+  if (!window.turf || TS_FILL_IDS.length === 0) return;
+
+  const feats = map.queryRenderedFeatures({ layers: TS_FILL_IDS }) || [];
   const seen = new Set();
   const out = [];
 
   for (const f of feats){
     const p = f.properties || {};
     const fp = getFieldProps(p);
-    // лейбл = Name, якщо нема — Code, якщо нема — "Поле"
     const label = fp.name || fp.code || 'Поле';
 
-    const key = p.id || p.fid || p.OBJECTID || p.OBJECTID_1 || p.Code || p.Name || label;
+    // пробуємо знайти унікальний ключ із властивостей;
+    // додаємо префікс джерела, щоб не змішувати різні tilesets
+    const src = f.source || 'ts';
+    const key = `${src}:${p.id || p.fid || p.OBJECTID || p.OBJECTID_1 || p.Code || p.Name || label}`;
     if (seen.has(key)) continue;
 
     let center = null;
@@ -497,49 +513,67 @@ function buildGeozoneCentroids(){
   }
 }
 
+// створюємо ВСІ векторні джерела/шари з масиву TILESETS
+function addTilesets(){
+  TS_FILL_IDS = [];
+  TS_OUTLINE_IDS = [];
+
+  TILESETS.forEach(ts => {
+    const sourceId = `geozones-tileset-${ts.key}`;
+    if (!map.getSource(sourceId)){
+      map.addSource(sourceId, { type: 'vector', url: ts.url });
+    }
+
+    const fillId = `tileset-fill-${ts.key}`;
+    const outlineId = `tileset-outline-${ts.key}`;
+
+    if (!map.getLayer(fillId)){
+      map.addLayer({
+        id: fillId,
+        type: 'fill',
+        source: sourceId,
+        'source-layer': ts.layer,
+        paint: { 'fill-color': '#22c55e', 'fill-opacity': 0.18 }
+      });
+    }
+
+    if (!map.getLayer(outlineId)){
+      map.addLayer({
+        id: outlineId,
+        type: 'line',
+        source: sourceId,
+        'source-layer': ts.layer,
+        paint: { 'line-color': '#16a34a', 'line-width': 1.2 }
+      });
+    }
+
+    TS_FILL_IDS.push(fillId);
+    TS_OUTLINE_IDS.push(outlineId);
+  });
+
+  // збудувати центроїди-підписи для ВСІХ fill-шарів
+  buildGeozoneCentroids();
+  map.off('moveend', rebuildLabelsOnce);
+  map.on('moveend', rebuildLabelsOnce);
+
+  // повісити hover-handlers на всі заповнення/контури
+  bindTilesetHoverHandlers();
+}
+
 const rebuildLabelsOnce = (fn=>{ let t; return (...a)=>{ clearTimeout(t); t=setTimeout(()=>fn(...a),150); }; })(buildGeozoneCentroids);
 
-function addGeozonesTileset(){
-  if (!map.getSource('geozones-tileset')){
-    map.addSource('geozones-tileset', {
-      type: 'vector',
-      url: 'mapbox://tkchk.bb2bwfuq'
-    });
-
-    map.addLayer({
-      id: 'tileset-fill',
-      type: 'fill',
-      source: 'geozones-tileset',
-      'source-layer': '_-0k20q9',
-      paint: { 'fill-color': '#22c55e', 'fill-opacity': 0.18 }
-    });
-
-    map.addLayer({
-      id: 'tileset-outline',
-      type: 'line',
-      source: 'geozones-tileset',
-      'source-layer': '_-0k20q9',
-      paint: { 'line-color': '#16a34a', 'line-width': 1.2 }
-    });
-
-    // Центроїди для підписів
-    buildGeozoneCentroids();
-    map.off('moveend', rebuildLabelsOnce);
-    map.on('moveend', rebuildLabelsOnce);
-  }
-}
-/* ========= ⬆️ Геозони з Mapbox Tileset ========= */
+/* ========= ⬆️ Геозони з Mapbox Tilesets (multi) ========= */
 
 map.on('style.load', () => {
   applyUkrainianLabels();
   updateRoute();
   drawRulers();
 
-  // Firebase Storage → GeoJSON
+  // Firebase Storage → GeoJSON (як і було)
   if (geozonesDataCache) addGeozones(geozonesDataCache);
 
-  // Mapbox Tileset → Vector tiles
-  addGeozonesTileset();
+  // 👇 НОВЕ: підключаємо ВСІ tilesets із конфіга
+  addTilesets();
 });
 
 document.getElementById('mapStyle').addEventListener('change', function() {
@@ -569,10 +603,17 @@ function onLeave(){
   map.getCanvas().style.cursor = '';
   popup.remove();
 }
-['tileset-fill','tileset-outline'].forEach(id=>{
-  map.on('mousemove',  id, onHover);
-  map.on('mouseleave', id, onLeave);
-});
+
+function bindTilesetHoverHandlers(){
+  // підписуємось на всі актуальні fill/outline
+  [...TS_FILL_IDS, ...TS_OUTLINE_IDS].forEach(id => {
+    if (BOUND_HOVER_LAYERS.has(id)) return;
+    // якщо шару ще нема — mapbox сам активує слухач, коли шар з'явиться
+    map.on('mousemove',  id, onHover);
+    map.on('mouseleave', id, onLeave);
+    BOUND_HOVER_LAYERS.add(id);
+  });
+}
 
 /* ===== Buttons state ===== */
 function toggleButton(id, flag) {
