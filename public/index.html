@@ -11,7 +11,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
-  <!-- ⬇️ ДОДАНО: Firebase Storage -->
+  <!-- ⬇️ Firebase Storage -->
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
 
   <style>
@@ -332,6 +332,29 @@ mapboxgl.accessToken = 'pk.eyJ1IjoidGtjaGsiLCJhIjoiY21keTN0bXVlMjN6djJrczZ2NDk5b
 let currentStyle = 'mapbox://styles/mapbox/streets-v12';
 const map = new mapboxgl.Map({ container: 'map', style: currentStyle, center: [30.5238, 50.4547], zoom: 10 });
 
+/* ===== Helpers для нової схеми GeoJSON (Client, Code, Name, Farm, Area) ===== */
+function pickProp(obj, ...keys){
+  for (const k of keys){
+    const v = obj && obj[k];
+    if (v !== undefined && v !== null && String(v).trim() !== '') return v;
+  }
+  return '';
+}
+function fmtArea(val){
+  const n = Number(val);
+  if (!isFinite(n)) return '';
+  return n.toLocaleString('uk-UA', { maximumFractionDigits: 2 });
+}
+function getFieldProps(props){
+  return {
+    client: pickProp(props, 'Client', 'client', 'Підприємство'),
+    code:   pickProp(props, 'Code', 'code', 'Код'),
+    name:   pickProp(props, 'Name', 'name', 'Назва', 'Назва поля'),
+    farm:   pickProp(props, 'Farm', 'farm', 'Підрозділ', 'Виробничий підрозділ', 'department', 'unit'),
+    area:   pickProp(props, 'Area', 'area', 'Площа', 'Площа, га')
+  };
+}
+
 const topbarEl = document.querySelector('header.topbar');
 function updateLayoutHeights(){
   const h = (topbarEl?.offsetHeight || 56);
@@ -420,17 +443,9 @@ deletePointBtn.onclick = (e) => {
 };
 document.addEventListener('click', () => { contextMenu.style.display = 'none'; });
 
-// === helpers для підписів геозон по центроїдах ===
-function debounce(fn, ms){ let t; return (...a)=>{ clearTimeout(t); t=setTimeout(()=>fn(...a), ms); }; }
-
-function firstPartBeforeComma(s){
-  s = String(s||'').trim();
-  const i = s.indexOf(',');
-  return (i >= 0 ? s.slice(0, i) : s).trim();
-}
-
+/* ========= ⬇️ Геозони з Mapbox Tileset ========= */
 function buildGeozoneCentroids(){
-  if (!window.turf) return; // чек, чи підключився turf
+  if (!window.turf) return;
 
   const feats = map.queryRenderedFeatures({ layers: ['tileset-fill'] }) || [];
   const seen = new Set();
@@ -438,11 +453,11 @@ function buildGeozoneCentroids(){
 
   for (const f of feats){
     const p = f.properties || {};
-    const raw = String(p.Name_crops || '');
-    const label = firstPartBeforeComma(raw);
+    const fp = getFieldProps(p);
+    // лейбл = Name, якщо нема — Code, якщо нема — "Поле"
+    const label = fp.name || fp.code || 'Поле';
 
-    // ключ для дедуплікації; підстав, що є у твоєму тайлсеті
-    const key = p.id || p.fid || p.OBJECTID || p.OBJECTID_1 || raw;
+    const key = p.id || p.fid || p.OBJECTID || p.OBJECTID_1 || p.Code || p.Name || label;
     if (seen.has(key)) continue;
 
     let center = null;
@@ -482,9 +497,8 @@ function buildGeozoneCentroids(){
   }
 }
 
-const rebuildLabelsOnce = debounce(buildGeozoneCentroids, 150);
+const rebuildLabelsOnce = (fn=>{ let t; return (...a)=>{ clearTimeout(t); t=setTimeout(()=>fn(...a),150); }; })(buildGeozoneCentroids);
 
-/* ========= ⬇️ Геозони з Mapbox Tileset ========= */
 function addGeozonesTileset(){
   if (!map.getSource('geozones-tileset')){
     map.addSource('geozones-tileset', {
@@ -492,35 +506,26 @@ function addGeozonesTileset(){
       url: 'mapbox://tkchk.2r88i9pu'
     });
 
-    // Заливка
     map.addLayer({
       id: 'tileset-fill',
       type: 'fill',
       source: 'geozones-tileset',
       'source-layer': '4321-ba54a2',
-      paint: {
-        'fill-color': '#22c55e',
-        'fill-opacity': 0.18
-      }
+      paint: { 'fill-color': '#22c55e', 'fill-opacity': 0.18 }
     });
 
-    // Контур
     map.addLayer({
       id: 'tileset-outline',
       type: 'line',
       source: 'geozones-tileset',
       'source-layer': '4321-ba54a2',
-      paint: {
-        'line-color': '#16a34a',
-        'line-width': 1.2
-      }
+      paint: { 'line-color': '#16a34a', 'line-width': 1.2 }
     });
 
-    // Підписи тепер робимо з центроїдів (один підпис на поле)
-buildGeozoneCentroids();
-map.off('moveend', rebuildLabelsOnce);   // щоб не дублювати підписників при повторному виклику
-map.on('moveend', rebuildLabelsOnce);
-
+    // Центроїди для підписів
+    buildGeozoneCentroids();
+    map.off('moveend', rebuildLabelsOnce);
+    map.on('moveend', rebuildLabelsOnce);
   }
 }
 /* ========= ⬆️ Геозони з Mapbox Tileset ========= */
@@ -542,51 +547,28 @@ document.getElementById('mapStyle').addEventListener('change', function() {
   map.setStyle(currentStyle);
 });
 
-// Popup для геозон (парсить "108 га" або "45,2 га")
+// Popup для tileset (Name + Area)
 const popup = new mapboxgl.Popup({ closeButton: false, closeOnClick: false });
 
-function parseNameCrops(s){
-  s = String(s || '').trim();
-
-  // 1) Назва — до першої коми
-  let name = s, rest = '';
-  const idx = s.indexOf(',');
-  if (idx >= 0){ name = s.slice(0, idx).trim(); rest = s.slice(idx + 1).trim(); }
-
-  // 2) Площа — число (крапка/кома) + "га"
-  const m = s.match(/(\d+(?:[.,]\d+)?)\s*га\b/i);
-  let areaText = '';
-  if (m){
-    areaText = m[1].replace('.', ',') + ' га';
-    if (rest) rest = rest.replace(m[0], '').trim(); // прибираємо з культури знайдену площу
-  }
-
-  // 3) Культура — те, що лишилось після назви та площі
-  return { name, culture: rest, areaText };
-}
-
-function popupHTML(props){
-  const { name, culture, areaText } = parseNameCrops(props?.Name_crops);
+function hoverPopupHTML(props){
+  const { name, area } = getFieldProps(props || {});
+  const areaText = fmtArea(area);
   return `
     <div style="font-size:13px;line-height:1.35;">
-      <div><b>Назва поля:</b> ${name || '—'}</div>
-      <div><b>Культура:</b> ${culture || '—'}</div>
-      <div><b>Площа:</b> ${areaText || '—'}</div>
+      <div><b>${name || 'Поле'}</b></div>
+      ${areaText ? `<div>Площа: ${areaText} га</div>` : ''}
     </div>`;
 }
-
 function onHover(e){
   const f = e.features && e.features[0];
   if (!f) return;
   map.getCanvas().style.cursor = 'pointer';
-  popup.setLngLat(e.lngLat).setHTML(popupHTML(f.properties || {})).addTo(map);
+  popup.setLngLat(e.lngLat).setHTML(hoverPopupHTML(f.properties || {})).addTo(map);
 }
 function onLeave(){
   map.getCanvas().style.cursor = '';
   popup.remove();
 }
-
-// нав’язуємо на заливку і контур
 ['tileset-fill','tileset-outline'].forEach(id=>{
   map.on('mousemove',  id, onHover);
   map.on('mouseleave', id, onLeave);
@@ -725,7 +707,6 @@ function haversineKm(a, b){
   const h = s1*s1 + Math.cos(toRad(lat1))*Math.cos(toRad(lat2))*s2*s2;
   return 2 * R * Math.asin(Math.sqrt(h));
 }
-
 function calculateRulerDistance(ruler) {
   if (!Array.isArray(ruler) || ruler.length < 2) return 0;
   let dist = 0;
@@ -761,7 +742,6 @@ function splitIntoChunks(array, chunkSize) {
   }
   return chunks;
 }
-
 function clearRouteLayers() {
   routeLayers.forEach(id => {
     if (map.getLayer(id)) map.removeLayer(id);
@@ -769,7 +749,6 @@ function clearRouteLayers() {
   });
   routeLayers = [];
 }
-
 async function updateRoute() {
   if (points.length < 2) {
     document.getElementById('distance').textContent =
@@ -825,14 +804,13 @@ const firebaseConfig = {
 };
 
 let db = null, auth = null;
-/* ⬇️ ДОДАНО: Storage */
 let storage = null;
 
 try {
   firebase.apps && firebase.apps.length ? firebase.app() : firebase.initializeApp(firebaseConfig);
   db = firebase.firestore();
   auth = firebase.auth();
-  storage = firebase.storage(); // ⬅️
+  storage = firebase.storage();
   console.log('✅ Firebase ініціалізовано:', firebaseConfig.projectId);
   firebase.firestore().enablePersistence({ synchronizeTabs: true }).catch((e) => {
     console.warn('Firestore persistence is off:', e.code || e.message);
@@ -874,7 +852,6 @@ function fillDirectoryUI(rows){
     list.appendChild(opt);
   }
 }
-
 async function loadDirectory(force=false){
   try{
     if (!force){
@@ -922,7 +899,6 @@ function fillLogistsUI(rows){
 
   if (rows.length === 0) { console.warn('👥 Logists: пусто.'); }
 }
-
 async function loadLogists(allowServer=true){
   const msg = document.getElementById('logistsMsg');
   const showMsg = (t) => { msg.textContent = t || ''; msg.style.display = t ? 'block' : 'none'; };
@@ -966,7 +942,6 @@ async function loadLogists(allowServer=true){
     showMsg('Не вдалось завантажити логістів.');
   }
 }
-
 function getLogistIdByInput(inputId){
   const name = (document.getElementById(inputId).value || '').trim();
   if(!name) return null;
@@ -1003,7 +978,6 @@ function parseNameFromLabel(label){
   const s = String(label||'').split('•')[0].trim();
   return s || '';
 }
-
 function getNameByCode(code) { return (dirByCode[code]?.name) || ''; }
 
 /* Назву будуємо стійко — працює і для code, і для key, і для збережених label */
@@ -1040,7 +1014,6 @@ function updateRouteName() {
 
 /* ===== DUPLICATES ===== */
 function sanitizeId(s){ return String(s||'').replace(/[\/\\#?\[\]]/g,'_'); }
-
 async function findExistingRoute(fromCode, toCode, routeType){
   try{
     const snap = await db.collection('routes')
@@ -1110,7 +1083,6 @@ document.getElementById('loadRoute').onclick = () => {
   if (readOnly) { alert('⛔ Недостатньо прав'); return; }
   fileInput.value = null; fileInput.click();
 };
-
 fileInput.onchange = (event) => {
   if (readOnly) return;
   const file = event.target.files && event.target.files[0];
@@ -1182,7 +1154,6 @@ async function reserveKeyTx(tx, prefix, docId, meta){
   }
   throw new Error('Не вдалося згенерувати унікальний код маршруту (спробуйте ще раз).');
 }
-/* ======================================================= */
 
 /* ===== Firestore: save/list/load/delete ===== */
 async function saveToDB() {
@@ -1464,7 +1435,6 @@ async function loadRouteById(rid) {
     alert('Не вдалося завантажити маршрут: ' + (e?.message || e));
   }
 }
-
 function clearForm() {
   document.getElementById('fromName').value = '';
   document.getElementById('toName').value = '';
@@ -1502,29 +1472,38 @@ function removeLayerIfExists(id){ try{ if(map.getLayer(id)) map.removeLayer(id);
 function removeSourceIfExists(id){ try{ if(map.getSource(id)) map.removeSource(id); }catch{} }
 
 function buildLabel(props){
-  const name = props.label || props.name || props.Name || props.Name_crops || props.field || props.title || props['Назва поля'] || props['Назва'] || '';
-  const unit = props.unit || props['Підрозділ'] || props.department || '';
-  const comp = props.company || props.enterprise || props['Підприємство'] || '';
-  const code = props.code || props['Код'] || '';
-  const parts = [name, unit, comp].filter(Boolean);
-  if (parts.length) return parts.join(' • ');
-  return code ? String(code) : 'Поле';
+  const { name, farm, client, code } = getFieldProps(props || {});
+  const parts = [name, farm, client].filter(Boolean);
+  return parts.length ? parts.join(' • ') : (code || 'Поле');
 }
-
 function normalizeGeoJSON(obj){
   if (!obj || !obj.features) return obj;
   return {
     type: 'FeatureCollection',
     features: obj.features.map(f=>{
       const p = f.properties || {};
-      return {
-        ...f,
-        properties: { ...p, _label: buildLabel(p) }
-      };
+      return { ...f, properties: { ...p, _label: buildLabel(p) } };
     })
   };
 }
 
+function geozoneCardHTML(props){
+  const { client, code, name, farm, area } = getFieldProps(props || {});
+  const row = (label, val) => (val || val === 0) ? `
+    <div style="display:flex;justify-content:space-between;gap:10px;border-bottom:1px dashed #e5e7eb;padding:4px 0;">
+      <div style="color:#6b7280">${label}</div>
+      <div style="font-weight:600">«${val}»</div>
+    </div>` : '';
+  const areaRow = (area || area === 0) ? row('Area', `${fmtArea(area)} га`) : '';
+
+  return `<div style="min-width:260px;font-size:13px;line-height:1.35">
+    ${areaRow}
+    ${row('Client', client)}
+    ${row('Code', code)}
+    ${row('Farm', farm)}
+    ${row('Name', name)}
+  </div>`;
+}
 function attachGeozoneHandlers(){
   const layers = ['geozones-fill','geozones-outline','geozones-point','geozones-label'];
   if (geoClickHandler){
@@ -1533,17 +1512,9 @@ function attachGeozoneHandlers(){
   geoClickHandler = (e)=>{
     const feat = e.features && e.features[0];
     if (!feat) return;
-    const p = feat.properties || {};
-    const label = p._label || 'Поле';
-    // невеличка вивідка властивостей
-    const rows = Object.keys(p)
-      .filter(k=>k !== '_label')
-      .slice(0, 12) // щоб попап не розростався надто
-      .map(k=>`<div><b>${k}</b>: ${String(p[k])}</div>`)
-      .join('');
     new mapboxgl.Popup({ closeButton:true, closeOnClick:true })
       .setLngLat(e.lngLat)
-      .setHTML(`<div style="min-width:220px"><div style="font-weight:700;margin-bottom:6px">${label}</div>${rows||''}</div>`)
+      .setHTML(geozoneCardHTML(feat.properties || {}))
       .addTo(map);
   };
   layers.forEach(id=>{ if (map.getLayer(id)) map.on('click', id, geoClickHandler); });
@@ -1599,7 +1570,6 @@ function addGeozones(obj){
 
   attachGeozoneHandlers();
 }
-
 function fitGeozones(){
   try{
     if (!geozonesDataCache || geozonesFitted === true || !window.turf) return;
@@ -1609,7 +1579,6 @@ function fitGeozones(){
     map.fitBounds([[b[0], b[1]],[b[2], b[3]]], { padding: 40, maxZoom: 14 });
   }catch(e){ console.warn('fitGeozones:', e?.message||e); }
 }
-
 async function loadGeozonesFromStorage(path = STORAGE_GEOJSON_PATH, force=false){
   try{
     if (!storage){ console.warn('Storage не ініціалізовано'); return; }
@@ -1638,7 +1607,6 @@ document.getElementById('mobileAuthToggle').addEventListener('click', () => {
   document.getElementById('authBar').classList.toggle('collapsed');
   requestAnimationFrame(updateLayoutHeights);
 });
-
 loginBtn.onclick = async () => {
   try{ await auth.signInWithEmailAndPassword(authEmail.value.trim(), authPass.value); }
   catch(e){ alert('🚫 Вхід не виконано: ' + (e?.message || e)); }
@@ -1649,7 +1617,6 @@ logoutBtn.onclick = async () => {
     location.replace('/login?next=' + encodeURIComponent('/index.html'));
   }
 };
-
 auth?.onAuthStateChanged(async (user) => {
   if (user){
     authHello.textContent = 'Увійшли як ' + (user.email || user.uid);
@@ -1667,7 +1634,7 @@ auth?.onAuthStateChanged(async (user) => {
     applyRoleUI(role);
     await loadLogists(true);
 
-    /* ⬇️ ДОДАНО: автозавантаження геозон після входу */
+    /* ⬇️ автозавантаження геозон після входу */
     await loadGeozonesFromStorage(STORAGE_GEOJSON_PATH, /*force*/true);
 
   } else {
