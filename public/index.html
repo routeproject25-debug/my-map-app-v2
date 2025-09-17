@@ -427,17 +427,19 @@ function addGeozonesTileset(){
       url: 'mapbox://tkchk.2r88i9pu'
     });
 
+    // Заливка
     map.addLayer({
       id: 'tileset-fill',
       type: 'fill',
       source: 'geozones-tileset',
-      'source-layer': '4321-ba54a2',   // 👈 ім’я твого шару
+      'source-layer': '4321-ba54a2',
       paint: {
         'fill-color': '#22c55e',
         'fill-opacity': 0.18
       }
     });
 
+    // Контур
     map.addLayer({
       id: 'tileset-outline',
       type: 'line',
@@ -446,6 +448,25 @@ function addGeozonesTileset(){
       paint: {
         'line-color': '#16a34a',
         'line-width': 1.2
+      }
+    });
+
+    // Підписи
+    map.addLayer({
+      id: 'geozones-labels',
+      type: 'symbol',
+      source: 'geozones-tileset',
+      'source-layer': '4321-ba54a2',
+      layout: {
+        'text-field': ['get', 'Name_crops'],  // 👈 підпис з properties.Name_crops
+        'text-font': ['Open Sans Bold', 'Arial Unicode MS Bold'],
+        'text-size': 12,
+        'text-anchor': 'center'
+      },
+      paint: {
+        'text-color': '#1f2937',
+        'text-halo-color': '#ffffff',
+        'text-halo-width': 1.2
       }
     });
   }
@@ -465,7 +486,8 @@ map.on('style.load', () => {
 });
 
 document.getElementById('mapStyle').addEventListener('change', function() {
-  currentStyle = this.value; map.setStyle(currentStyle);
+  currentStyle = this.value;
+  map.setStyle(currentStyle);
 });
 
 /* ===== Buttons state ===== */
