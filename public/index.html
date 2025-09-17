@@ -419,10 +419,49 @@ deletePointBtn.onclick = (e) => {
 };
 document.addEventListener('click', () => { contextMenu.style.display = 'none'; });
 
+/* ========= ⬇️ Геозони з Mapbox Tileset ========= */
+function addGeozonesTileset(){
+  if (!map.getSource('geozones-tileset')){
+    map.addSource('geozones-tileset', {
+      type: 'vector',
+      url: 'mapbox://tkchk.2r88i9pu'
+    });
+
+    map.addLayer({
+      id: 'tileset-fill',
+      type: 'fill',
+      source: 'geozones-tileset',
+      'source-layer': '4321-ba54a2',   // 👈 ім’я твого шару
+      paint: {
+        'fill-color': '#22c55e',
+        'fill-opacity': 0.18
+      }
+    });
+
+    map.addLayer({
+      id: 'tileset-outline',
+      type: 'line',
+      source: 'geozones-tileset',
+      'source-layer': '4321-ba54a2',
+      paint: {
+        'line-color': '#16a34a',
+        'line-width': 1.2
+      }
+    });
+  }
+}
+/* ========= ⬆️ Геозони з Mapbox Tileset ========= */
+
 map.on('style.load', () => {
-  applyUkrainianLabels(); updateRoute(); drawRulers();
-  // ⬇️ ДОДАНО: відновити геозони після зміни стилю
+  applyUkrainianLabels();
+  updateRoute();
+  drawRulers();
+
+  // Firebase Storage → GeoJSON
   if (geozonesDataCache) addGeozones(geozonesDataCache);
+
+  // Mapbox Tileset → Vector tiles
+  addGeozonesTileset();
 });
 
 document.getElementById('mapStyle').addEventListener('change', function() {
