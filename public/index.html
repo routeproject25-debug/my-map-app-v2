@@ -344,6 +344,39 @@ let TS_FILL_IDS = [];
 let TS_OUTLINE_IDS = [];
 let BOUND_HOVER_LAYERS = new Set(); // щоб не дублювати підписки на події
 
+/* ==== HIGHLIGHT (FROM/TO) CONFIG ==== */
+const NAME_KEYS = ['Name','name','Назва','Назва поля'];
+const CODE_KEYS = ['Code','code','Код'];
+
+let HL_IDS_FROM = [];
+let HL_IDS_TO   = [];
+
+// OR-фільтр по кількох назвах властивостей
+function buildAnyMatch(keys, value){
+  if (value === null || value === undefined || String(value).trim() === '') return null;
+  const v = String(value);
+  const parts = keys.map(k => ['==', ['get', k], v]);
+  return parts.length === 1 ? parts[0] : ['any', ...parts];
+}
+
+// шукаємо або по Назві, або по Коду
+function buildNameCodeFilter(nameVal, codeVal){
+  const n = buildAnyMatch(NAME_KEYS, nameVal);
+  const c = buildAnyMatch(CODE_KEYS, codeVal);
+  if (n && c) return ['any', n, c];
+  if (n) return n;
+  if (c) return c;
+  return ['==', ['get','__never__'], 1]; // нічого не матчимо
+}
+
+// витягуємо "чисту" назву з інпуту (якщо введено код — беремо назву з довідника)
+function getPureNameFromInput(inputId){
+  const code = getCodeByInput(inputId);
+  if (code) return getNameByCode(code);
+  const raw = (document.getElementById(inputId).value || '').trim();
+  return parseNameFromLabel(raw) || raw;
+}
+
 /* ===== Helpers для нової схеми GeoJSON (Client, Code, Name, Farm, Area) ===== */
 function pickProp(obj, ...keys){
   for (const k of keys){
@@ -561,6 +594,101 @@ function addTilesets(){
 }
 
 const rebuildLabelsOnce = (fn=>{ let t; return (...a)=>{ clearTimeout(t); t=setTimeout(()=>fn(...a),150); }; })(buildGeozoneCentroids);
+/* ==== HIGHLIGHT LAYERS (створюємо раз, далі тільки міняємо фільтри) ==== */
+
+function ensureHighlightLayers(){
+  // tilesets (vector)
+  TILESETS.forEach(ts => {
+    const srcId = `geozones-tileset-${ts.key}`;
+    if (!map.getSource(srcId)) return;
+
+    const mk = (type) => `tileset-hl-${type}-${ts.key}`;
+
+    // FROM — синій
+    if (!map.getLayer(mk('from'))){
+      map.addLayer({
+        id: mk('from'),
+        type: 'fill',
+        source: srcId,
+        'source-layer': ts.layer,
+        filter: ['==', ['get','__never__'], 1],
+        paint: { 'fill-color': '#3b82f6', 'fill-opacity': 0.45 }
+      });
+      HL_IDS_FROM.push(mk('from'));
+    }
+    // TO — рожевий
+    if (!map.getLayer(mk('to'))){
+      map.addLayer({
+        id: mk('to'),
+        type: 'fill',
+        source: srcId,
+        'source-layer': ts.layer,
+        filter: ['==', ['get','__never__'], 1],
+        paint: { 'fill-color': '#f43f5e', 'fill-opacity': 0.45 }
+      });
+      HL_IDS_TO.push(mk('to'));
+    }
+  });
+
+  // GeoJSON зі Storage
+  if (map.getSource('geozones')){
+    if (!map.getLayer('geozones-hl-from')){
+      map.addLayer({
+        id: 'geozones-hl-from',
+        type: 'fill',
+        source: 'geozones',
+        filter: ['==', ['get','__never__'], 1],
+        paint: { 'fill-color': '#3b82f6', 'fill-opacity': 0.45 }
+      });
+      HL_IDS_FROM.push('geozones-hl-from');
+    }
+    if (!map.getLayer('geozones-hl-to')){
+      map.addLayer({
+        id: 'geozones-hl-to',
+        type: 'fill',
+        source: 'geozones',
+        filter: ['==', ['get','__never__'], 1],
+        paint: { 'fill-color': '#f43f5e', 'fill-opacity': 0.45 }
+      });
+      HL_IDS_TO.push('geozones-hl-to');
+    }
+  }
+}
+
+function updateHighlights(){
+  const fromName = getPureNameFromInput('fromName');
+  const toName   = getPureNameFromInput('toName');
+  const fromCode = getCodeByInput('fromName');
+  const toCode   = getCodeByInput('toName');
+
+  const fromFilter = buildNameCodeFilter(fromName, fromCode);
+  const toFilter   = buildNameCodeFilter(toName, toCode);
+
+  HL_IDS_FROM.forEach(id => { if (map.getLayer(id)) map.setFilter(id, fromFilter); });
+  HL_IDS_TO.forEach(id   => { if (map.getLayer(id)) map.setFilter(id, toFilter); });
+
+  fitToHighlights();
+}
+
+function fitToHighlights(){
+  try{
+    const ids = [...HL_IDS_FROM, ...HL_IDS_TO].filter(id => map.getLayer(id));
+    let bounds = null;
+    ids.forEach(id => {
+      const feats = map.queryRenderedFeatures({ layers: [id] });
+      feats.forEach(f => {
+        const b = turf.bbox(f);
+        if (!bounds){
+          bounds = new mapboxgl.LngLatBounds([b[0], b[1]], [b[2], b[3]]);
+        } else {
+          bounds.extend([b[0], b[1]]);
+          bounds.extend([b[2], b[3]]);
+        }
+      });
+    });
+    if (bounds) map.fitBounds(bounds, { padding: 40, maxZoom: 14 });
+  }catch(_){}
+}
 
 /* ========= ⬆️ Геозони з Mapbox Tilesets (multi) ========= */
 
@@ -569,11 +697,12 @@ map.on('style.load', () => {
   updateRoute();
   drawRulers();
 
-  // Firebase Storage → GeoJSON (як і було)
   if (geozonesDataCache) addGeozones(geozonesDataCache);
-
-  // 👇 НОВЕ: підключаємо ВСІ tilesets із конфіга
   addTilesets();
+
+  // 🔦 Підсвітка FROM/TO
+  ensureHighlightLayers();
+  updateHighlights();
 });
 
 document.getElementById('mapStyle').addEventListener('change', function() {
@@ -1624,8 +1753,12 @@ function addGeozones(obj){
     }
   });
 
-  attachGeozoneHandlers();
+    attachGeozoneHandlers();
+  // 🔦 Після додавання джерела GeoJSON підстрахуємось і оновимо підсвітку
+  ensureHighlightLayers();
+  updateHighlights();
 }
+
 function fitGeozones(){
   try{
     if (!geozonesDataCache || geozonesFitted === true || !window.turf) return;
@@ -1719,8 +1852,14 @@ document.getElementById('logistInput').addEventListener('focus', function(){
   try { this.dispatchEvent(new KeyboardEvent('keydown', {key:'ArrowDown'})); } catch {}
 });
 
-document.getElementById('fromName').addEventListener('change', updateRouteName);
-document.getElementById('toName').addEventListener('change', updateRouteName);
+document.getElementById('fromName').addEventListener('change', () => {
+  updateRouteName();
+  updateHighlights();
+});
+document.getElementById('toName').addEventListener('change', () => {
+  updateRouteName();
+  updateHighlights();
+});
 document.getElementById('routeType').addEventListener('change', updateRouteName);
 document.getElementById('routePurpose').addEventListener('change', updateRouteName);
 </script>
