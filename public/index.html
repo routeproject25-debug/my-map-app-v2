@@ -1296,6 +1296,8 @@ fileInput.onchange = (event) => {
       if (routeData.purpose)   document.getElementById('routePurpose').value = routeData.purpose;
       document.getElementById('intermediateText').value = routeData.intermediateText || '';
       document.getElementById('routeName').value = routeData.name || '';
+	// ⬇️ додай
+	updateHighlights();
 
       document.getElementById('logistInput').value =
         routeData.logisticName || (routeData.logisticId ? getLogistNameById(routeData.logisticId) : '');
@@ -1515,6 +1517,7 @@ async function loadFromDB() {
     endRuler = fromObjPoints(data.endRuler || []);
 
     rebuildMarkers(); drawRulers(); updateRoute();
+	updateHighlights();
     if (points.length > 0) map.flyTo({ center: points[0], zoom: 12 });
     alert('Маршрут завантажено з БД: ' + id + (data.routeKey ? `\nКод: ${data.routeKey}` : ''));
   } catch (err) {
@@ -1634,6 +1637,10 @@ function clearForm() {
   points = []; startRuler = []; endRuler = [];
   rebuildMarkers(); drawRulers(); updateRoute();
   document.getElementById('remoteRoutes').value = '';
+
+  // ⬇️ додай цю строку
+  updateHighlights();
+
   alert('Форма очищена');
 }
 
@@ -1852,13 +1859,13 @@ document.getElementById('logistInput').addEventListener('focus', function(){
   try { this.dispatchEvent(new KeyboardEvent('keydown', {key:'ArrowDown'})); } catch {}
 });
 
-document.getElementById('fromName').addEventListener('change', () => {
-  updateRouteName();
-  updateHighlights();
-});
-document.getElementById('toName').addEventListener('change', () => {
-  updateRouteName();
-  updateHighlights();
+// одне місце, яке оновлює назву маршруту + підсвітку
+const onFromToChange = () => { updateRouteName(); updateHighlights(); };
+
+// реагуємо і на input (коли ти стираєш текст), і на change (коли поле втратило фокус)
+['input','change'].forEach(ev => {
+  document.getElementById('fromName').addEventListener(ev, onFromToChange);
+  document.getElementById('toName').addEventListener(ev,   onFromToChange);
 });
 document.getElementById('routeType').addEventListener('change', updateRouteName);
 document.getElementById('routePurpose').addEventListener('change', updateRouteName);
