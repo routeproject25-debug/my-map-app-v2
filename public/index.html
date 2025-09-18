@@ -330,9 +330,9 @@
 /* ===================== Mapbox init ===================== */
 mapboxgl.accessToken = 'pk.eyJ1IjoidGtjaGsiLCJhIjoiY21keTN0bXVlMjN6djJrczZ2NDk5bXRoMiJ9.6n1kuiUJ3EdGUpz5I6-wdg';
 let currentStyle = 'mapbox://styles/mapbox/streets-v12';
-const map = new mapboxgl.Map({ container: 'map', style: currentStyle, center: [30.5238, 50.4547], zoom: 10 });
+const map = new mapboxgl.Map({ container: 'map', style: currentStyle, center: [28.468, 49.234], zoom: 10 });
 
-/* ==== MULTI TILESETS CONFIG (додавай тут нові) ==== */
+/* ==== MULTI TILESETS CONFIG (додавай тут нові геозони - key створювати самостійно, але щоб не повторювалося) ==== */
 const TILESETS = [
   { key: 'bb2', url: 'mapbox://tkchk.bb2bwfuq', layer: '_-0k20q9' },
   { key: '06s', url: 'mapbox://tkchk.06suqqy1', layer: '_-6bzqyf' },
