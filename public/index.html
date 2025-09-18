@@ -711,7 +711,11 @@ document.getElementById('mapStyle').addEventListener('change', function() {
 });
 
 /* ==== POPUP (повний паспорт поля) ==== */
-const popup = new mapboxgl.Popup({ closeButton: false, closeOnClick: false });
+const popup = new mapboxgl.Popup({
+  closeButton: false,
+  closeOnClick: false,
+  maxWidth: '480px'   // ⬅️ зробить вікно ширшим
+});
 
 // просте екранування значень, щоб не зламати HTML
 function esc(v){
@@ -1704,7 +1708,7 @@ function attachGeozoneHandlers(){
   geoClickHandler = (e)=>{
     const feat = e.features && e.features[0];
     if (!feat) return;
-    new mapboxgl.Popup({ closeButton:true, closeOnClick:true })
+    new mapboxgl.Popup({ closeButton:true, closeOnClick:true, maxWidth:'480px' })
       .setLngLat(e.lngLat)
       .setHTML(geozoneCardHTML(feat.properties || {}))
       .addTo(map);
