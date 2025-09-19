@@ -1451,6 +1451,26 @@ block.style.display = 'flex';
 document.getElementById('sendForReview').style.display = canSend ? '' : 'none';
 document.getElementById('approveBtn').style.display     = canDecide ? '' : 'none';
 document.getElementById('rejectBtn').style.display      = canDecide ? '' : 'none';
+  // === Посилання для перевірки ===
+  const reviewLinkInput = document.getElementById('reviewLink');
+  const reviewLinkRow   = document.getElementById('reviewLinkRow');
+
+  // беремо URL з документа (якщо є) або формуємо з поточного routeId
+  const selRid  = document.getElementById('remoteRoutes').value || '';
+  const qsRid   = new URLSearchParams(location.search).get('rid') || '';
+  const rid     = selRid || qsRid || null;
+
+  const urlFromDoc = data?.review?.url || '';
+  const url = urlFromDoc || (rid ? makeReviewUrl(rid) : '');
+
+  if (url) {
+    reviewLinkInput.value = url;
+    reviewLinkRow.style.display = '';
+  } else {
+    reviewLinkInput.value = '';
+    reviewLinkRow.style.display = 'none';
+  }
+
 
   // показ / сховати причину відхилення (note)
   const noteBox = document.getElementById('rejectNote');
@@ -1837,6 +1857,18 @@ document.getElementById('clearLogistsCache').onclick = () => {
   try { localStorage.removeItem(LOGISTS_CACHE_KEY); } catch {}
   const isLogged = !!(auth && auth.currentUser);
   loadLogists(isLogged);
+};
+document.getElementById('copyReviewLink').onclick = async () => {
+  const v = (document.getElementById('reviewLink').value || '').trim();
+  if (!v) { alert('Немає посилання'); return; }
+  try {
+    await navigator.clipboard.writeText(v);
+    alert('Скопійовано');
+  } catch {
+    const i = document.getElementById('reviewLink');
+    i.focus(); i.select(); document.execCommand('copy');
+    alert('Скопійовано');
+  }
 };
 
 /* Search helper */
