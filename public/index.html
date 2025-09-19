@@ -123,13 +123,6 @@
   .mapboxgl-marker{z-index:2!important}
 
   #logistsMsg{display:none;font-size:12px;color:#b91c1c;margin-top:4px}
-  
-  #rejectNote{
-  display:none; margin-top:8px; padding:10px 12px;
-  font-size:13px; line-height:1.35; color:#7f1d1d;
-  background:#fef2f2; border:1px solid #fecaca; border-radius:10px;
-}
-
   </style>
 </head>
 <body>
@@ -281,31 +274,6 @@
       <button id="loadFromDB" class="btn">⬇️ Завантажити з БД</button>
       <button id="deleteFromDB" class="btn">🗑 Видалити з БД</button>
       <button id="clearForm" class="btn">🧹 Очистити форму</button>
-	  
-	  <!-- Статус + кнопки рев'ю -->
-<div class="km-chip" style="margin-top:8px">
-  Статус: <span id="statusChip">чернетка</span>
-</div>
-
-<div id="reviewButtons" class="btn-row" style="margin-top:8px; display:none">
-  <button id="sendForReview" class="btn">📨 Надіслати на перевірку</button>
-  <button id="approveBtn" class="btn">✅ Погодити</button>
-  <button id="rejectBtn" class="btn">❌ Відхилити</button>
-</div>
-
-<!-- Показ причини відхилення -->
-<div id="rejectNote"></div>
-
-<!-- Лінк на перевірку (для копіювання вручну) -->
-<div id="reviewLinkWrap" class="section" style="display:none">
-  <label>Посилання для перевірки</label>
-  <div style="display:flex; gap:6px">
-    <input id="reviewLink" type="text" readonly style="flex:1" />
-    <button id="copyReviewLink" class="btn xs">Копіювати</button>
-  </div>
-  <small class="muted">Скопіюй та відправ у чат/пошту кому потрібно.</small>
-</div>
-
     </div>
   </div>
 </div>
@@ -327,19 +295,6 @@
       <button id="dupOverwrite" class="btn">Ок — Перезаписати</button>
       <button id="dupCopy" class="btn">Зберегти копію</button>
       <button id="dupCancel" class="btn">Скасувати</button>
-    </div>
-  </div>
-</div>
-
-<div id="rejectModal" class="modal" aria-hidden="true">
-  <div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="rejectTitle">
-    <div id="rejectTitle" class="modal-title">Причина відхилення</div>
-    <div class="modal-body">
-      <textarea id="rejectComment" placeholder="Опишіть причину..." style="width:100%;min-height:90px"></textarea>
-    </div>
-    <div class="modal-actions">
-      <button id="rejectConfirm" class="btn">Відхилити</button>
-      <button id="rejectCancel"  class="btn">Скасувати</button>
     </div>
   </div>
 </div>
@@ -1038,37 +993,6 @@ const firebaseConfig = {
   appId: "1:53260611353:web:f25e120996ad8305405f88",
   measurementId: "G-9LRX1FLTKL"
 };
-/* ===== Review workflow config (СБ/листи) ===== */
-const REVIEW_EMAIL = 'ol.p.tkachuk@mhp.com.ua';
-
-// UID акаунта СБ (ssmd@demo.fake) із Firebase Console → Authentication
-//  !!! заміни значення нижче на справжній UID !!!
-const SECURITY_UID = 'KRc5GvHN4JX0bOF3QjjWJ72I6zz2';
-
-// ⬇️ Прапорець: якщо будеш користуватися Email Extension — увімкни true
-const SEND_EMAILS = false;
-
-function showReviewLink(url){
-  const wrap = document.getElementById('reviewLinkWrap');
-  const inp  = document.getElementById('reviewLink');
-  if (!wrap || !inp) return;
-  inp.value = url || '';
-  wrap.style.display = url ? 'block' : 'none';
-}
-function hideReviewLink(){
-  const wrap = document.getElementById('reviewLinkWrap');
-  const inp  = document.getElementById('reviewLink');
-  if (wrap) wrap.style.display = 'none';
-  if (inp) inp.value = '';
-}
-
-// Кнопка "Копіювати"
-document.getElementById('copyReviewLink')?.addEventListener('click', async () => {
-  const v = (document.getElementById('reviewLink')?.value || '').trim();
-  if(!v) return;
-  try { await navigator.clipboard.writeText(v); alert('Скопійовано в буфер обміну'); }
-  catch { prompt('Скопіюй посилання вручну:', v); }
-});
 
 let db = null, auth = null;
 let storage = null;
@@ -1424,204 +1348,6 @@ async function reserveKeyTx(tx, prefix, docId, meta){
   throw new Error('Не вдалося згенерувати унікальний код маршруту (спробуйте ще раз).');
 }
 
-function makeReviewUrl(routeId){
-  return `${location.origin}/index.html?rid=${encodeURIComponent(routeId)}&mode=review`;
-}
-async function getCurrentRouteId(){
-  const sel = document.getElementById('remoteRoutes');
-  return sel.value || null;
-}
-
-// Відмальовка статусу + прав на кнопки
-function updateStatusUI(data){
-  const st = (data && data.status) || 'draft';
-  const map = { draft:'чернетка', in_review:'на перевірці', approved:'погоджено', rejected:'відхилено' };
-  document.getElementById('statusChip').textContent = map[st] || st;
-
-  const me = auth?.currentUser?.uid || null;
-  const isSecurity = me === SECURITY_UID;
-  const canSend = !readOnly && (st === 'draft' || st === 'rejected'); // логіст/адмін
-  const canDecide = isSecurity && st === 'in_review';                 // тільки СБ
-
-  const block = document.getElementById('reviewButtons');
-// панель завжди видима
-block.style.display = 'flex';
-
-// показуємо лише релевантні кнопки
-document.getElementById('sendForReview').style.display = canSend ? '' : 'none';
-document.getElementById('approveBtn').style.display     = canDecide ? '' : 'none';
-document.getElementById('rejectBtn').style.display      = canDecide ? '' : 'none';
-  // === Посилання для перевірки ===
-  const reviewLinkInput = document.getElementById('reviewLink');
-  const reviewLinkRow   = document.getElementById('reviewLinkRow');
-
-  // беремо URL з документа (якщо є) або формуємо з поточного routeId
-  const selRid  = document.getElementById('remoteRoutes').value || '';
-  const qsRid   = new URLSearchParams(location.search).get('rid') || '';
-  const rid     = selRid || qsRid || null;
-
-  const urlFromDoc = data?.review?.url || '';
-  const url = urlFromDoc || (rid ? makeReviewUrl(rid) : '');
-
-  if (url) {
-    reviewLinkInput.value = url;
-    reviewLinkRow.style.display = '';
-  } else {
-    reviewLinkInput.value = '';
-    reviewLinkRow.style.display = 'none';
-  }
-
-
-  // показ / сховати причину відхилення (note)
-  const noteBox = document.getElementById('rejectNote');
-  const note = data?.review?.note;
-  if (st === 'rejected' && note){
-    noteBox.style.display = 'block';
-    noteBox.innerHTML = `<b>Причина відхилення:</b> ${esc(note)}`;
-  } else {
-    noteBox.style.display = 'none';
-    noteBox.textContent = '';
-  }
-}
-function showReviewLink(url){
-  const wrap = document.getElementById('reviewLinkWrap');
-  const a = document.getElementById('reviewLink');
-  const openBtn = document.getElementById('reviewOpenBtn');
-  if (!wrap || !a) return;
-  a.href = url; a.textContent = url;
-  if (openBtn) openBtn.href = url;
-  wrap.style.display = url ? 'block' : 'none';
-}
-function hideReviewLink(){
-  const wrap = document.getElementById('reviewLinkWrap');
-  if (wrap) wrap.style.display = 'none';
-}
-
-// копіювання у буфер
-(function(){
-  const btn = document.getElementById('reviewCopyBtn');
-  if (!btn) return;
-  btn.onclick = () => {
-    const url = document.getElementById('reviewLink')?.href || '';
-    if (!url){ alert('Посилання відсутнє'); return; }
-    (navigator.clipboard?.writeText(url) || Promise.reject())
-      .then(()=> alert('Посилання скопійовано 📋'))
-      .catch(()=> {
-        try{
-          const ta=document.createElement('textarea'); ta.value=url;
-          document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta);
-          alert('Посилання скопійовано 📋');
-        }catch{ prompt('Скопіюйте посилання вручну:', url); }
-      });
-  };
-})();
-
-async function sendForReview(){
-  try{
-    const rid = await getCurrentRouteId();
-    if(!rid){ alert('Спочатку збережіть і виберіть маршрут у списку.'); return; }
-
-    const ref = db.collection('routes').doc(rid);
-    const me  = auth?.currentUser?.uid || null;
-    const url = makeReviewUrl(rid);
-
-    // Статус і дані рев’ю
-    await ref.set({
-      status: 'in_review',
-      review: {
-        requestedByUid: me,
-        requestedAt: new Date().toISOString(),
-        url
-      },
-      updatedAt: new Date().toISOString()
-    }, { merge: true });
-
-    // (необов’язково) надсилання email через Extension — тільки якщо SEND_EMAILS=true
-    if (SEND_EMAILS) {
-      try{
-        await db.collection('mail').add({
-          to: [REVIEW_EMAIL],
-          message: {
-            subject: 'Маршрут на перевірку',
-            html: `
-              <div>Надіслано маршрут на перевірку.</div>
-              <div><b>Посилання:</b> <a href="${url}">${url}</a></div>
-              <div>Увійдіть як обліковий запис СБ, щоб поставити рішення.</div>
-            `
-          }
-        });
-      }catch(e){ console.warn('Email не відправлено:', e); }
-    }
-
-    const snap = await ref.get();
-    updateStatusUI(snap.data());
-    // Показати лінк для копіювання
-    showReviewLink(url);
-    alert('✅ Відправлено на перевірку. Посилання згенеровано.');
-  }catch(e){
-    alert('Помилка відправки: ' + (e?.message || e));
-  }
-}
-
-async function approveRoute(){
-  try{
-    const rid = await getCurrentRouteId();
-    if(!rid){ alert('Немає вибраного маршруту'); return; }
-    if(auth?.currentUser?.uid !== SECURITY_UID){ alert('Лише СБ може погоджувати'); return; }
-
-    const ref = db.collection('routes').doc(rid);
-    await ref.set({
-      status: 'approved',
-      review: {
-        decision: 'approved',
-        decidedByUid: auth.currentUser.uid,
-        decidedAt: new Date().toISOString()
-        // note відсутній або порожній — так і треба за правилами
-      },
-      updatedAt: new Date().toISOString()
-    }, { merge: true });
-
-    const snap = await ref.get();
-    updateStatusUI(snap.data());
-	hideReviewLink();
-    alert('✅ Позначено як ПОГОДЖЕНО');
-  }catch(e){ alert('Помилка: ' + (e?.message || e)); }
-}
-
-function openRejectModal(){
-  const m = document.getElementById('rejectModal');
-  const ta = document.getElementById('rejectComment');
-  ta.value = '';
-  m.classList.add('show');
-  ta.focus();
-}
-function closeRejectModal(){ document.getElementById('rejectModal').classList.remove('show'); }
-
-async function rejectRoute(reason){
-  try{
-    const rid = await getCurrentRouteId();
-    if(!rid){ alert('Немає вибраного маршруту'); return; }
-    if(auth?.currentUser?.uid !== SECURITY_UID){ alert('Лише СБ може відхиляти'); return; }
-
-    const ref = db.collection('routes').doc(rid);
-    await ref.set({
-      status: 'rejected',
-      review: {
-        decision: 'rejected',
-        decidedByUid: auth.currentUser.uid,
-        decidedAt: new Date().toISOString(),
-        note: String(reason || '').trim() // обов’язково непорожній
-      },
-      updatedAt: new Date().toISOString()
-    }, { merge: true });
-
-    const snap = await ref.get();
-    updateStatusUI(snap.data());
-	hideReviewLink();
-    alert('❌ Позначено як ВІДХИЛЕНО');
-  }catch(e){ alert('Помилка: ' + (e?.message || e)); }
-}
-
 /* ===== Firestore: save/list/load/delete ===== */
 async function saveToDB() {
   try {
@@ -1797,12 +1523,6 @@ async function loadFromDB() {
     rebuildMarkers(); drawRulers(); updateRoute();
 	updateHighlights();
     if (points.length > 0) map.flyTo({ center: points[0], zoom: 12 });
-	updateStatusUI(data);
-	if (data.status === 'in_review' && data?.review?.url) {
-  showReviewLink(data.review.url);
-} else {
-  hideReviewLink();
-}
     alert('Маршрут завантажено з БД: ' + id + (data.routeKey ? `\nКод: ${data.routeKey}` : ''));
   } catch (err) {
     console.error('❌ Помилка завантаження з БД:', err);
@@ -1858,18 +1578,6 @@ document.getElementById('clearLogistsCache').onclick = () => {
   const isLogged = !!(auth && auth.currentUser);
   loadLogists(isLogged);
 };
-document.getElementById('copyReviewLink').onclick = async () => {
-  const v = (document.getElementById('reviewLink').value || '').trim();
-  if (!v) { alert('Немає посилання'); return; }
-  try {
-    await navigator.clipboard.writeText(v);
-    alert('Скопійовано');
-  } catch {
-    const i = document.getElementById('reviewLink');
-    i.focus(); i.select(); document.execCommand('copy');
-    alert('Скопійовано');
-  }
-};
 
 /* Search helper */
 const routeSearch = document.getElementById('routeSearch');
@@ -1915,9 +1623,6 @@ async function loadRouteById(rid) {
       for (const p of points) b.extend(p);
       map.fitBounds(b, { padding: 40 });
     }
-	updateStatusUI(data);
-	if (data.status === 'in_review' && data?.review?.url) showReviewLink(data.review.url);
-else hideReviewLink();
     if (data.routeKey) alert('Код маршруту: ' + data.routeKey);
   } catch (e) {
     console.error('loadRouteById error:', e);
@@ -1939,7 +1644,6 @@ function clearForm() {
 
   // ⬇️ додай цю строку
   updateHighlights();
-  hideReviewLink();
 
   alert('Форма очищена');
 }
@@ -2128,15 +1832,6 @@ auth?.onAuthStateChanged(async (user) => {
       if (r.exists && r.data()?.role) role = String(r.data().role);
     }catch{}
     applyRoleUI(role);
-	try{
-  const id = document.getElementById('remoteRoutes').value;
-  if(id){
-    const snap = await db.collection('routes').doc(id).get();
-    if(snap.exists) updateStatusUI(snap.data()); else updateStatusUI({status:'draft'});
-  } else {
-    updateStatusUI({status:'draft'});
-  }
-}catch(_){ updateStatusUI({status:'draft'}); }
     await loadLogists(true);
 
     /* ⬇️ автозавантаження геозон після входу */
@@ -2178,24 +1873,6 @@ const onFromToChange = () => { updateRouteName(); updateHighlights(); };
 });
 document.getElementById('routeType').addEventListener('change', updateRouteName);
 document.getElementById('routePurpose').addEventListener('change', updateRouteName);
-
-// Керування рев'ю
-document.getElementById('sendForReview').onclick = sendForReview;
-document.getElementById('approveBtn').onclick = approveRoute;
-document.getElementById('rejectBtn').onclick = openRejectModal;
-
-// Модалка відхилення
-document.getElementById('rejectConfirm').onclick = async () => {
-  const reason = (document.getElementById('rejectComment').value || '').trim();
-  if(!reason){ alert('Вкажіть причину відхилення'); return; }
-  closeRejectModal();
-  await rejectRoute(reason);
-};
-document.getElementById('rejectCancel').onclick = closeRejectModal;
-document.getElementById('rejectModal').addEventListener('click', (e)=>{
-  if(e.target.id === 'rejectModal') closeRejectModal();
-});
-
 </script>
 </body>
 </html>
