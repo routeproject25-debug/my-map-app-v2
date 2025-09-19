@@ -296,6 +296,16 @@
 <!-- Показ причини відхилення -->
 <div id="rejectNote"></div>
 
+<!-- Лінк на перевірку (для копіювання вручну) -->
+<div id="reviewLinkWrap" class="section" style="display:none">
+  <label>Посилання для перевірки</label>
+  <div style="display:flex; gap:6px">
+    <input id="reviewLink" type="text" readonly style="flex:1" />
+    <button id="copyReviewLink" class="btn xs">Копіювати</button>
+  </div>
+  <small class="muted">Скопіюй та відправ у чат/пошту кому потрібно.</small>
+</div>
+
     </div>
   </div>
 </div>
@@ -1034,6 +1044,32 @@ const REVIEW_EMAIL = 'ol.p.tkachuk@mhp.com.ua';
 // UID акаунта СБ (ssmd@demo.fake) із Firebase Console → Authentication
 //  !!! заміни значення нижче на справжній UID !!!
 const SECURITY_UID = 'KRc5GvHN4JX0bOF3QjjWJ72I6zz2';
+
+// ⬇️ Прапорець: якщо будеш користуватися Email Extension — увімкни true
+const SEND_EMAILS = false;
+
+function showReviewLink(url){
+  const wrap = document.getElementById('reviewLinkWrap');
+  const inp  = document.getElementById('reviewLink');
+  if (!wrap || !inp) return;
+  inp.value = url || '';
+  wrap.style.display = url ? 'block' : 'none';
+}
+function hideReviewLink(){
+  const wrap = document.getElementById('reviewLinkWrap');
+  const inp  = document.getElementById('reviewLink');
+  if (wrap) wrap.style.display = 'none';
+  if (inp) inp.value = '';
+}
+
+// Кнопка "Копіювати"
+document.getElementById('copyReviewLink')?.addEventListener('click', async () => {
+  const v = (document.getElementById('reviewLink')?.value || '').trim();
+  if(!v) return;
+  try { await navigator.clipboard.writeText(v); alert('Скопійовано в буфер обміну'); }
+  catch { prompt('Скопіюй посилання вручну:', v); }
+});
+
 let db = null, auth = null;
 let storage = null;
 
@@ -1434,34 +1470,40 @@ async function sendForReview(){
     const me  = auth?.currentUser?.uid || null;
     const url = makeReviewUrl(rid);
 
+    // Статус і дані рев’ю
     await ref.set({
       status: 'in_review',
       review: {
         requestedByUid: me,
         requestedAt: new Date().toISOString(),
-        url // допоміжне поле — дозволене правилами
+        url
       },
       updatedAt: new Date().toISOString()
     }, { merge: true });
 
-    // Email через розширення (колекція mail)
-    try{
-      await db.collection('mail').add({
-        to: [REVIEW_EMAIL],
-        message: {
-          subject: 'Маршрут на перевірку',
-          html: `
-            <div>Надіслано маршрут на перевірку.</div>
-            <div><b>Посилання:</b> <a href="${url}">${url}</a></div>
-            <div>Увійдіть як обліковий запис СБ, щоб поставити рішення.</div>
-          `
-        }
-      });
-    }catch(e){ console.warn('Створити лист не вдалося (extension не встановлено?)', e); }
+    // (необов’язково) надсилання email через Extension — тільки якщо SEND_EMAILS=true
+    if (SEND_EMAILS) {
+      try{
+        await db.collection('mail').add({
+          to: [REVIEW_EMAIL],
+          message: {
+            subject: 'Маршрут на перевірку',
+            html: `
+              <div>Надіслано маршрут на перевірку.</div>
+              <div><b>Посилання:</b> <a href="${url}">${url}</a></div>
+              <div>Увійдіть як обліковий запис СБ, щоб поставити рішення.</div>
+            `
+          }
+        });
+      }catch(e){ console.warn('Email не відправлено:', e); }
+    }
 
     const snap = await ref.get();
     updateStatusUI(snap.data());
-    alert('✅ Відправлено на перевірку.');
+
+    // Показати лінк для копіювання
+    showReviewLink(url);
+    alert('✅ Відправлено на перевірку. Посилання згенеровано.');
   }catch(e){
     alert('Помилка відправки: ' + (e?.message || e));
   }
@@ -1487,6 +1529,7 @@ async function approveRoute(){
 
     const snap = await ref.get();
     updateStatusUI(snap.data());
+	hideReviewLink();
     alert('✅ Позначено як ПОГОДЖЕНО');
   }catch(e){ alert('Помилка: ' + (e?.message || e)); }
 }
@@ -1520,6 +1563,7 @@ async function rejectRoute(reason){
 
     const snap = await ref.get();
     updateStatusUI(snap.data());
+	hideReviewLink();
     alert('❌ Позначено як ВІДХИЛЕНО');
   }catch(e){ alert('Помилка: ' + (e?.message || e)); }
 }
@@ -1801,6 +1845,8 @@ async function loadRouteById(rid) {
       map.fitBounds(b, { padding: 40 });
     }
 	updateStatusUI(data);
+	if (data.status === 'in_review' && data?.review?.url) showReviewLink(data.review.url);
+else hideReviewLink();
     if (data.routeKey) alert('Код маршруту: ' + data.routeKey);
   } catch (e) {
     console.error('loadRouteById error:', e);
@@ -1822,6 +1868,7 @@ function clearForm() {
 
   // ⬇️ додай цю строку
   updateHighlights();
+  hideReviewLink();
 
   alert('Форма очищена');
 }
