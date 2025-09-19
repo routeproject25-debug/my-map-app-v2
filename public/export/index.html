@@ -188,11 +188,14 @@
       <div style="overflow:auto;">
         <table id="resTable">
           <colgroup>
+            <!-- 13 колонок з урахуванням "Проміжні пункти" -->
             <col class="col-code"><col class="col-code">
-            <col><col><col><col><col><col>
-            <col class="col-key">
-            <col class="col-id">
-            <col><col>
+            <col><col><col>  <!-- Від, До, Проміжні -->
+            <col><col><col>  <!-- Відстань, Тип, Логіст -->
+            <col>             <!-- Оновлено -->
+            <col class="col-key"> <!-- Код маршруту -->
+            <col class="col-id">  <!-- ID -->
+            <col><col>        <!-- Карта, Навігатор -->
           </colgroup>
           <thead>
             <tr>
@@ -200,6 +203,7 @@
               <th class="sortable" data-sort="toCode">Код До <span class="s">↕</span></th>
               <th class="sortable" data-sort="fromName">Від <span class="s">↕</span></th>
               <th class="sortable" data-sort="toName">До <span class="s">↕</span></th>
+              <th class="sortable" data-sort="viaNames">Проміжні пункти <span class="s">↕</span></th>
               <th class="sortable" data-sort="distance_km">Відстань, км <span class="s">↕</span></th>
               <th class="sortable" data-sort="type">Тип <span class="s">↕</span></th>
               <th class="sortable" data-sort="logisticName">Логіст <span class="s">↕</span></th>
@@ -215,6 +219,7 @@
               <th><input id="f_toCode" type="text" placeholder="пошук…"></th>
               <th><input id="f_fromName" type="text" placeholder="пошук…" list="directoryList"></th>
               <th><input id="f_toName" type="text" placeholder="пошук…" list="directoryList"></th>
+              <th><input id="f_via" type="text" placeholder="проміжні…"></th>
               <th>
                 <div class="range">
                   <input id="f_distMin" type="number" step="0.001" placeholder="мін.">
@@ -493,6 +498,53 @@ function normalizeSegments(source){
   scan(source); return segments;
 }
 
+/* ---------- Витяг «Проміжних пунктів» ---------- */
+function extractViaList(d){
+  const acc=[];
+  const seen=new Set();
+  const push=(s)=>{
+    const t=String(s||'').trim();
+    if(!t) return;
+    const key=t.toLowerCase();
+    if(!seen.has(key)){ seen.add(key); acc.push(t); }
+  };
+  const mapCode = (code)=> nameByCode(code) || String(code||'').trim();
+
+  // явні масиви назв
+  ['viaNames','midNames','waypointNames','stopsNames'].forEach(k=>{
+    const v=d[k];
+    if (Array.isArray(v)) v.forEach(push);
+    else if (typeof v==='string') v.split(/[|,;]+/).forEach(s=>push(s));
+  });
+
+  // масиви кодів
+  ['viaCodes','midCodes','waypointCodes','stopsCodes'].forEach(k=>{
+    const v=d[k];
+    if (Array.isArray(v)) v.forEach(c=>{ if (typeof c==='string') push(mapCode(c)); });
+    else if (typeof v==='string') v.split(/[|,;]+/).forEach(c=>push(mapCode(c)));
+  });
+
+  // універсальні масиви (рядки/об'єкти/координати)
+  ['via','vias','mid','mids','waypoints','midpoints','stops'].forEach(k=>{
+    const v=d[k];
+    if (Array.isArray(v)){
+      for (const it of v){
+        if (typeof it==='string'){ push(mapCode(it)); continue; }
+        if (Array.isArray(it)){ const p=toLonLat(it); if (p) push(`${p[1].toFixed(6)}, ${p[0].toFixed(6)}`); continue; }
+        if (it && typeof it==='object'){
+          if (it.name || it.label || it.title) { push(it.name || it.label || it.title); continue; }
+          if (it.code) { push(mapCode(it.code)); continue; }
+          const p=toLonLat(it); if (p) push(`${p[1].toFixed(6)}, ${p[0].toFixed(6)}`);
+        }
+      }
+    } else if (typeof v==='string'){
+      v.split(/[|,;]+/).forEach(x=>push(mapCode(x)));
+    }
+  });
+
+  return acc;
+}
+
 /* ---------- ПАГІНАЦІЯ / СТАН ---------- */
 const PAGE_SIZE = 1000;
 let _baseQuery = null;
@@ -502,7 +554,7 @@ let allRows = [];
 let FORCE_SERVER = false;
 
 /* ---------- Сортування ---------- */
-const sortState = { key: 'updatedAtRaw', dir: -1 }; // дефолт: оновлено ↓
+const sortState = { key: 'updatedAtRaw', dir: -1 };
 
 /* ---------- Побудова запиту ---------- */
 function buildBaseQuery(){
@@ -532,6 +584,7 @@ function parseSnap(snap){
   const rows=[];
   snap.forEach(doc=>{
     const d=doc.data()||{};
+    const viaArr = extractViaList(d);
     rows.push({
       id: doc.id,
       routeKey: d.routeKey || '',
@@ -541,6 +594,7 @@ function parseSnap(snap){
       toName: nameByCode(d.toCode)||'',
       fromUnit: unitByCode(d.fromCode)||'',
       toUnit: unitByCode(d.toCode)||'',
+      viaNames: viaArr.join(' • '),
       distance_km: (typeof d.distance_km==='number')? d.distance_km : NaN,
       type: d.routeType||'',
       logisticName: d.logisticName || '',
@@ -616,6 +670,7 @@ function getTableFilterState(){
     toCode:    document.getElementById('f_toCode').value.trim(),
     fromName:  document.getElementById('f_fromName').value.trim(),
     toName:    document.getElementById('f_toName').value.trim(),
+    via:       document.getElementById('f_via').value.trim(),
     distMin:   toNum(document.getElementById('f_distMin').value),
     distMax:   toNum(document.getElementById('f_distMax').value),
     type:      document.getElementById('f_type').value,
@@ -638,6 +693,7 @@ function applyTableFilters(rows){
     if (f.toCode   && !normInc(r.toCode,   f.toCode))   return false;
     if (f.fromName && !normInc(r.fromName, f.fromName)) return false;
     if (f.toName   && !normInc(r.toName,   f.toName))   return false;
+    if (f.via      && !normInc(r.viaNames, f.via)) return false;
     const dist = r.distance_km;
     if (Number.isFinite(f.distMin) && dist < f.distMin) return false;
     if (Number.isFinite(f.distMax) && dist > f.distMax) return false;
@@ -684,7 +740,6 @@ function sortRows(rows){
   arr.sort((a,b)=>{
     const r = compareRows(a,b,sortState.key);
     if (r !== 0) return r;
-    // tie-breaker: updated desc
     const av = a.updatedAtRaw ? new Date(a.updatedAtRaw).getTime() : 0;
     const bv = b.updatedAtRaw ? new Date(b.updatedAtRaw).getTime() : 0;
     return (bv - av);
@@ -766,6 +821,7 @@ function renderTable(rows){
     <td class="cell-code" title="${r.toCode}">${r.toCode}</td>
     <td>${r.fromName}</td>
     <td>${r.toName}</td>
+    <td>${r.viaNames || ''}</td>
     <td>${Number.isFinite(r.distance_km) ? r.distance_km.toFixed(3) : ''}</td>
     <td>${r.type}</td>
     <td>${r.logisticName || ''}</td>
@@ -785,14 +841,15 @@ function renderTable(rows){
   updateStats(rows);
 }
 
-/* ---------- Експорт у Excel (клікабельне посилання + автофільтр) ---------- */
+/* ---------- Експорт у Excel (клікабельне посилання + автофільтр + проміжні) ---------- */
 function exportToExcel(rows){
-  const header = ['Код Від','Код До','Від','До','Відстань, км','Тип','Логіст','Оновлено','Код маршруту','ID','URL (Карта)'];
+  const header = ['Код Від','Код До','Від','До','Проміжні пункти','Відстань, км','Тип','Логіст','Оновлено','Код маршруту','ID','URL (Карта)'];
 
   const body = rows.map(r => {
     const mapUrl = `${location.origin}${MAP_URL}?rid=${encodeURIComponent(r.id)}`;
     return [
       r.fromCode, r.toCode, r.fromName, r.toName,
+      r.viaNames || '',
       Number.isFinite(r.distance_km) ? Number(r.distance_km.toFixed(3)) : '',
       r.type, r.logisticName || '', r.updatedAt, r.routeKey || '', r.id,
       { t: 's', v: '🗺️ Відкрити', l: { Target: mapUrl, Tooltip: 'Відкрити маршрут на карті' } }
@@ -800,8 +857,8 @@ function exportToExcel(rows){
   });
 
   const ws = XLSX.utils.aoa_to_sheet([header, ...body]);
-  ws['!cols'] = [12,12,28,28,12,16,22,22,18,36,18].map(w => ({ wch: w }));
-  ws['!autofilter'] = { ref: XLSX.utils.encode_range({ s:{c:0,r:0}, e:{c:10,r:body.length} }) };
+  ws['!cols'] = [12,12,28,28,32,12,16,22,22,18,36,18].map(w => ({ wch: w }));
+  ws['!autofilter'] = { ref: XLSX.utils.encode_range({ s:{c:0,r:0}, e:{c:11,r:body.length} }) };
 
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Маршрути');
