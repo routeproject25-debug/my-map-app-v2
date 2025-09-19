@@ -65,6 +65,14 @@
     /* ширини/поведінка комірок */
     .col-code { width: 120px; }
     .cell-code { word-break: break-all; overflow-wrap: anywhere; white-space: normal; line-height:1.25; }
+	/* Проміжні пункти */
+.col-via { width: clamp(220px, 32vw, 520px); }
+.cell-via {
+  white-space: normal;
+  overflow-wrap: anywhere; /* перенос навіть без пробілів */
+  word-break: break-word;
+  line-height: 1.25;
+}
 
     .col-key { width: clamp(140px, 16vw, 200px); }
     .col-id  { width: clamp(120px, 18vw, 220px); }
@@ -190,7 +198,7 @@
           <colgroup>
             <!-- 13 колонок з урахуванням "Проміжні пункти" -->
             <col class="col-code"><col class="col-code">
-            <col><col><col>  <!-- Від, До, Проміжні -->
+            <col><col><col class="col-via">  <!-- Від, До, Проміжні -->
             <col><col><col>  <!-- Відстань, Тип, Логіст -->
             <col>             <!-- Оновлено -->
             <col class="col-key"> <!-- Код маршруту -->
@@ -500,39 +508,51 @@ function normalizeSegments(source){
 
 /* ---------- Витяг «Проміжних пунктів» ---------- */
 function extractViaList(d){
-  const acc=[]; const seen=new Set();
-  const push=(s)=>{ const t=String(s||'').trim(); if(!t) return; const key=t.toLowerCase(); if(!seen.has(key)){ seen.add(key); acc.push(t); } };
-  const mapCode = (code)=> nameByCode(code) || String(code||'').trim();
+  const acc = [];
+  const seen = new Set();
+  const push = (s) => {
+    const t = String(s || '').trim();
+    if (!t) return;
+    const key = t.toLowerCase();
+    if (!seen.has(key)) { seen.add(key); acc.push(t); }
+  };
+  const mapCode = (code) => nameByCode(code) || String(code || '').trim();
 
-  // 1) явні назви як рядок або масив (додано підтримку intermediateText / intermediateNames)
-  ['intermediateText','intermediateNames','viaNames','midNames','waypointNames','stopsNames'].forEach(k=>{
-    const v=d[k];
+  // Розбивка рядка за комою/крапкою з комою/пайпом/ен-даш/ем-даш/стрілкою
+  const splitNames = s => String(s || '')
+    .split(/[\|,;]|[–—]|→/g)
+    .map(x => x.trim())
+    .filter(Boolean);
+
+  // Явні масиви назв
+  ['viaNames','midNames','waypointNames','stopsNames'].forEach(k => {
+    const v = d[k];
     if (Array.isArray(v)) v.forEach(push);
-    else if (typeof v==='string') v.split(/[|,;]+/).forEach(s=>push(s));
+    else if (typeof v === 'string') splitNames(v).forEach(push);
   });
 
-  // 2) коди як рядок/масив (у т.ч. intermediateCodes)
-  ['intermediateCodes','viaCodes','midCodes','waypointCodes','stopsCodes'].forEach(k=>{
-    const v=d[k];
-    if (Array.isArray(v)) v.forEach(c=>{ if (typeof c==='string') push(mapCode(c)); });
-    else if (typeof v==='string') v.split(/[|,;]+/).forEach(c=>push(mapCode(c)));
+  // Масиви/рядки з кодами
+  ['viaCodes','midCodes','waypointCodes','stopsCodes'].forEach(k => {
+    const v = d[k];
+    if (Array.isArray(v)) v.forEach(c => { if (typeof c === 'string') push(mapCode(c)); });
+    else if (typeof v === 'string') splitNames(v).forEach(c => push(mapCode(c)));
   });
 
-  // 3) універсальні ключі (масив об’єктів/рядків/координат або рядок з назвами)
-  ['intermediate','intermediates','via','vias','mid','mids','waypoints','midpoints','stops'].forEach(k=>{
-    const v=d[k];
-    if (Array.isArray(v)){
-      for (const it of v){
-        if (typeof it==='string'){ push(mapCode(it)); continue; }
-        if (Array.isArray(it)){ const p=toLonLat(it); if (p) push(`${p[1].toFixed(6)}, ${p[0].toFixed(6)}`); continue; }
-        if (it && typeof it==='object'){
+  // Універсальні поля (могли бути і назви, і коди, і координати)
+  ['via','vias','mid','mids','waypoints','midpoints','stops'].forEach(k => {
+    const v = d[k];
+    if (Array.isArray(v)) {
+      for (const it of v) {
+        if (typeof it === 'string') { splitNames(it).forEach(x => push(mapCode(x))); continue; }
+        if (Array.isArray(it)) { const p = toLonLat(it); if (p) push(`${p[1].toFixed(6)}, ${p[0].toFixed(6)}`); continue; }
+        if (it && typeof it === 'object') {
           if (it.name || it.label || it.title) { push(it.name || it.label || it.title); continue; }
           if (it.code) { push(mapCode(it.code)); continue; }
-          const p=toLonLat(it); if (p) push(`${p[1].toFixed(6)}, ${p[0].toFixed(6)}`);
+          const p = toLonLat(it); if (p) push(`${p[1].toFixed(6)}, ${p[0].toFixed(6)}`);
         }
       }
-    } else if (typeof v==='string'){
-      v.split(/[|,;]+/).forEach(x=>push(mapCode(x)));
+    } else if (typeof v === 'string') {
+      splitNames(v).forEach(x => push(mapCode(x)));
     }
   });
 
@@ -815,7 +835,7 @@ function renderTable(rows){
     <td class="cell-code" title="${r.toCode}">${r.toCode}</td>
     <td>${r.fromName}</td>
     <td>${r.toName}</td>
-    <td>${r.viaNames || ''}</td>
+    <td class="cell-via">${r.viaNames || ''}</td>
     <td>${Number.isFinite(r.distance_km) ? r.distance_km.toFixed(3) : ''}</td>
     <td>${r.type}</td>
     <td>${r.logisticName || ''}</td>
