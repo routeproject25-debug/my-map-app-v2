@@ -368,12 +368,7 @@ let currentStyle = 'mapbox://styles/mapbox/streets-v12';
 const map = new mapboxgl.Map({ container: 'map', style: currentStyle, center: [28.468, 49.234], zoom: 12 });
 
 /* ==== MULTI TILESETS CONFIG (додавай тут нові геозони - key створювати самостійно, але щоб не повторювалося) ==== */
-const TILESETS = [#rejectNote{
-  display:none; margin-top:8px; padding:10px 12px;
-  font-size:13px; line-height:1.35; color:#7f1d1d;
-  background:#fef2f2; border:1px solid #fecaca; border-radius:10px;
-}
-
+const TILESETS = [
   { key: 'bb2', url: 'mapbox://tkchk.bb2bwfuq', layer: '_-0k20q9' },
   { key: '06s', url: 'mapbox://tkchk.06suqqy1', layer: '_-6bzqyf' },
   { key: '61a', url: 'mapbox://tkchk.61afrgjj', layer: '_-9gplys' },
@@ -1404,13 +1399,13 @@ async function getCurrentRouteId(){
 // Відмальовка статусу + прав на кнопки
 function updateStatusUI(data){
   const st = (data && data.status) || 'draft';
-  const map = { draft:'чернетка', pending:'на перевірці', approved:'погоджено', rejected:'відхилено' };
+  const map = { draft:'чернетка', in_review:'на перевірці', approved:'погоджено', rejected:'відхилено' };
   document.getElementById('statusChip').textContent = map[st] || st;
 
   const me = auth?.currentUser?.uid || null;
   const isSecurity = me === SECURITY_UID;
   const canSend = !readOnly && (st === 'draft' || st === 'rejected'); // логіст/адмін
-  const canDecide = isSecurity && st === 'pending';                    // тільки СБ
+  const canDecide = isSecurity && st === 'in_review';                 // тільки СБ
 
   const block = document.getElementById('reviewButtons');
   block.style.display = (canSend || canDecide) ? 'flex' : 'none';
@@ -1418,15 +1413,15 @@ function updateStatusUI(data){
   document.getElementById('approveBtn').style.display     = canDecide? '' : 'none';
   document.getElementById('rejectBtn').style.display      = canDecide? '' : 'none';
 
-  // показ / сховати причину відхилення
-  const note = document.getElementById('rejectNote');
-  const comment = data?.review?.comment;
-  if (st === 'rejected' && comment){
-    note.style.display = 'block';
-    note.innerHTML = `<b>Причина відхилення:</b> ${esc(comment)}`;
+  // показ / сховати причину відхилення (note)
+  const noteBox = document.getElementById('rejectNote');
+  const note = data?.review?.note;
+  if (st === 'rejected' && note){
+    noteBox.style.display = 'block';
+    noteBox.innerHTML = `<b>Причина відхилення:</b> ${esc(note)}`;
   } else {
-    note.style.display = 'none';
-    note.textContent = '';
+    noteBox.style.display = 'none';
+    noteBox.textContent = '';
   }
 }
 
@@ -1440,20 +1435,16 @@ async function sendForReview(){
     const url = makeReviewUrl(rid);
 
     await ref.set({
-      status: 'pending',
+      status: 'in_review',
       review: {
         requestedByUid: me,
         requestedAt: new Date().toISOString(),
-        decidedByUid: null,
-        decidedAt: null,
-        decision: null,
-        comment: '',
-        url
+        url // допоміжне поле — дозволене правилами
       },
       updatedAt: new Date().toISOString()
     }, { merge: true });
 
-    // Якщо встановлено Firebase Extension "Trigger Email" — цього досить
+    // Email через розширення (колекція mail)
     try{
       await db.collection('mail').add({
         to: [REVIEW_EMAIL],
@@ -1462,7 +1453,7 @@ async function sendForReview(){
           html: `
             <div>Надіслано маршрут на перевірку.</div>
             <div><b>Посилання:</b> <a href="${url}">${url}</a></div>
-            <div>Увійдіть як ssmd@demo.fake, щоб поставити рішення.</div>
+            <div>Увійдіть як обліковий запис СБ, щоб поставити рішення.</div>
           `
         }
       });
@@ -1488,8 +1479,8 @@ async function approveRoute(){
       review: {
         decision: 'approved',
         decidedByUid: auth.currentUser.uid,
-        decidedAt: new Date().toISOString(),
-        comment: ''  // причину прибираємо
+        decidedAt: new Date().toISOString()
+        // note відсутній або порожній — так і треба за правилами
       },
       updatedAt: new Date().toISOString()
     }, { merge: true });
@@ -1522,7 +1513,7 @@ async function rejectRoute(reason){
         decision: 'rejected',
         decidedByUid: auth.currentUser.uid,
         decidedAt: new Date().toISOString(),
-        comment: String(reason || '').trim()
+        note: String(reason || '').trim() // обов’язково непорожній
       },
       updatedAt: new Date().toISOString()
     }, { merge: true });
