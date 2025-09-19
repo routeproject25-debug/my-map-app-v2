@@ -1444,10 +1444,13 @@ function updateStatusUI(data){
   const canDecide = isSecurity && st === 'in_review';                 // тільки СБ
 
   const block = document.getElementById('reviewButtons');
-  block.style.display = (canSend || canDecide) ? 'flex' : 'none';
-  document.getElementById('sendForReview').style.display = canSend   ? '' : 'none';
-  document.getElementById('approveBtn').style.display     = canDecide? '' : 'none';
-  document.getElementById('rejectBtn').style.display      = canDecide? '' : 'none';
+// панель завжди видима
+block.style.display = 'flex';
+
+// показуємо лише релевантні кнопки
+document.getElementById('sendForReview').style.display = canSend ? '' : 'none';
+document.getElementById('approveBtn').style.display     = canDecide ? '' : 'none';
+document.getElementById('rejectBtn').style.display      = canDecide ? '' : 'none';
 
   // показ / сховати причину відхилення (note)
   const noteBox = document.getElementById('rejectNote');
@@ -1460,6 +1463,38 @@ function updateStatusUI(data){
     noteBox.textContent = '';
   }
 }
+function showReviewLink(url){
+  const wrap = document.getElementById('reviewLinkWrap');
+  const a = document.getElementById('reviewLink');
+  const openBtn = document.getElementById('reviewOpenBtn');
+  if (!wrap || !a) return;
+  a.href = url; a.textContent = url;
+  if (openBtn) openBtn.href = url;
+  wrap.style.display = url ? 'block' : 'none';
+}
+function hideReviewLink(){
+  const wrap = document.getElementById('reviewLinkWrap');
+  if (wrap) wrap.style.display = 'none';
+}
+
+// копіювання у буфер
+(function(){
+  const btn = document.getElementById('reviewCopyBtn');
+  if (!btn) return;
+  btn.onclick = () => {
+    const url = document.getElementById('reviewLink')?.href || '';
+    if (!url){ alert('Посилання відсутнє'); return; }
+    (navigator.clipboard?.writeText(url) || Promise.reject())
+      .then(()=> alert('Посилання скопійовано 📋'))
+      .catch(()=> {
+        try{
+          const ta=document.createElement('textarea'); ta.value=url;
+          document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta);
+          alert('Посилання скопійовано 📋');
+        }catch{ prompt('Скопіюйте посилання вручну:', url); }
+      });
+  };
+})();
 
 async function sendForReview(){
   try{
@@ -1500,7 +1535,6 @@ async function sendForReview(){
 
     const snap = await ref.get();
     updateStatusUI(snap.data());
-
     // Показати лінк для копіювання
     showReviewLink(url);
     alert('✅ Відправлено на перевірку. Посилання згенеровано.');
@@ -1744,6 +1778,11 @@ async function loadFromDB() {
 	updateHighlights();
     if (points.length > 0) map.flyTo({ center: points[0], zoom: 12 });
 	updateStatusUI(data);
+	if (data.status === 'in_review' && data?.review?.url) {
+  showReviewLink(data.review.url);
+} else {
+  hideReviewLink();
+}
     alert('Маршрут завантажено з БД: ' + id + (data.routeKey ? `\nКод: ${data.routeKey}` : ''));
   } catch (err) {
     console.error('❌ Помилка завантаження з БД:', err);
