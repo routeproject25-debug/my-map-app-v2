@@ -136,7 +136,7 @@
         </div>
       </div>
 
-      <div class="row cols-4" style="margin-top:12px;">
+      <div class="row cols-4" style="margin-top:12px%;">
         <div>
           <label>Виробничий підрозділ (у Від або До)</label>
           <select id="unitFilter"><option value="">— будь-який —</option></select>
@@ -500,32 +500,26 @@ function normalizeSegments(source){
 
 /* ---------- Витяг «Проміжних пунктів» ---------- */
 function extractViaList(d){
-  const acc=[];
-  const seen=new Set();
-  const push=(s)=>{
-    const t=String(s||'').trim();
-    if(!t) return;
-    const key=t.toLowerCase();
-    if(!seen.has(key)){ seen.add(key); acc.push(t); }
-  };
+  const acc=[]; const seen=new Set();
+  const push=(s)=>{ const t=String(s||'').trim(); if(!t) return; const key=t.toLowerCase(); if(!seen.has(key)){ seen.add(key); acc.push(t); } };
   const mapCode = (code)=> nameByCode(code) || String(code||'').trim();
 
-  // явні масиви назв
-  ['viaNames','midNames','waypointNames','stopsNames'].forEach(k=>{
+  // 1) явні назви як рядок або масив (додано підтримку intermediateText / intermediateNames)
+  ['intermediateText','intermediateNames','viaNames','midNames','waypointNames','stopsNames'].forEach(k=>{
     const v=d[k];
     if (Array.isArray(v)) v.forEach(push);
     else if (typeof v==='string') v.split(/[|,;]+/).forEach(s=>push(s));
   });
 
-  // масиви кодів
-  ['viaCodes','midCodes','waypointCodes','stopsCodes'].forEach(k=>{
+  // 2) коди як рядок/масив (у т.ч. intermediateCodes)
+  ['intermediateCodes','viaCodes','midCodes','waypointCodes','stopsCodes'].forEach(k=>{
     const v=d[k];
     if (Array.isArray(v)) v.forEach(c=>{ if (typeof c==='string') push(mapCode(c)); });
     else if (typeof v==='string') v.split(/[|,;]+/).forEach(c=>push(mapCode(c)));
   });
 
-  // універсальні масиви (рядки/об'єкти/координати)
-  ['via','vias','mid','mids','waypoints','midpoints','stops'].forEach(k=>{
+  // 3) універсальні ключі (масив об’єктів/рядків/координат або рядок з назвами)
+  ['intermediate','intermediates','via','vias','mid','mids','waypoints','midpoints','stops'].forEach(k=>{
     const v=d[k];
     if (Array.isArray(v)){
       for (const it of v){
