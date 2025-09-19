@@ -518,28 +518,28 @@ function extractViaList(d){
   };
   const mapCode = (code) => nameByCode(code) || String(code || '').trim();
 
-  // Розбивка рядка за комою/крапкою з комою/пайпом/ен-даш/ем-даш/стрілкою
+  // Розбивка рядка за комою / крапкою з комою / пайпом / тире (–, —, -) / стрілкою →
   const splitNames = s => String(s || '')
-    .split(/[\|,;]|[–—]|→/g)
+    .split(/[\|,;]|[–—-]|→/g)
     .map(x => x.trim())
     .filter(Boolean);
 
-  // Явні масиви назв
-  ['viaNames','midNames','waypointNames','stopsNames'].forEach(k => {
+  // Рядки/масиви з назвами (додано intermediateText)
+  ['intermediateText','viaNames','midNames','waypointNames','stopsNames'].forEach(k => {
     const v = d[k];
     if (Array.isArray(v)) v.forEach(push);
     else if (typeof v === 'string') splitNames(v).forEach(push);
   });
 
-  // Масиви/рядки з кодами
-  ['viaCodes','midCodes','waypointCodes','stopsCodes'].forEach(k => {
+  // Коди проміжних (перетворюємо код → назву з довідника)
+  ['intermediateCodes','viaCodes','midCodes','waypointCodes','stopsCodes'].forEach(k => {
     const v = d[k];
-    if (Array.isArray(v)) v.forEach(c => { if (typeof c === 'string') push(mapCode(c)); });
+    if (Array.isArray(v)) v.forEach(c => push(mapCode(c)));
     else if (typeof v === 'string') splitNames(v).forEach(c => push(mapCode(c)));
   });
 
-  // Універсальні поля (могли бути і назви, і коди, і координати)
-  ['via','vias','mid','mids','waypoints','midpoints','stops'].forEach(k => {
+  // Універсальні поля (масиви рядків/об’єктів/координат)
+  ['intermediate','intermediates','via','vias','mid','mids','waypoints','midpoints','stops'].forEach(k => {
     const v = d[k];
     if (Array.isArray(v)) {
       for (const it of v) {
@@ -555,6 +555,13 @@ function extractViaList(d){
       splitNames(v).forEach(x => push(mapCode(x)));
     }
   });
+
+  // Фолбек: якщо проміжних ще нема, спробувати витягти їх з name/fromLabel формату "A — B — C — D"
+  if (!acc.length) {
+    const label = d.name || d.fromLabel || '';
+    const parts = splitNames(label);
+    if (parts.length >= 3) parts.slice(1, -1).forEach(push);
+  }
 
   return acc;
 }
