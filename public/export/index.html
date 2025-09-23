@@ -65,17 +65,17 @@
     /* ширини/поведінка комірок */
     .col-code { width: 120px; }
     .cell-code { word-break: break-all; overflow-wrap: anywhere; white-space: normal; line-height:1.25; }
-	/* Проміжні пункти */
-.col-via { width: clamp(220px, 32vw, 520px); }
-.cell-via {
-  white-space: normal;
-  overflow-wrap: anywhere; /* перенос навіть без пробілів */
-  word-break: break-word;
-  line-height: 1.25;
-}
+
+    /* Проміжні пункти */
+    .col-via { width: clamp(220px, 32vw, 520px); }
+    .cell-via { white-space: normal; overflow-wrap: anywhere; word-break: break-word; line-height: 1.25; }
 
     .col-key { width: clamp(140px, 16vw, 200px); }
     .col-id  { width: clamp(120px, 18vw, 220px); }
+
+    .col-status { width: clamp(140px, 18vw, 200px); }
+    .col-comment { width: clamp(220px, 36vw, 520px); }
+    .cell-comment { white-space: normal; overflow-wrap: anywhere; word-break: break-word; line-height:1.25; }
 
     .cell-key, .cell-id { position:relative; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-right:28px; }
     .copy-btn { position:absolute; right:6px; top:50%; transform:translateY(-50%); border:0; background:transparent; cursor:pointer; font-size:14px; opacity:.75; }
@@ -196,10 +196,11 @@
       <div style="overflow:auto;">
         <table id="resTable">
           <colgroup>
-            <!-- 13 колонок з урахуванням "Проміжні пункти" -->
+            <!-- 15 колонок з урахуванням нових «Статус» і «Причина відхилення» -->
             <col class="col-code"><col class="col-code">
             <col><col><col class="col-via">  <!-- Від, До, Проміжні -->
-            <col><col><col>  <!-- Відстань, Тип, Логіст -->
+            <col><col><col>                  <!-- Відстань, Тип, Логіст -->
+            <col class="col-status"><col class="col-comment"> <!-- Статус, Причина -->
             <col>             <!-- Оновлено -->
             <col class="col-key"> <!-- Код маршруту -->
             <col class="col-id">  <!-- ID -->
@@ -215,6 +216,8 @@
               <th class="sortable" data-sort="distance_km">Відстань, км <span class="s">↕</span></th>
               <th class="sortable" data-sort="type">Тип <span class="s">↕</span></th>
               <th class="sortable" data-sort="logisticName">Логіст <span class="s">↕</span></th>
+              <th class="sortable" data-sort="statusLabel">Статус погодження <span class="s">↕</span></th>
+              <th class="sortable" data-sort="rejectComment">Причина відхилення <span class="s">↕</span></th>
               <th class="sortable" data-sort="updatedAtRaw">Оновлено <span class="s">↕</span></th>
               <th class="sortable" data-sort="routeKey">Код маршруту <span class="s">↕</span></th>
               <th class="sortable" data-sort="id">ID <span class="s">↕</span></th>
@@ -243,6 +246,15 @@
                 </select>
               </th>
               <th><input id="f_logist" type="text" placeholder="логіст…" list="logistsList"></th>
+              <th>
+                <select id="f_status">
+                  <option value=""></option>
+                  <option>Погоджено</option>
+                  <option>Відхилено</option>
+                  <option>Очікує</option>
+                </select>
+              </th>
+              <th><input id="f_comment" type="text" placeholder="коментар…"></th>
               <th>
                 <div class="range">
                   <input id="f_dateFrom" type="date">
@@ -518,27 +530,23 @@ function extractViaList(d){
   };
   const mapCode = (code) => nameByCode(code) || String(code || '').trim();
 
-  // Розбивка рядка за комою / крапкою з комою / пайпом / тире (–, —, -) / стрілкою →
   const splitNames = s => String(s || '')
     .split(/[\|,;]|[–—-]|→/g)
     .map(x => x.trim())
     .filter(Boolean);
 
-  // Рядки/масиви з назвами (додано intermediateText)
   ['intermediateText','viaNames','midNames','waypointNames','stopsNames'].forEach(k => {
     const v = d[k];
     if (Array.isArray(v)) v.forEach(push);
     else if (typeof v === 'string') splitNames(v).forEach(push);
   });
 
-  // Коди проміжних (перетворюємо код → назву з довідника)
   ['intermediateCodes','viaCodes','midCodes','waypointCodes','stopsCodes'].forEach(k => {
     const v = d[k];
     if (Array.isArray(v)) v.forEach(c => push(mapCode(c)));
     else if (typeof v === 'string') splitNames(v).forEach(c => push(mapCode(c)));
   });
 
-  // Універсальні поля (масиви рядків/об’єктів/координат)
   ['intermediate','intermediates','via','vias','mid','mids','waypoints','midpoints','stops'].forEach(k => {
     const v = d[k];
     if (Array.isArray(v)) {
@@ -556,7 +564,6 @@ function extractViaList(d){
     }
   });
 
-  // Фолбек: якщо проміжних ще нема, спробувати витягти їх з name/fromLabel формату "A — B — C — D"
   if (!acc.length) {
     const label = d.name || d.fromLabel || '';
     const parts = splitNames(label);
@@ -576,6 +583,15 @@ let FORCE_SERVER = false;
 
 /* ---------- Сортування ---------- */
 const sortState = { key: 'updatedAtRaw', dir: -1 };
+
+/* ---------- Мапінг статусів ---------- */
+function toStatusLabel(v){
+  const s = String(v || '').toLowerCase();
+  if (s === 'approved' || s === 'погоджено') return 'Погоджено';
+  if (s === 'rejected' || s === 'відхилено') return 'Відхилено';
+  if (s === 'pending'  || s === 'очікує' || s === 'очікування') return 'Очікує';
+  return v ? String(v) : '';
+}
 
 /* ---------- Побудова запиту ---------- */
 function buildBaseQuery(){
@@ -606,6 +622,10 @@ function parseSnap(snap){
   snap.forEach(doc=>{
     const d=doc.data()||{};
     const viaArr = extractViaList(d);
+    const statusRaw = d.status ?? d.approval?.status ?? '';
+    const statusLabel = toStatusLabel(statusRaw);
+    const rejectComment = d.comment ?? d.approval?.comment ?? '';
+
     rows.push({
       id: doc.id,
       routeKey: d.routeKey || '',
@@ -620,6 +640,7 @@ function parseSnap(snap){
       type: d.routeType||'',
       logisticName: d.logisticName || '',
       logisticId: d.logisticId || '',
+      statusRaw, statusLabel, rejectComment,
       updatedAtRaw: d.updatedAt || null,
       updatedAt: formatDate(d.updatedAt)
     });
@@ -696,6 +717,8 @@ function getTableFilterState(){
     distMax:   toNum(document.getElementById('f_distMax').value),
     type:      document.getElementById('f_type').value,
     logist:    document.getElementById('f_logist').value.trim(),
+    status:    document.getElementById('f_status').value.trim(),
+    comment:   document.getElementById('f_comment').value.trim(),
     df:        document.getElementById('f_dateFrom').value,
     dt:        document.getElementById('f_dateTo').value,
     routeKey:  document.getElementById('f_routeKey').value.trim(),
@@ -720,6 +743,8 @@ function applyTableFilters(rows){
     if (Number.isFinite(f.distMax) && dist > f.distMax) return false;
     if (f.type && r.type !== f.type) return false;
     if (f.logist && !normInc(r.logisticName, f.logist)) return false;
+    if (f.status && r.statusLabel !== f.status) return false;
+    if (f.comment && !normInc(r.rejectComment, f.comment)) return false;
     if ((df || dt) && r.updatedAtRaw){
       const d = new Date(r.updatedAtRaw);
       if (df && d < df) return false;
@@ -846,6 +871,8 @@ function renderTable(rows){
     <td>${Number.isFinite(r.distance_km) ? r.distance_km.toFixed(3) : ''}</td>
     <td>${r.type}</td>
     <td>${r.logisticName || ''}</td>
+    <td>${r.statusLabel || ''}</td>
+    <td class="cell-comment">${r.rejectComment ? r.rejectComment : ''}</td>
     <td>${r.updatedAt}</td>
     <td class="cell-key" title="${r.routeKey || ''}">
       ${r.routeKey || ''}
@@ -862,9 +889,9 @@ function renderTable(rows){
   updateStats(rows);
 }
 
-/* ---------- Експорт у Excel (клікабельне посилання + автофільтр + проміжні) ---------- */
+/* ---------- Експорт у Excel (клікабельне посилання + автофільтр + проміжні + статус/коментар) ---------- */
 function exportToExcel(rows){
-  const header = ['Код Від','Код До','Від','До','Проміжні пункти','Відстань, км','Тип','Логіст','Оновлено','Код маршруту','ID','URL (Карта)'];
+  const header = ['Код Від','Код До','Від','До','Проміжні пункти','Відстань, км','Тип','Логіст','Статус погодження','Причина відхилення','Оновлено','Код маршруту','ID','URL (Карта)'];
 
   const body = rows.map(r => {
     const mapUrl = `${location.origin}${MAP_URL}?rid=${encodeURIComponent(r.id)}`;
@@ -872,14 +899,17 @@ function exportToExcel(rows){
       r.fromCode, r.toCode, r.fromName, r.toName,
       r.viaNames || '',
       Number.isFinite(r.distance_km) ? Number(r.distance_km.toFixed(3)) : '',
-      r.type, r.logisticName || '', r.updatedAt, r.routeKey || '', r.id,
+      r.type, r.logisticName || '',
+      r.statusLabel || '',
+      r.rejectComment || '',
+      r.updatedAt, r.routeKey || '', r.id,
       { t: 's', v: '🗺️ Відкрити', l: { Target: mapUrl, Tooltip: 'Відкрити маршрут на карті' } }
     ];
   });
 
   const ws = XLSX.utils.aoa_to_sheet([header, ...body]);
-  ws['!cols'] = [12,12,28,28,32,12,16,22,22,18,36,18].map(w => ({ wch: w }));
-  ws['!autofilter'] = { ref: XLSX.utils.encode_range({ s:{c:0,r:0}, e:{c:11,r:body.length} }) };
+  ws['!cols'] = [12,12,28,28,32,12,16,22,18,40,22,18,36,18].map(w => ({ wch: w }));
+  ws['!autofilter'] = { ref: XLSX.utils.encode_range({ s:{c:0,r:0}, e:{c:13,r:body.length} }) };
 
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Маршрути');
