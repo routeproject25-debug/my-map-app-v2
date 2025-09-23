@@ -274,6 +274,21 @@
       <button id="loadFromDB" class="btn">⬇️ Завантажити з БД</button>
       <button id="deleteFromDB" class="btn">🗑 Видалити з БД</button>
       <button id="clearForm" class="btn">🧹 Очистити форму</button>
+	  <!-- ⬇️ Погодження (Security) -->
+<div id="approvalPanel" class="section">
+  <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+    <span class="km-chip">Статус: <b id="approvalStatus">—</b></span>
+    <button id="sendForApproval" class="btn xs" title="Подати маршрут на погодження СБ">📨 На погодження</button>
+    <button id="copyReviewLink" class="btn xs" title="Скопіювати посилання для СБ">🔗 Посилання</button>
+    <a id="openReviewLink" class="btn xs" target="_blank" style="display:none">👁‍🗨 Перегляд</a>
+  </div>
+
+  <div id="approvalCommentWrap" style="margin-top:6px; display:none;">
+    <label>Коментар СБ (якщо відхилено)</label>
+    <textarea id="approvalComment" readonly></textarea>
+  </div>
+</div>
+<!-- ⬆️ Погодження -->
     </div>
   </div>
 </div>
@@ -1514,6 +1529,7 @@ async function loadFromDB() {
     document.getElementById('routePurpose').value = data.purpose || 'Зерно';
     document.getElementById('intermediateText').value = data.intermediateText || '';
     document.getElementById('routeName').value = formatRouteTitle(data);
+	setApprovalUI(data.approval);
 
     document.getElementById('logistInput').value =
       data.logisticName || (data.logisticId ? getLogistNameById(data.logisticId) : '');
@@ -1549,6 +1565,81 @@ async function deleteFromDB() {
     alert('❌ Не вдалося видалити: ' + (err?.message || err));
   }
 }
+/* ======== APPROVAL: helpers + UI ======== */
+
+// формуємо лінк на review.html
+function reviewLinkForId(id){
+  return location.origin.replace(/\/$/,'') + '/review.html?rid=' + encodeURIComponent(id);
+}
+
+// оновлення видимої частини панелі
+function setApprovalUI(approval){
+  const map = { draft:'Чернетка', pending:'Очікує', approved:'Погоджено', rejected:'Відхилено' };
+  const st = (approval && approval.status) || 'draft';
+  document.getElementById('approvalStatus').textContent = map[st] || st;
+
+  const wrap = document.getElementById('approvalCommentWrap');
+  const ta   = document.getElementById('approvalComment');
+  if (st === 'rejected' && approval && approval.comment){
+    wrap.style.display = 'block'; ta.value = approval.comment || '';
+  } else {
+    wrap.style.display = 'none';  ta.value = '';
+  }
+
+  const sel = document.getElementById('remoteRoutes');
+  const open = document.getElementById('openReviewLink');
+  if (sel.value){
+    open.style.display = 'inline-block';
+    open.href = reviewLinkForId(sel.value);
+  } else {
+    open.style.display = 'none';
+  }
+}
+
+// копіюємо лінк на перегляд/погодження
+async function copyReviewLink(){
+  const sel = document.getElementById('remoteRoutes');
+  const id = sel.value;
+  if (!id){ alert('Спочатку збережіть маршрут у БД і виберіть його у списку.'); return; }
+  const url = reviewLinkForId(id);
+  try { await navigator.clipboard.writeText(url); alert('Посилання скопійовано в буфер обміну.'); }
+  catch { prompt('Скопіюйте посилання:', url); }
+}
+
+// виставляємо статус pending та підвищуємо revision
+async function sendForApproval(){
+  if (!db || !auth?.currentUser){ alert('Увійдіть у систему.'); return; }
+  const sel = document.getElementById('remoteRoutes');
+  const id  = sel.value;
+  if (!id){
+    alert('Спочатку збережіть маршрут у БД, оновіть список і виберіть його.');
+    return;
+  }
+  const user = auth.currentUser;
+  const ref  = db.collection('routes').doc(id);
+
+  await ref.set({
+    approval: {
+      status: 'pending',
+      revision: firebase.firestore.FieldValue.increment(1),
+      submittedAt: new Date().toISOString(),
+      submittedByUid: user.uid || null,
+      submittedByEmail: user.email || null,
+      decisionAt: null,
+      decidedByUid: null,
+      decidedByEmail: null,
+      comment: null
+    },
+    updatedAt: new Date().toISOString()
+  }, { merge:true });
+
+  setApprovalUI({ status:'pending' });
+  await copyReviewLink();
+}
+
+// кнопки панелі погодження
+document.getElementById('copyReviewLink').onclick  = copyReviewLink;
+document.getElementById('sendForApproval').onclick = sendForApproval;
 
 /* ===== Buttons bindings ===== */
 document.getElementById('saveToDB').onclick = saveToDB;
@@ -1612,6 +1703,7 @@ async function loadRouteById(rid) {
     document.getElementById('routePurpose').value = data.purpose || 'Зерно';
     document.getElementById('intermediateText').value = data.intermediateText || '';
     document.getElementById('routeName').value = formatRouteTitle(data);
+	setApprovalUI(data.approval);
 
     document.getElementById('logistInput').value =
       data.logisticName || (data.logisticId ? getLogistNameById(data.logisticId) : '');
@@ -1646,6 +1738,7 @@ function clearForm() {
 
   // ⬇️ додай цю строку
   updateHighlights();
+  setApprovalUI(null);
 
   alert('Форма очищена');
 }

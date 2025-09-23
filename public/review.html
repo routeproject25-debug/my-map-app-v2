@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+  <meta charset="utf-8" />
+  <title>✅ Погодження маршруту</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <!-- Mapbox -->
+  <script src="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.js"></script>
+  <link href="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.css" rel="stylesheet" />
+
+  <!-- Firebase (compat) -->
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+
+  <style>
+    :root { --line:#e5e7eb; --card:#fff; --muted:#6b7280; }
+    *{box-sizing:border-box}
+    body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:#f8fafc}
+    header{position:sticky;top:0;z-index:10;display:flex;align-items:center;gap:8px;
+           padding:10px 12px;background:#0ea5e9;color:#fff}
+    header a{color:#fff;text-decoration:none}
+    .wrap{max-width:1100px;margin:14px auto;padding:0 12px}
+    .card{background:var(--card);border:1px solid var(--line);border-radius:12px;box-shadow:0 1px 8px rgba(0,0,0,.06)}
+    .row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+    @media(max-width:900px){ .row{grid-template-columns:1fr} }
+    .pad{padding:12px}
+    .title{font-weight:800;font-size:20px;margin:0 0 6px}
+    .muted{color:var(--muted);font-size:13px}
+    .chip{display:inline-block;border:1px solid var(--line);border-radius:999px;padding:4px 10px;background:#f3f4f6;font-size:12.5px}
+    .btn{cursor:pointer;border:1px solid var(--line);background:#fff;border-radius:10px;padding:9px 12px;font-size:14px}
+    .btn.good{background:#e6f4ea;border-color:#22c55e}
+    .btn.bad{background:#fee2e2;border-color:#ef4444}
+    .btnRow{display:flex;gap:8px;flex-wrap:wrap}
+    label{display:block;font-size:13px;margin:6px 0 4px}
+    textarea{width:100%;min-height:90px;border:1px solid var(--line);border-radius:10px;padding:8px;resize:vertical}
+    #map{height:460px;border-top:1px dashed var(--line)}
+  </style>
+</head>
+<body>
+<header>
+  <a href="/index.html">🏠 Маршрути</a>
+  <div style="flex:1"></div>
+  <span id="hello" class="muted">Не увійшли</span>
+</header>
+
+<div class="wrap">
+  <div class="card">
+    <div class="pad">
+      <div class="title">Погодження маршруту</div>
+      <div id="statusLine" class="muted">Завантаження…</div>
+
+      <div class="btnRow" id="secButtons" style="margin-top:8px; display:none;">
+        <button id="approveBtn" class="btn good">✅ Погодити</button>
+        <button id="rejectBtn"  class="btn bad">❌ Відхилити</button>
+        <a id="openEditor" class="btn" target="_blank">🗺 Відкрити в редакторі</a>
+      </div>
+
+      <div id="rejectWrap" style="display:none; margin-top:10px;">
+        <label>Причина відхилення (обов’язково)</label>
+        <textarea id="rejectComment" placeholder="Опишіть, що потрібно виправити"></textarea>
+        <div class="btnRow" style="margin-top:6px;">
+          <button id="sendReject" class="btn bad">Відхилити з коментарем</button>
+          <button id="cancelReject" class="btn">Скасувати</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="map"></div>
+
+    <div class="pad">
+      <div class="row">
+        <div>
+          <div class="chip" id="chipStatus">Статус: —</div>
+          <div class="chip" id="chipDistance">Довжина: —</div>
+          <div class="chip" id="chipRevision">Подача № —</div>
+        </div>
+        <div style="text-align:right">
+          <div class="muted">Маршрут: <b id="routeName">—</b></div>
+          <div class="muted">Від: <b id="fromLabel">—</b> → До: <b id="toLabel">—</b></div>
+        </div>
+      </div>
+      <div id="decisionInfo" class="muted" style="margin-top:8px;"></div>
+      <div id="rejectInfo" class="muted" style="margin-top:6px;color:#b91c1c;"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+  // === Firebase init ===
+  const firebaseConfig = {
+    apiKey: "AIzaSyDjDBZkmy-skuDEQF8-AkRma7yw6TugoQc",
+    authDomain: "my-map-app-58312.firebaseapp.com",
+    projectId: "my-map-app-58312",
+    storageBucket: "my-map-app-58312.firebasestorage.app",
+    messagingSenderId: "53260611353",
+    appId: "1:53260611353:web:f25e120996ad8305405f88",
+    measurementId: "G-9LRX1FLTKL"
+  };
+  try{ firebase.apps?.length ? firebase.app() : firebase.initializeApp(firebaseConfig); }catch(e){}
+  const db   = firebase.firestore();
+  const auth = firebase.auth();
+
+  const qs  = new URLSearchParams(location.search);
+  const rid = qs.get('rid');
+
+  // === Mapbox init ===
+  mapboxgl.accessToken = 'pk.eyJ1IjoidGtjaGsiLCJhIjoiY21keTN0bXVlMjN6djJrczZ2NDk5bXRoMiJ9.6n1kuiUJ3EdGUpz5I6-wdg';
+  const map = new mapboxgl.Map({ container:'map', style:'mapbox://styles/mapbox/streets-v12', center:[28.468,49.234], zoom:11 });
+
+  // helpers
+  function fromObjPoints(arr){ return (arr||[]).map(p => [p.lng, p.lat]); }
+  function chip(id,t){ document.getElementById(id).textContent = t; }
+  function fmtStatus(s){ return ({draft:'Чернетка',pending:'Очікує',approved:'Погоджено',rejected:'Відхилено'})[s] || s || '—'; }
+  async function userRole(uid){
+    try{
+      const d = await db.collection('roles').doc(uid).get();
+      return d.exists ? (d.data().role || 'user') : 'user';
+    }catch{ return 'user'; }
+  }
+
+  // draw route (stored geometry)
+  function drawStoredRoute(d){
+    // clear old
+    ['route-line','ruler-start','ruler-end','route-src','ruler-start-src','ruler-end-src'].forEach(id=>{
+      try{ if(map.getLayer(id)) map.removeLayer(id); }catch{}
+      try{ if(map.getSource(id)) map.removeSource(id); }catch{}
+    });
+
+    const pts = fromObjPoints(d.points||[]);
+    if (pts.length >= 2){
+      map.addSource('route-src',{type:'geojson', data:{ type:'Feature', geometry:{ type:'LineString', coordinates: pts } }});
+      map.addLayer({ id:'route-line', type:'line', source:'route-src',
+        paint:{ 'line-color':'#2563eb','line-width':5 }});
+      new mapboxgl.Marker({color:'#22c55e'}).setLngLat(pts[0]).addTo(map);
+      new mapboxgl.Marker({color:'#ef4444'}).setLngLat(pts[pts.length-1]).addTo(map);
+      const b = new mapboxgl.LngLatBounds(pts[0], pts[0]); pts.forEach(p=>b.extend(p)); map.fitBounds(b,{padding:40});
+    }
+
+    const rs = fromObjPoints(d.startRuler||[]);
+    if (rs.length >= 2){
+      map.addSource('ruler-start-src',{type:'geojson', data:{ type:'Feature', geometry:{ type:'LineString', coordinates: rs } }});
+      map.addLayer({ id:'ruler-start', type:'line', source:'ruler-start-src',
+        paint:{ 'line-color':'#0ea5e9','line-width':3,'line-dasharray':[1,2]}});
+    }
+    const re = fromObjPoints(d.endRuler||[]);
+    if (re.length >= 2){
+      map.addSource('ruler-end-src',{type:'geojson', data:{ type:'Feature', geometry:{ type:'LineString', coordinates: re } }});
+      map.addLayer({ id:'ruler-end', type:'line', source:'ruler-end-src',
+        paint:{ 'line-color':'#22c55e','line-width':3,'line-dasharray':[1,2]}});
+    }
+  }
+
+  async function loadRouteAndRender(){
+    if (!rid){ document.getElementById('statusLine').textContent = 'Не передано rid.'; return; }
+    const snap = await db.collection('routes').doc(rid).get();
+    if (!snap.exists){ document.getElementById('statusLine').textContent = 'Маршрут не знайдено.'; return; }
+    const d = snap.data();
+
+    document.getElementById('routeName').textContent = d.name || rid;
+    document.getElementById('fromLabel').textContent = d.fromLabel || '—';
+    document.getElementById('toLabel').textContent   = d.toLabel   || '—';
+    chip('chipDistance', 'Довжина: ' + ((typeof d.distance_km==='number')? d.distance_km.toFixed(2)+' км' : '—'));
+    chip('chipRevision', 'Подача № ' + ((d.approval?.revision)||'—'));
+    chip('chipStatus',   'Статус: ' + fmtStatus(d.approval?.status));
+
+    const subInfo = d.approval?.submittedAt ? `Подано: ${d.approval.submittedAt} (${d.approval.submittedByEmail||d.approval.submittedByUid||''})` : '';
+    const decInfo = d.approval?.decisionAt ? ` · Рішення: ${d.approval.decisionAt} (${d.approval.decidedByEmail||d.approval.decidedByUid||''})` : '';
+    document.getElementById('decisionInfo').textContent = subInfo + decInfo;
+
+    document.getElementById('rejectInfo').textContent = (d.approval?.status==='rejected' && d.approval?.comment)
+      ? ('Причина відхилення: ' + d.approval.comment) : '';
+
+    document.getElementById('openEditor').href = '/index.html?rid=' + encodeURIComponent(rid);
+    document.getElementById('statusLine').textContent = 'Маршрут завантажено.';
+
+    drawStoredRoute(d);
+  }
+
+  // Approve / Reject actions
+  async function applyDecision(kind, comment){
+    const user = auth.currentUser;
+    const ref = db.collection('routes').doc(rid);
+    const payload = {
+      approval: {
+        status: kind, // 'approved' | 'rejected'
+        decisionAt: new Date().toISOString(),
+        decidedByUid: user?.uid || null,
+        decidedByEmail: user?.email || null,
+        // при approve коментар чистимо
+        comment: kind === 'approved' ? null : (comment || '')
+      },
+      updatedAt: new Date().toISOString()
+    };
+    await ref.set(payload, { merge:true });
+    await loadRouteAndRender();
+    alert(kind === 'approved' ? 'Погоджено ✅' : 'Відхилено ❌');
+    document.getElementById('rejectWrap').style.display = 'none';
+    document.getElementById('rejectComment').value = '';
+  }
+
+  // auth & role guard
+  auth.onAuthStateChanged(async (u)=>{
+    const hello = document.getElementById('hello');
+    if (!u){
+      hello.textContent = 'Не увійшли';
+      location.replace('/login?next=' + encodeURIComponent(location.pathname + location.search));
+      return;
+    }
+    hello.textContent = 'Увійшли як ' + (u.email||u.uid);
+    const role = await userRole(u.uid);
+
+    // кнопки для security
+    const sec = (role === 'security' || role === 'admin');
+    document.getElementById('secButtons').style.display = sec ? 'flex' : 'none';
+
+    // bind buttons
+    document.getElementById('approveBtn').onclick = ()=>applyDecision('approved', null);
+    document.getElementById('rejectBtn').onclick  = ()=>{
+      document.getElementById('rejectWrap').style.display = 'block';
+      document.getElementById('rejectComment').focus();
+    };
+    document.getElementById('sendReject').onclick = ()=>{
+      const txt = (document.getElementById('rejectComment').value||'').trim();
+      if (!txt){ alert('Вкажіть причину відхилення.'); return; }
+      applyDecision('rejected', txt);
+    };
+    document.getElementById('cancelReject').onclick = ()=>{
+      document.getElementById('rejectWrap').style.display = 'none';
+    };
+
+    // finally load
+    await loadRouteAndRender();
+  });
+</script>
+</body>
+</html>
