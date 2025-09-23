@@ -108,7 +108,9 @@
       <div class="row">
         <div>
           <div class="chip" id="chipStatus">Статус: —</div>
-          <div class="chip" id="chipDistance">Довжина: —</div>
+          <!-- ➕ два чіпи з дистанціями -->
+          <div class="chip" id="chipDistanceDb">БД: —</div>
+          <div class="chip" id="chipDistanceLive">По дорогах: —</div>
           <div class="chip" id="chipRevision">Подача № —</div>
         </div>
         <div style="text-align:right">
@@ -157,7 +159,6 @@
     try{ map.resize(); }catch{}
   }
   window.addEventListener('resize', updateLayoutHeights);
-  // коли карта підвантажила стиль — теж піджати
   map.on('load', updateLayoutHeights);
 
   /* ---------- helpers ---------- */
@@ -190,7 +191,10 @@
   // snapped-to-road рендерінг основного маршруту
   async function drawSnappedRoute(points){
     clearRouteLayers();
-    if(!Array.isArray(points) || points.length<2) return;
+    if(!Array.isArray(points) || points.length<2){
+      chip('chipDistanceLive','По дорогах: —');
+      return;
+    }
 
     const chunks = splitIntoChunks(points, 20);
     let totalMeters = 0;
@@ -231,12 +235,8 @@
       map.fitBounds([[bMinLng,bMinLat],[bMaxLng,bMaxLat]], { padding: 40, maxZoom: 14 });
     }
 
-    // якщо є елемент для показу довжини — оновимо, але лише якщо в БД не було значення
-    const distEl = document.getElementById('chipDistance');
     const km = (totalMeters/1000);
-    if(distEl && (!distEl.textContent || /—$/.test(distEl.textContent.trim()))){
-      chip('chipDistance', 'Довжина: ' + km.toFixed(2) + ' км');
-    }
+    chip('chipDistanceLive', isFinite(km) ? `По дорогах: ${km.toFixed(2)} км` : 'По дорогах: —');
   }
 
   // dashed rulers
@@ -278,7 +278,11 @@
     document.getElementById('routeName').textContent = d.name || rid;
     document.getElementById('fromLabel').textContent = d.fromLabel || '—';
     document.getElementById('toLabel').textContent   = d.toLabel   || '—';
-    chip('chipDistance', 'Довжина: ' + ((typeof d.distance_km==='number')? d.distance_km.toFixed(2)+' км' : '—'));
+
+    // ➜ дві дистанції
+    chip('chipDistanceDb',   (typeof d.distance_km==='number') ? `БД: ${d.distance_km.toFixed(2)} км` : 'БД: —');
+    chip('chipDistanceLive', 'По дорогах: …');
+
     chip('chipRevision', 'Подача № ' + ((d.approval?.revision)||'—'));
     chip('chipStatus',   'Статус: ' + fmtStatus(d.approval?.status));
 
@@ -309,7 +313,6 @@
         decisionAt: new Date().toISOString(),
         decidedByUid: user?.uid || null,
         decidedByEmail: user?.email || null,
-        // при approve коментар чистимо
         comment: kind === 'approved' ? null : (comment || '')
       },
       updatedAt: new Date().toISOString()
