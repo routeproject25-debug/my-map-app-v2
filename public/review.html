@@ -15,27 +15,61 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 
   <style>
-    :root { --line:#e5e7eb; --card:#fff; --muted:#6b7280; }
-    *{box-sizing:border-box}
-    body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:#f8fafc}
-    header{position:sticky;top:0;z-index:10;display:flex;align-items:center;gap:8px;
-           padding:10px 12px;background:#0ea5e9;color:#fff}
-    header a{color:#fff;text-decoration:none}
-    .wrap{max-width:1100px;margin:14px auto;padding:0 12px}
-    .card{background:var(--card);border:1px solid var(--line);border-radius:12px;box-shadow:0 1px 8px rgba(0,0,0,.06)}
-    .row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
-    @media(max-width:900px){ .row{grid-template-columns:1fr} }
-    .pad{padding:12px}
-    .title{font-weight:800;font-size:20px;margin:0 0 6px}
-    .muted{color:var(--muted);font-size:13px}
-    .chip{display:inline-block;border:1px solid var(--line);border-radius:999px;padding:4px 10px;background:#f3f4f6;font-size:12.5px}
-    .btn{cursor:pointer;border:1px solid var(--line);background:#fff;border-radius:10px;padding:9px 12px;font-size:14px}
-    .btn.good{background:#e6f4ea;border-color:#22c55e}
-    .btn.bad{background:#fee2e2;border-color:#ef4444}
-    .btnRow{display:flex;gap:8px;flex-wrap:wrap}
-    label{display:block;font-size:13px;margin:6px 0 4px}
-    textarea{width:100%;min-height:90px;border:1px solid var(--line);border-radius:10px;padding:8px;resize:vertical}
-    #map{height:460px;border-top:1px dashed var(--line)}
+    :root { --line:#e5e7eb; --card:#fff; --muted:#6b7280; --nav-real:56px; }
+
+    html, body { height:100%; }
+    *{ box-sizing:border-box }
+    body{
+      margin:0;
+      font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+      background:#f8fafc;
+    }
+
+    header{
+      position:sticky; top:0; z-index:10;
+      display:flex; align-items:center; gap:8px;
+      padding:10px 12px; background:#0ea5e9; color:#fff
+    }
+    header a{ color:#fff; text-decoration:none }
+
+    /* === Fullscreen review layout === */
+    #reviewWrap{
+      position:absolute; inset:var(--nav-real) 0 0 0;  /* займає весь екран під хедером */
+      padding:8px;
+    }
+    .review-card{
+      height:100%; width:100%;
+      display:grid; grid-template-rows:auto 1fr auto;
+      background:var(--card); border:1px solid var(--line);
+      border-radius:12px; box-shadow:0 1px 10px rgba(0,0,0,.08);
+    }
+
+    .pad{ padding:12px }
+    .title{ font-weight:800; font-size:20px; margin:0 0 6px }
+    .muted{ color:var(--muted); font-size:13px }
+    .chip{
+      display:inline-block; border:1px solid var(--line); border-radius:999px;
+      padding:4px 10px; background:#f3f4f6; font-size:12.5px
+    }
+    .btn{
+      cursor:pointer; border:1px solid var(--line); background:#fff; border-radius:10px;
+      padding:9px 12px; font-size:14px
+    }
+    .btn.good{ background:#e6f4ea; border-color:#22c55e }
+    .btn.bad{ background:#fee2e2; border-color:#ef4444 }
+    .btnRow{ display:flex; gap:8px; flex-wrap:wrap }
+
+    label{ display:block; font-size:13px; margin:6px 0 4px }
+    textarea{
+      width:100%; min-height:90px; border:1px solid var(--line); border-radius:10px;
+      padding:8px; resize:vertical
+    }
+
+    /* карта — займає всю середню “рядку” картки */
+    #map{ width:100%; height:100%; border-top:1px dashed var(--line); border-bottom:1px dashed var(--line); }
+
+    .row{ display:grid; grid-template-columns:1fr 1fr; gap:12px }
+    @media(max-width:900px){ .row{ grid-template-columns:1fr } }
   </style>
 </head>
 <body>
@@ -45,8 +79,9 @@
   <span id="hello" class="muted">Не увійшли</span>
 </header>
 
-<div class="wrap">
-  <div class="card">
+<!-- fullscreen контейнер -->
+<div id="reviewWrap">
+  <div class="review-card">
     <div class="pad">
       <div class="title">Погодження маршруту</div>
       <div id="statusLine" class="muted">Завантаження…</div>
@@ -107,10 +142,26 @@
 
   // === Mapbox init ===
   mapboxgl.accessToken = 'pk.eyJ1IjoidGtjaGsiLCJhIjoiY21keTN0bXVlMjN6djJrczZ2NDk5bXRoMiJ9.6n1kuiUJ3EdGUpz5I6-wdg';
-  const map = new mapboxgl.Map({ container:'map', style:'mapbox://styles/mapbox/streets-v12', center:[28.468,49.234], zoom:11 });
+  const map = new mapboxgl.Map({
+    container:'map',
+    style:'mapbox://styles/mapbox/streets-v12',
+    center:[28.468,49.234],
+    zoom:11
+  });
 
-  // helpers
-  function fromObjPoints(arr){ return (arr||[]).map(p => [p.lng, p.lat]); }
+  /* ---------- layout helper: карта на весь екран під хедером ---------- */
+  const topbarEl = document.querySelector('header');
+  function updateLayoutHeights(){
+    const h = (topbarEl?.offsetHeight || 56);
+    document.documentElement.style.setProperty('--nav-real', h + 'px');
+    try{ map.resize(); }catch{}
+  }
+  window.addEventListener('resize', updateLayoutHeights);
+  // коли карта підвантажила стиль — теж піджати
+  map.on('load', updateLayoutHeights);
+
+  /* ---------- helpers ---------- */
+  function fromObjPoints(arr){ return (arr||[]).map(p => Array.isArray(p) ? p : [p.lng, p.lat]); }
   function chip(id,t){ document.getElementById(id).textContent = t; }
   function fmtStatus(s){ return ({draft:'Чернетка',pending:'Очікує',approved:'Погоджено',rejected:'Відхилено'})[s] || s || '—'; }
   async function userRole(uid){
@@ -120,23 +171,80 @@
     }catch{ return 'user'; }
   }
 
-  // draw route (stored geometry)
-  function drawStoredRoute(d){
-    // clear old
-    ['route-line','ruler-start','ruler-end','route-src','ruler-start-src','ruler-end-src'].forEach(id=>{
+  // спліт на шматки (Mapbox Directions ≤25 координат/запит; беремо 20 з перекриттям)
+  function splitIntoChunks(arr, chunkSize){
+    const out=[]; for(let i=0;i<arr.length-1;i+=chunkSize-1){
+      const chunk=arr.slice(i,i+chunkSize); if(chunk.length>=2) out.push(chunk);
+    } return out;
+  }
+
+  let routeLayers = [];
+  function clearRouteLayers(){
+    routeLayers.forEach(id=>{
       try{ if(map.getLayer(id)) map.removeLayer(id); }catch{}
       try{ if(map.getSource(id)) map.removeSource(id); }catch{}
     });
+    routeLayers = [];
+  }
 
-    const pts = fromObjPoints(d.points||[]);
-    if (pts.length >= 2){
-      map.addSource('route-src',{type:'geojson', data:{ type:'Feature', geometry:{ type:'LineString', coordinates: pts } }});
-      map.addLayer({ id:'route-line', type:'line', source:'route-src',
-        paint:{ 'line-color':'#2563eb','line-width':5 }});
-      new mapboxgl.Marker({color:'#22c55e'}).setLngLat(pts[0]).addTo(map);
-      new mapboxgl.Marker({color:'#ef4444'}).setLngLat(pts[pts.length-1]).addTo(map);
-      const b = new mapboxgl.LngLatBounds(pts[0], pts[0]); pts.forEach(p=>b.extend(p)); map.fitBounds(b,{padding:40});
+  // snapped-to-road рендерінг основного маршруту
+  async function drawSnappedRoute(points){
+    clearRouteLayers();
+    if(!Array.isArray(points) || points.length<2) return;
+
+    const chunks = splitIntoChunks(points, 20);
+    let totalMeters = 0;
+
+    // bounds
+    let bMinLng=+Infinity, bMinLat=+Infinity, bMaxLng=-Infinity, bMaxLat=-Infinity;
+    const grow = ([lng,lat])=>{
+      if(lng<bMinLng) bMinLng=lng; if(lat<bMinLat) bMinLat=lat;
+      if(lng>bMaxLng) bMaxLng=lng; if(lat>bMaxLat) bMaxLat=lat;
+    };
+
+    for(let i=0;i<chunks.length;i++){
+      const coordsStr = chunks[i].map(p=>p.join(',')).join(';');
+      const url = `https://api.mapbox.com/directions/v5/mapbox/driving/${coordsStr}?geometries=geojson&access_token=${mapboxgl.accessToken}`;
+      try{
+        const res = await fetch(url);
+        const data = await res.json();
+        const route = data?.routes?.[0];
+        if(!route) continue;
+
+        totalMeters += (route.distance||0);
+        const geom = route.geometry;
+
+        const srcId = `rev-route-${i}`;
+        map.addSource(srcId, { type:'geojson', data:{ type:'Feature', geometry:geom }});
+        map.addLayer({
+          id: srcId, type:'line', source:srcId,
+          layout:{ 'line-cap':'round','line-join':'round' },
+          paint:{ 'line-color': `hsl(${(i*60)%360},100%,50%)`, 'line-width': 5 }
+        });
+        routeLayers.push(srcId);
+
+        (geom.coordinates||[]).forEach(grow);
+      }catch(e){ console.warn('Directions error', e); }
     }
+
+    if(isFinite(bMinLng)){
+      map.fitBounds([[bMinLng,bMinLat],[bMaxLng,bMaxLat]], { padding: 40, maxZoom: 14 });
+    }
+
+    // якщо є елемент для показу довжини — оновимо, але лише якщо в БД не було значення
+    const distEl = document.getElementById('chipDistance');
+    const km = (totalMeters/1000);
+    if(distEl && (!distEl.textContent || /—$/.test(distEl.textContent.trim()))){
+      chip('chipDistance', 'Довжина: ' + km.toFixed(2) + ' км');
+    }
+  }
+
+  // dashed rulers
+  function drawRulers(d){
+    ['ruler-start','ruler-end','ruler-start-src','ruler-end-src'].forEach(id=>{
+      try{ if(map.getLayer(id)) map.removeLayer(id); }catch{}
+      try{ if(map.getSource(id)) map.removeSource(id); }catch{}
+    });
 
     const rs = fromObjPoints(d.startRuler||[]);
     if (rs.length >= 2){
@@ -150,6 +258,15 @@
       map.addLayer({ id:'ruler-end', type:'line', source:'ruler-end-src',
         paint:{ 'line-color':'#22c55e','line-width':3,'line-dasharray':[1,2]}});
     }
+  }
+
+  // маркери початку/кінця
+  let startMarker=null, endMarker=null;
+  function setSEMarkers(points){
+    try{ startMarker?.remove(); endMarker?.remove(); }catch{}
+    if(!points?.length) return;
+    startMarker = new mapboxgl.Marker({color:'#16a34a'}).setLngLat(points[0]).addTo(map);
+    endMarker   = new mapboxgl.Marker({color:'#ef4444'}).setLngLat(points[points.length-1]).addTo(map);
   }
 
   async function loadRouteAndRender(){
@@ -175,7 +292,11 @@
     document.getElementById('openEditor').href = '/index.html?rid=' + encodeURIComponent(rid);
     document.getElementById('statusLine').textContent = 'Маршрут завантажено.';
 
-    drawStoredRoute(d);
+    // --- snapped маршрут + dashed rulers ---
+    const pts = fromObjPoints(d.points||[]);
+    await drawSnappedRoute(pts);
+    setSEMarkers(pts);
+    drawRulers(d);
   }
 
   // Approve / Reject actions
@@ -230,7 +351,8 @@
       document.getElementById('rejectWrap').style.display = 'none';
     };
 
-    // finally load
+    // піджати висоту і завантажити
+    updateLayoutHeights();
     await loadRouteAndRender();
   });
 </script>
