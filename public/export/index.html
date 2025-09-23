@@ -586,10 +586,10 @@ const sortState = { key: 'updatedAtRaw', dir: -1 };
 
 /* ---------- Мапінг статусів ---------- */
 function toStatusLabel(v){
-  const s = String(v || '').toLowerCase();
-  if (s === 'approved' || s === 'погоджено') return 'Погоджено';
-  if (s === 'rejected' || s === 'відхилено') return 'Відхилено';
-  if (s === 'pending'  || s === 'очікує' || s === 'очікування') return 'Очікує';
+  const s = String(v || '').trim().toLowerCase();
+  if (['approved','ok','allow','allowed','accept','accepted','true','yes','y'].includes(s)) return 'Погоджено';
+  if (['rejected','reject','denied','deny','declined','no','false','not_approved'].includes(s)) return 'Відхилено';
+  if (['pending','in_review','inreview','review','waiting','wait','on_approval','submitted'].includes(s)) return 'Очікує';
   return v ? String(v) : '';
 }
 
@@ -622,9 +622,18 @@ function parseSnap(snap){
   snap.forEach(doc=>{
     const d=doc.data()||{};
     const viaArr = extractViaList(d);
-    const statusRaw = d.status ?? d.approval?.status ?? '';
+
+    // <-- головні зміни: пріоритет approval.status та approval.comment
+    const statusRaw =
+      (typeof d?.approval?.status === 'string' ? d.approval.status : '') ||
+      (typeof d.status === 'string' ? d.status : '') ||
+      (typeof d.approvalStatus === 'string' ? d.approvalStatus : '') ||
+      (typeof d.state === 'string' ? d.state : '');
     const statusLabel = toStatusLabel(statusRaw);
-    const rejectComment = d.comment ?? d.approval?.comment ?? '';
+
+    const rejectComment =
+      (d?.approval && 'comment' in d.approval ? (d.approval.comment || '') : '') ||
+      (typeof d.comment === 'string' ? d.comment : '');
 
     rows.push({
       id: doc.id,
