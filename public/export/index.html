@@ -45,19 +45,12 @@
     /* таблиця */
     table { width:100%; border-collapse:collapse; table-layout: fixed; }
     th, td { border:1px solid #e5e7eb; padding:6px 8px; font-size:13px; text-align:left; vertical-align: top; }
-    th { background:#f1f5f9; }
+    th { background:#f1f5f9; position:relative; }
     .topbar { display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; }
 
     .pill { background:#eef2ff; color:#3730a3; padding:2px 8px; border-radius:999px; font-size:12px; }
     .stats { display:flex; gap:12px; flex-wrap:wrap; font-size:13px; color:#111827; }
     .stats .chip { background:#f3f4f6; border:1px solid #e5e7eb; border-radius:999px; padding:4px 10px; }
-
-    /* шапка */
-    header.top { background:#2563eb;color:#fff;padding:10px;display:flex;gap:16px;align-items:center;justify-content:space-between; }
-    header.top a { color:#fff;text-decoration:none; }
-    .authbar { display:flex; gap:6px; align-items:center; flex-wrap:wrap; }
-    .authbar .btn { height:30px; padding:4px 10px; }
-    .role-badge { background:rgba(255,255,255,.2); padding:2px 8px; border-radius:999px; font-size:12px; }
 
     /* картка з таблицею на всю ширину */
     .card.edge { width: 100vw; margin-left: calc(50% - 50vw); margin-right: calc(50% - 50vw); border-radius: 0; }
@@ -82,7 +75,7 @@
     .copy-btn:hover { opacity:1; }
 
     /* сортування / фільтри в шапці */
-    th.sortable { cursor:pointer; user-select:none; position:relative; }
+    th.sortable { cursor:pointer; user-select:none; }
     th.sortable .s { font-size:11px; opacity:.6; margin-left:6px; }
     th.sortable.active .s { opacity:1; }
     thead tr.filters th { background:#fafafa; }
@@ -90,6 +83,14 @@
       width:100%; padding:4px 6px; border:1px solid #e5e7eb; border-radius:6px; font-size:12px; background:#fff;
     }
     .range { display:grid; grid-template-columns: 1fr 1fr; gap:6px; }
+
+    /* === Ручки для зміни ширини колонок === */
+    .col-resizer {
+      position:absolute; top:0; right:-3px; width:6px; height:100%;
+      cursor:col-resize; user-select:none;
+    }
+    .col-resizer:hover { background:rgba(37,99,235,.15); }
+    .resizing .col-resizer { background:rgba(37,99,235,.25); }
   </style>
 </head>
 <body>
@@ -144,7 +145,7 @@
         </div>
       </div>
 
-      <div class="row cols-4" style="margin-top:12px%;">
+      <div class="row cols-4" style="margin-top:12px;">
         <div>
           <label>Виробничий підрозділ (у Від або До)</label>
           <select id="unitFilter"><option value="">— будь-який —</option></select>
@@ -191,6 +192,7 @@
         <button id="btnMore" class="btn sm">+ Завантажити ще</button>
         <button id="btnAll" class="btn sm">Завантажити все</button>
         <button id="btnClearFilters" class="btn sm">Очистити фільтри таблиці</button>
+        <button id="btnAutosize" class="btn sm">↔️ Автоширина колонок</button>
       </div>
 
       <div style="overflow:auto;">
@@ -324,6 +326,7 @@ const btnRefresh = document.getElementById('btnRefresh');
 const btnMore    = document.getElementById('btnMore');
 const btnAll     = document.getElementById('btnAll');
 const btnClearFilters = document.getElementById('btnClearFilters');
+const btnAutosize = document.getElementById('btnAutosize');
 
 function setBusy(b){
   btnPreview.disabled = b || !currentUser;
@@ -332,6 +335,7 @@ function setBusy(b){
   if (btnMore) btnMore.disabled = b;
   if (btnAll)  btnAll.disabled  = b;
   if (btnClearFilters) btnClearFilters.disabled = b;
+  if (btnAutosize) btnAutosize.disabled = b;
   statusEl.textContent = b ? 'Виконується…' : (currentUser ? 'Готово' : 'Увійдіть');
 }
 
@@ -623,7 +627,6 @@ function parseSnap(snap){
     const d=doc.data()||{};
     const viaArr = extractViaList(d);
 
-    // <-- головні зміни: пріоритет approval.status та approval.comment
     const statusRaw =
       (typeof d?.approval?.status === 'string' ? d.approval.status : '') ||
       (typeof d.status === 'string' ? d.status : '') ||
@@ -898,7 +901,7 @@ function renderTable(rows){
   updateStats(rows);
 }
 
-/* ---------- Експорт у Excel (клікабельне посилання + автофільтр + проміжні + статус/коментар) ---------- */
+/* ---------- Експорт у Excel ---------- */
 function exportToExcel(rows){
   const header = ['Код Від','Код До','Від','До','Проміжні пункти','Відстань, км','Тип','Логіст','Статус погодження','Причина відхилення','Оновлено','Код маршруту','ID','URL (Карта)'];
 
@@ -957,7 +960,7 @@ function handleFirestoreError(e){
   alert(msg || e);
 }
 
-/* ---------- Рендер (з урахуванням фільтрів і сортування) ---------- */
+/* ---------- Рендер ---------- */
 function reRender(){
   let rows = applyTopFilters(allRows);
   rows = applyTableFilters(rows);
@@ -1064,39 +1067,130 @@ document.querySelector('#resTable tbody').addEventListener('click', async (ev)=>
   }
 });
 
+/* ---------- Розтягування та автоширина колонок ---------- */
+const WIDTHS_KEY = 'export.tableWidths.v1';
+
+function enableResizableColumns(){
+  const table = document.getElementById('resTable');
+  const headerRow = table.tHead.rows[0];
+  const cols = Array.from(table.querySelector('colgroup').children);
+
+  // вставляємо ручки
+  Array.from(headerRow.cells).forEach((th, i) => {
+    const h = document.createElement('span');
+    h.className = 'col-resizer';
+    th.appendChild(h);
+
+    let startX=0, startW=0;
+    const onMove = (e)=>{
+      const dx = e.clientX - startX;
+      const w = Math.max(60, Math.min(900, startW + dx));
+      cols[i].style.width = w + 'px';
+      table.classList.add('resizing');
+    };
+    const onUp = ()=>{
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+      table.classList.remove('resizing');
+      saveColumnWidths();
+    };
+    h.addEventListener('mousedown', (e)=>{
+      e.preventDefault();
+      startX = e.clientX;
+      startW = (cols[i].getBoundingClientRect().width || th.getBoundingClientRect().width);
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
+    });
+
+    // подвоєний клік — автопідбір ширини для конкретної колонки
+    h.addEventListener('dblclick', ()=>{
+      const w = measureColumnWidth(i);
+      cols[i].style.width = w + 'px';
+      saveColumnWidths();
+    });
+  });
+}
+
+function getTableFont(){
+  const table = document.getElementById('resTable');
+  const cs = getComputedStyle(table);
+  return cs.font || `${cs.fontStyle||'normal'} ${cs.fontWeight||'400'} ${cs.fontSize||'13px'} ${cs.fontFamily||'system-ui'}`;
+}
+
+function measureColumnWidth(index){
+  const table = document.getElementById('resTable');
+  const sampleLimit = 200; // достатньо для адекватної оцінки
+  const ctx = document.createElement('canvas').getContext('2d');
+  ctx.font = getTableFont();
+
+  const pad = 24; // падінг/іконки
+  let max = 80;
+
+  // заголовок
+  const headText = (table.tHead.rows[0].cells[index].innerText || '').trim();
+  max = Math.max(max, ctx.measureText(headText).width + pad);
+
+  // фільтр у шапці (плейсхолдер / назва опції)
+  const fcell = table.tHead.rows[1].cells[index];
+  if (fcell){
+    const input = fcell.querySelector('input,select');
+    if (input){
+      const txt = (input.value || input.placeholder || '').trim();
+      if (txt) max = Math.max(max, ctx.measureText(txt).width + pad);
+    }
+  }
+
+  // комірки тіла
+  const rows = Array.from(table.tBodies[0].rows).slice(0, sampleLimit);
+  for (const tr of rows){
+    const txt = (tr.cells[index]?.innerText || '').trim();
+    if (txt){
+      max = Math.max(max, ctx.measureText(txt).width + pad);
+    }
+  }
+
+  return Math.min(Math.max(Math.ceil(max), 60), 900);
+}
+
+function autosizeColumns(){
+  const table = document.getElementById('resTable');
+  const cols = Array.from(table.querySelector('colgroup').children);
+  for (let i=0;i<cols.length;i++){
+    const w = measureColumnWidth(i);
+    cols[i].style.width = w + 'px';
+  }
+  saveColumnWidths();
+}
+
+function saveColumnWidths(){
+  try{
+    const cols = document.querySelectorAll('#resTable colgroup col');
+    const arr = Array.from(cols).map(c => (c.style.width || c.getBoundingClientRect().width + 'px'));
+    localStorage.setItem(WIDTHS_KEY, JSON.stringify(arr));
+  }catch{}
+}
+
+function restoreColumnWidths(){
+  try{
+    const raw = localStorage.getItem(WIDTHS_KEY);
+    if (!raw) return;
+    const arr = JSON.parse(raw);
+    const cols = document.querySelectorAll('#resTable colgroup col');
+    arr.forEach((w, i)=>{ if (cols[i]) cols[i].style.width = w; });
+  }catch{}
+}
+
+btnAutosize.addEventListener('click', autosizeColumns);
+
 /* ---------- Старт ---------- */
 (async ()=>{
   if (!db) return;
   statusEl.textContent = 'Увійдіть';
   if (auth?.currentUser) { await Promise.all([loadDirectory(), loadLogists(true)]); }
+  // підготовка колонок: відновити ширини і увімкнути перетягування
+  restoreColumnWidths();
+  enableResizableColumns();
 })();
-
-/* ============================================================
-   ОРИГІНАЛЬНИЙ КОД МАРШРУТУ (генератор routeKey)
-   Приклад: Гайсин → Троща => "Г-Т-XXXXXXXXXX"
-   ============================================================ */
-function _firstLetter(s){
-  const t = String(s||'').trim();
-  return t ? t[0].toUpperCase() : 'X';
-}
-async function mintRouteKey(fromName, toName){
-  const prefix = `${_firstLetter(fromName)}-${_firstLetter(toName)}-`;
-  while(true){
-    const rnd = Math.floor(Math.random() * 1e10).toString().padStart(10,'0'); // 10 цифр
-    const key = prefix + rnd;
-    const ref = db.collection('routeKeys').doc(key);
-    try{
-      await db.runTransaction(async tx=>{
-        const snap = await tx.get(ref);
-        if (snap.exists) throw new Error('exists');
-        tx.set(ref, { createdAt: firebase.firestore.FieldValue.serverTimestamp() });
-      });
-      return key;
-    }catch(e){
-      if (e.message !== 'exists') console.warn('mintRouteKey retry:', e.message||e);
-    }
-  }
-}
 </script>
 </body>
 </html>
