@@ -163,6 +163,7 @@
       <button id="popRulerPoint" class="btn xs" title="Видалити останню точку активної лінійки">← Остання точка (лін.)</button>
       <button id="clearRulers" class="btn xs" title="Очистити активну лінійку, або обидві якщо режим лінійки вимкнено">Очист. лін.</button>
       <button id="toggleMarkers" class="btn xs">📍 Точки</button>
+	  <button id="toggleGeozones" class="btn xs">🗺 Приховати геозони</button>
     </div>
 
     <div class="btn-row">
@@ -723,6 +724,7 @@ map.on('style.load', () => {
   // 🔦 Підсвітка FROM/TO
   ensureHighlightLayers();
   updateHighlights();
+  setGeozonesVisibility(geozonesVisible);
 });
 
 document.getElementById('mapStyle').addEventListener('change', function() {
@@ -888,6 +890,45 @@ document.getElementById('toggleMarkers').onclick = () => {
   markers.forEach(m => m.getElement().style.display = markersVisible ? 'block' : 'none');
   document.getElementById('toggleMarkers').textContent = markersVisible ? '📍 Приховати точки' : '📍 Показати точки';
 };
+/* ===== Geozones toggle (all related layers) ===== */
+let geozonesVisible = true;
+
+function setLayerVisibility(id, visible){
+  try {
+    if (map.getLayer(id)) {
+      map.setLayoutProperty(id, 'visibility', visible ? 'visible' : 'none');
+    }
+  } catch(_) {}
+}
+
+function setGeozonesVisibility(visible){
+  // GeoJSON зі Storage
+  ['geozones-fill','geozones-outline','geozones-point','geozones-label','geozones-labels']
+    .forEach(id => setLayerVisibility(id, visible));
+
+  // Tilesets (векторні)
+  TS_FILL_IDS.forEach(id => setLayerVisibility(id, visible));
+  TS_OUTLINE_IDS.forEach(id => setLayerVisibility(id, visible));
+
+  // Підсвітки FROM/TO
+  HL_IDS_FROM.forEach(id => setLayerVisibility(id, visible));
+  HL_IDS_TO.forEach(id   => setLayerVisibility(id, visible));
+}
+
+function updateGeozonesToggleLabel(){
+  const b = document.getElementById('toggleGeozones');
+  if (!b) return;
+  b.textContent = geozonesVisible ? '🗺 Приховати геозони' : '🗺 Показати геозони';
+}
+
+document.getElementById('toggleGeozones').onclick = () => {
+  geozonesVisible = !geozonesVisible;
+  setGeozonesVisibility(geozonesVisible);
+  updateGeozonesToggleLabel();
+};
+
+// Ініціалізуємо напис на кнопці при завантаженні
+updateGeozonesToggleLabel();
 
 /* ===== Rulers (draw + distance) ===== */
 function drawRulers() {
@@ -1937,6 +1978,7 @@ function addGeozones(obj){
   // 🔦 Після додавання джерела GeoJSON підстрахуємось і оновимо підсвітку
   ensureHighlightLayers();
   updateHighlights();
+  setGeozonesVisibility(geozonesVisible);
 }
 
 function fitGeozones(){
