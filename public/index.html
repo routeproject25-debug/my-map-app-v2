@@ -1001,91 +1001,40 @@ function clearRouteLayers() {
   });
   routeLayers = [];
 }
-/* ====== ЩІЛЬНЕ ПРИТЯГУВАННЯ ДО ДОРІГ (з надійним fallback) ====== */
-const ROUTE_SNAP_MODE = 'matching';  // 'matching' або 'directions'
-const MAX_MATCH_POINTS = 100;        // ліміт Map Matching
-const MAX_DIR_POINTS   = 25;         // ліміт Mapbox Directions
-
-function coordsStrOf(arr){ return arr.map(p => p.join(',')).join(';'); }
-function calcKmOfCoords(coords){
-  let km = 0;
-  for (let i = 0; i < coords.length - 1; i++) km += haversineKm(coords[i], coords[i+1]);
-  return km;
-}
-
-async function fetchDirectionsChunk(chunk){
-  const url = `https://api.mapbox.com/directions/v5/mapbox/driving/${coordsStrOf(chunk)}`
-            + `?geometries=geojson&overview=full&alternatives=false&continue_straight=true`
-            + `&access_token=${mapboxgl.accessToken}`;
-  const r = await fetch(url).then(r=>r.json());
-  if (!r?.routes?.[0]) throw new Error(r?.message || 'No route');
-  const route = r.routes[0];
-  return { geometry: route.geometry, distance_m: route.distance ?? 0 };
-}
-async function fetchMatchingChunk(chunk){
-  const url = `https://api.mapbox.com/matching/v5/mapbox/driving/${coordsStrOf(chunk)}`
-            + `?geometries=geojson&overview=full&steps=false&tidy=true`
-            + `&access_token=${mapboxgl.accessToken}`;
-  const r = await fetch(url).then(r=>r.json());
-  if (!r?.matchings?.length) throw new Error(r?.message || r?.code || 'No matchings');
-  const m = r.matchings[0];
-  let dist = (typeof m.distance === 'number') ? m.distance : 0;
-  if (!dist && window.turf) { try { dist = turf.length(m.geometry, { units:'kilometers' })*1000; } catch(_){} }
-  return { geometry: m.geometry, distance_m: dist };
-}
-
-// маршрутизуємо шматок надійно: matching → fallback directions (з поділом) → fallback пряма лінія
-async function routeChunkRobust(chunk){
-  // 1) пробуємо matching
-  if (ROUTE_SNAP_MODE === 'matching') {
-    try { return [await fetchMatchingChunk(chunk)]; }
-    catch(_){ /* падіння на directions нижче */ }
-  }
-  // 2) directions дрібнішими підшматками (≤25)
-  const small = splitIntoChunks(chunk, MAX_DIR_POINTS);
-  const out = [];
-  for (const s of small){
-    try { out.push(await fetchDirectionsChunk(s)); }
-    catch(_){
-      // 3) останній фолбек — пряма лінія, щоб не було прогалин
-      out.push({
-        geometry: { type:'LineString', coordinates: s },
-        distance_m: calcKmOfCoords(s) * 1000
-      });
-    }
-  }
-  return out;
-}
-
 async function updateRoute() {
   if (points.length < 2) {
     document.getElementById('distance').textContent =
       (calculateRulerDistance(startRuler) + calculateRulerDistance(endRuler)).toFixed(2);
     updateCounters(); clearRouteLayers(); return;
   }
-
+  const chunks = splitIntoChunks(points, 20);
+  let totalDistance = 0;
   clearRouteLayers();
-  const topChunkSize = (ROUTE_SNAP_MODE === 'matching') ? MAX_MATCH_POINTS : MAX_DIR_POINTS;
-  const chunks = splitIntoChunks(points, topChunkSize);
 
-  let total_m = 0, layerIdx = 0;
-  for (const ch of chunks){
-    const parts = await routeChunkRobust(ch);
-    for (const part of parts){
-      total_m += part.distance_m || 0;
-      const id = `route-part-${layerIdx++}`;
-      map.addSource(id, { type:'geojson', data:{ type:'Feature', geometry: part.geometry } });
-      map.addLayer({
-        id, type:'line', source:id,
-        layout:{ 'line-join':'round', 'line-cap':'round' },
-        paint:{ 'line-color': `hsl(${(layerIdx * 60) % 360}, 100%, 50%)`, 'line-width': 5 }
-      });
-      routeLayers.push(id);
-    }
+  for (let i = 0; i < chunks.length; i++) {
+    const chunk = chunks[i];
+    const coordsStr = chunk.map(p => p.join(',')).join(';');
+    const url = `https://api.mapbox.com/directions/v5/mapbox/driving/${coordsStr}?geometries=geojson&access_token=${mapboxgl.accessToken}`;
+    try {
+      const res = await fetch(url);
+      const data = await res.json();
+      if (data.routes && data.routes[0]) {
+        const route = data.routes[0];
+        totalDistance += route.distance;
+        const layerId = `route-part-${i}`;
+        map.addSource(layerId, { type: 'geojson', data: { type: 'Feature', geometry: route.geometry } });
+        map.addLayer({
+          id: layerId, type: 'line', source: layerId,
+          layout: { 'line-join': 'round', 'line-cap': 'round' },
+          paint: { 'line-color': `hsl(${(i * 60) % 360}, 100%, 50%)`, 'line-width': 5 }
+        });
+        routeLayers.push(layerId);
+      }
+    } catch (e) { console.error('Помилка маршруту:', e); }
   }
 
-  const km = (total_m/1000) + calculateRulerDistance(startRuler) + calculateRulerDistance(endRuler);
-  document.getElementById('distance').textContent = km.toFixed(2);
+  totalDistance = (totalDistance / 1000) + calculateRulerDistance(startRuler) + calculateRulerDistance(endRuler);
+  document.getElementById('distance').textContent = totalDistance.toFixed(2);
   updateCounters();
 }
 
