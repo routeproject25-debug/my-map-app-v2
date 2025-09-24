@@ -271,6 +271,8 @@
     </select>
     <div class="btn-row" style="margin-top:6%;">
       <button id="refreshList" class="btn">🔄 Оновити список</button>
+	  <button id="loadMoreRoutes" class="btn">⬇️ Ще</button>
+	  <button id="loadAllRoutes" class="btn">📥 Всі</button>
       <button id="loadFromDB" class="btn">⬇️ Завантажити з БД</button>
       <button id="deleteFromDB" class="btn">🗑 Видалити з БД</button>
       <button id="clearForm" class="btn">🧹 Очистити форму</button>
@@ -1425,44 +1427,77 @@ async function saveToDB() {
     const meta = { fromCode, toCode, fromName: from.name || '', toName: to.name || '' };
 
     let routeKeySaved = null;
+	let savedApproval = null; // 👈 додали, щоб оновити UI після збереження
+try{
+  await db.runTransaction(async (tx) => {
+    const routeRef  = db.collection('routes').doc(docId);
+    const routeSnap = await tx.get(routeRef);
 
-    try{
-      await db.runTransaction(async (tx) => {
-        const routeRef = db.collection('routes').doc(docId);
-        const routeSnap = await tx.get(routeRef);
+    let routeKey = null;
+    if (mode === 'overwrite' && routeSnap.exists && routeSnap.data()?.routeKey){
+      routeKey = String(routeSnap.data().routeKey);
+      const keyRef = db.collection('routeKeys').doc(routeKey);
+      await tx.get(keyRef);
+      tx.set(keyRef, {
+        routeId: docId,
+        updatedAt: new Date().toISOString(),
+        fromCode, toCode,
+        fromName: meta.fromName, toName: meta.toName
+      }, { merge:true });
+    } else {
+      routeKey = await reserveKeyTx(tx, prefix, docId, meta);
+    }
 
-        let routeKey = null;
-
-        if (mode === 'overwrite' && routeSnap.exists && routeSnap.data()?.routeKey) {
-          routeKey = String(routeSnap.data().routeKey);
-          const keyRef = db.collection('routeKeys').doc(routeKey);
-          await tx.get(keyRef);
-          tx.set(keyRef, {
-            routeId: docId,
-            updatedAt: new Date().toISOString(),
-            fromCode, toCode,
-            fromName: meta.fromName, toName: meta.toName
-          }, { merge: true });
-        } else {
-          routeKey = await reserveKeyTx(tx, prefix, docId, meta);
-        }
-
-        routeKeySaved = routeKey;
-        tx.set(routeRef, { ...payload, routeKey }, { merge: true });
-      });
-
-      alert(`✅ Збережено в БД: ${payload.name}\nКод маршруту: ${routeKeySaved}`);
-    } catch (txErr) {
-      console.warn('Транзакція (routeKeys) не вдалася:', txErr?.code || txErr, txErr?.message);
-      try{
-        await db.collection('routes').doc(docId).set(payload, { merge:true });
-        alert('⚠️ Збережено маршрут БЕЗ коду (routeKey).\nПричина відхилення коду: ' + (txErr?.message || txErr));
-      }catch(saveErr){
-        throw saveErr;
+    // ❗ Інвалідуємо погодження, якщо змінилась відстань і було approved
+    let approvalUpdate = null;
+    const prev = routeSnap.exists ? routeSnap.data() : null;
+    if (prev && prev.approval && prev.approval.status === 'approved'){
+      const oldDist = (typeof prev.distance_km === 'number') ? prev.distance_km : null;
+      const newDist = payload.distance_km;
+      if (oldDist !== null && Math.abs(newDist - oldDist) > 0.01){
+        const rev = (prev.approval.revision || 0) + 1;
+        approvalUpdate = {
+          status: 'draft',
+          revision: rev,
+          comment: `Відстань змінена: було ${oldDist.toFixed(2)} км → стало ${newDist.toFixed(2)} км`,
+          submittedAt: null, submittedByUid: null, submittedByEmail: null,
+          decidedByUid: null, decidedByEmail: null, decisionAt: null
+        };
       }
     }
 
-    await refreshRoutesList();
+    const updateObj = {
+      ...payload,
+      routeKey,
+      nameLower: (payload.name || '').toLowerCase(),
+      updatedAt: new Date().toISOString()
+    };
+    if (approvalUpdate){
+      updateObj.approval = approvalUpdate;
+      savedApproval = approvalUpdate;
+    } else {
+      savedApproval = prev?.approval || null;
+    }
+
+    routeKeySaved = routeKey;
+    tx.set(routeRef, updateObj, { merge: true });
+  });
+
+  alert(`✅ Збережено в БД: ${payload.name}\nКод маршруту: ${routeKeySaved}`);
+} catch (txErr) {
+  console.warn('Транзакція (routeKeys) не вдалася:', txErr?.code || txErr, txErr?.message);
+  try{
+    await db.collection('routes').doc(docId).set(payload, { merge:true });
+    alert('⚠️ Збережено маршрут БЕЗ коду (routeKey).\nПричина відхилення коду: ' + (txErr?.message || txErr));
+  }catch(saveErr){
+    throw saveErr;
+  }
+}
+
+// після транзакції — оновити панель погодження в UI
+setApprovalUI(savedApproval);
+
+    await refreshRoutesList('reset');
   } catch (err) {
     console.error('❌ Помилка збереження в Firestore:', err);
     alert('❌ Не вдалося зберегти в БД: ' + (err?.message || err));
@@ -1470,43 +1505,79 @@ async function saveToDB() {
 }
 
 let isRefreshingRoutes = false;
-async function refreshRoutesList(limitNum = 100) {
+let routesPageLastDoc = null;   // останній документ попередньої сторінки
+let routesDone = false;         // чи все догрузили
+let routesLoadedCount = 0;      // скільки вже завантажено на клієнт
+
+function renderRoutesDocs(docs){
+  const sel  = document.getElementById('remoteRoutes');
+  const list = document.getElementById('routesList');
+
+  if (sel.options.length === 0) {
+    sel.innerHTML = '<option value="">— вибери маршрут з БД —</option>';
+  }
+
+  docs.forEach(doc=>{
+    const d = doc.data() || {};
+    const km = (typeof d.distance_km === 'number') ? ` (${d.distance_km.toFixed(2)} км)` : '';
+    const labelNow = formatRouteTitle(d);
+    const label = labelNow + km;
+
+    // уникаємо дублікатів
+    if (routesLookup[label]) return;
+    routesLookup[label] = doc.id;
+
+    const opt = document.createElement('option');
+    opt.value = doc.id; opt.textContent = label;
+    sel.appendChild(opt);
+
+    const sOpt = document.createElement('option');
+    sOpt.value = label; list.appendChild(sOpt);
+  });
+
+  routesLoadedCount = Object.keys(routesLookup).length;
+}
+
+async function refreshRoutesList(mode='reset'){
   if (!db || isRefreshingRoutes) return;
   isRefreshingRoutes = true;
 
   const sel  = document.getElementById('remoteRoutes');
   const list = document.getElementById('routesList');
-  const current = sel.value;
 
-  const q = db.collection('routes').orderBy('updatedAt','desc').limit(limitNum);
-
-  const render = (snap) => {
-    sel.innerHTML = '<option value="">— вибери маршрут з БД —</option>';
-    list.innerHTML = '';
+  if (mode === 'reset'){
+    routesPageLastDoc = null;
+    routesDone = false;
     for (const k in routesLookup) delete routesLookup[k];
+    sel.innerHTML  = '<option value="">— вибери маршрут з БД —</option>';
+    list.innerHTML = '';
+  }
+  if (routesDone){ isRefreshingRoutes = false; return; }
 
-    snap.forEach(doc => {
-      const d = doc.data();
-      const km = (typeof d.distance_km === 'number') ? ` (${d.distance_km.toFixed(2)} км)` : '';
-      const labelNow = formatRouteTitle(d);
-      const label = labelNow + km;
+  const pageSize = 500; // скільки підтягувати за раз
+  let q = db.collection('routes').orderBy('updatedAt','desc').limit(pageSize);
+  if (routesPageLastDoc) q = q.startAfter(routesPageLastDoc);
 
-      const opt = document.createElement('option');
-      opt.value = doc.id; opt.textContent = label; sel.appendChild(opt);
+  try{
+    const snap = await q.get({ source:'default' });
+    if (snap.empty){
+      routesDone = true;
+    }else{
+      renderRoutesDocs(snap.docs);
+      routesPageLastDoc = snap.docs[snap.docs.length-1];
+      if (snap.size < pageSize) routesDone = true;
+    }
+  } finally {
+    isRefreshingRoutes = false;
+  }
+}
 
-      routesLookup[label] = doc.id;
-      const sOpt = document.createElement('option'); sOpt.value = label; list.appendChild(sOpt);
-    });
-
-    if (Array.from(sel.options).some(o => o.value === current)) { sel.value = current; }
-  };
-
-  try {
-    const snapCache = await q.get({ source: 'cache' }).catch(()=>null);
-    if (snapCache && !snapCache.empty) render(snapCache);
-    const snapServer = await q.get({ source: 'default' }).catch(()=>null);
-    if (snapServer) render(snapServer);
-  } finally { isRefreshingRoutes = false; }
+// догрузити все (по сторінках)
+async function loadAllRoutes(){
+  while(!routesDone){
+    await refreshRoutesList('next');
+  }
+  alert(`Завантажено маршрутів: ${routesLoadedCount}`);
 }
 
 async function loadFromDB() {
@@ -1649,8 +1720,10 @@ document.getElementById('refreshList').onclick = () => {
   const now = Date.now();
   if (now - lastRefreshClick < 500) return;
   lastRefreshClick = now;
-  refreshRoutesList();
+  refreshRoutesList('reset');
 };
+document.getElementById('loadMoreRoutes').onclick = () => refreshRoutesList('next');
+document.getElementById('loadAllRoutes').onclick  = () => loadAllRoutes();
 document.getElementById('loadFromDB').onclick = loadFromDB;
 document.getElementById('deleteFromDB').onclick = deleteFromDB;
 document.getElementById('clearForm').onclick = clearForm;
@@ -1947,7 +2020,7 @@ auth?.onAuthStateChanged(async (user) => {
 window.addEventListener('load', async () => {
   if (!db) return;
   await loadDirectory(true);
-  await refreshRoutesList();
+  await refreshRoutesList('reset');
   const rid = new URLSearchParams(location.search).get('rid');
   if (rid) await loadRouteById(rid);
   requestAnimationFrame(updateLayoutHeights);
