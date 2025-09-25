@@ -228,8 +228,22 @@ document.addEventListener('DOMContentLoaded', () => {
   const btnLogout = $('btnLogout');
   const importBtn = $('importBtn');
 
-  let db = null, auth = null, currentUser = null, currentRole = window.__userRole || null;
-  const WRITE_ROLES = new Set(['admin','logist']);
+  let db = null, auth = null, currentUser = null, currentRole = 'pending';
+const WRITE_ROLES = new Set(['admin','logist']);
+const NORM = r => String(r || 'pending').trim().toLowerCase();
+
+async function resolveUserRole(uid){
+  // читаємо users/{uid} зі сервера з fallback на roles/{uid}
+  try{
+    const us = await db.collection('users').doc(uid).get({ source: 'server' });
+    if (us.exists && us.data()?.role) return NORM(us.data().role);
+  }catch{}
+  try{
+    const rs = await db.collection('roles').doc(uid).get({ source: 'server' });
+    if (rs.exists && rs.data()?.role) return NORM(rs.data().role);
+  }catch{}
+  return 'pending';
+}
 
   // Firebase вже ініціалізовано у head-guard
   try{
@@ -259,23 +273,49 @@ document.addEventListener('DOMContentLoaded', () => {
     try{ await auth.signOut(); }catch(e){ console.warn(e); }
   });
 
-  auth?.onAuthStateChanged(async (u) => {
-    currentUser = u || null;
-    if (!u){
-      const next = encodeURIComponent(location.pathname + location.search);
-      location.replace(`/login.html?next=${next}`);
-      return;
-    }
-    // роль уже виставлена гардом
-    currentRole = String(window.__userRole || currentRole || 'viewer').toLowerCase(); // ✅
+  let roleUnsub = null;
 
-    authInfo.textContent = `Увійшли як ${u.email || u.uid}`;
-    btnLogout.style.display = '';
-    authRoleBadge.textContent = `Роль: ${currentRole}`;
-    authRoleBadge.style.display = '';
-    statusTop.textContent = 'Готово';
-    updateImportButton();
-  });
+auth?.onAuthStateChanged(async (u) => {
+  currentUser = u || null;
+  if (!u){
+    const next = encodeURIComponent(location.pathname + location.search);
+    location.replace(`/login.html?next=${next}`);
+    return;
+  }
+
+  // 1) швидкий варіант з head-guard (якщо вже є)
+  let role = window.__userRole ? NORM(window.__userRole) : null;
+  // 2) надійно дочитуємо з Firestore (усуває гонку)
+  if (!role || role === 'pending') role = await resolveUserRole(u.uid);
+
+  currentRole = role;
+  window.__userRole = role; // синхронізуємо для інших скриптів
+
+  authInfo.textContent = `Увійшли як ${u.email || u.uid}`;
+  btnLogout.style.display = '';
+  authRoleBadge.textContent = `Роль: ${currentRole}`;
+  authRoleBadge.style.display = '';
+  statusTop.textContent = 'Готово';
+  updateImportButton();
+
+  // 3) live-оновлення ролі
+  roleUnsub?.();
+  roleUnsub = db.collection('users').doc(u.uid)
+    .onSnapshot({ includeMetadataChanges:true }, async (doc) => {
+      let r = doc.exists ? NORM(doc.data().role) : 'pending';
+      if (r === 'pending') {
+        // fallback на roles, якщо потрібно
+        try{
+          const rs = await db.collection('roles').doc(u.uid).get({ source:'server' });
+          if (rs.exists && rs.data()?.role) r = NORM(rs.data().role);
+        }catch{}
+      }
+      currentRole = r;
+      window.__userRole = r;
+      authRoleBadge.textContent = `Роль: ${r}`;
+      updateImportButton();
+    });
+});
 
   // Глобальний перехоплювач помилок → у лог
   window.addEventListener('error', (e) => {
