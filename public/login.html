@@ -112,9 +112,7 @@ const firebaseConfig = {
   appId: "1:53260611353:web:f25e120996ad8305405f88",
   measurementId: "G-9LRX1FLTKL"
 };
-
-// Спочатку ініціалізація, потім auth/db
-try{ firebase.apps?.length ? firebase.app() : firebase.initializeApp(firebaseConfig); }catch(e){ console.error(e); }
+try { firebase.apps?.length ? firebase.app() : firebase.initializeApp(firebaseConfig); } catch(e) { console.error(e); }
 const auth = firebase.auth();
 const db   = firebase.firestore();
 auth.useDeviceLanguage?.();
@@ -154,40 +152,39 @@ function humanizeError(e){
   }
 }
 
-/* ==== Shadow-док з роллю для сумісності (roles/{uid}) ==== */
-async function syncShadowRoleDoc(user, role){
-  try{
-    await db.collection('roles').doc(user.uid).set({
-      role: role || 'pending',
-      email: user.email || '',
-      updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-    }, { merge:true });
-  }catch(e){ /* тихо ігноруємо */ }
-}
+/* ==== Єдина точка правди: створюємо/дзеркалимо users та roles ==== */
+async function ensureUserAndRole(user) {
+  const usersRef = db.collection('users').doc(user.uid);
+  const rolesRef = db.collection('roles').doc(user.uid);
 
-/* ==== Створити users/{uid} при першому вході + sync roles/{uid} ==== */
-async function ensureUserDoc(user) {
-  const ref = db.collection('users').doc(user.uid);
-  const snap = await ref.get();
+  // читаємо users з сервера (щоб не взяти застарілий кеш)
+  let snap = null;
+  try { snap = await usersRef.get({ source: 'server' }); }
+  catch { snap = await usersRef.get(); }
 
+  let role = 'pending';
   if (!snap.exists) {
-    const payload = {
+    await usersRef.set({
       email: user.email || '',
       displayName: user.displayName || '',
       role: 'pending',
       createdAt: firebase.firestore.FieldValue.serverTimestamp()
-    };
-    await ref.set(payload);
-    await syncShadowRoleDoc(user, 'pending');
-    return 'pending';
+    });
   } else {
-    const role = snap.data().role || 'pending';
-    await syncShadowRoleDoc(user, role);
-    return role;
+    role = snap.data().role || 'pending';
   }
+
+  // дзеркалимо в roles
+  await rolesRef.set({
+    role,
+    email: user.email || '',
+    updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+  }, { merge: true });
+
+  return role;
 }
 
-/* ==== Email/пароль ==== */
+/* ==== Логін email/пароль ==== */
 async function doLogin(){
   const email = $("email").value.trim();
   const pass  = $("pass").value;
@@ -214,71 +211,63 @@ $("btnReset").onclick = async () => {
   }catch(e){ showMsg(humanizeError(e), true); }
 };
 
-/* ==== Google Sign-In з фолбеком на redirect ==== */
-const googleBtn = document.getElementById('googleSignIn');
-if (googleBtn){
-  googleBtn.addEventListener('click', async () => {
-    showMsg('Входимо через Google…');
-    const provider = new firebase.auth.GoogleAuthProvider();
-    try{
-      const cred = await auth.signInWithPopup(provider);
-      const role = await ensureUserDoc(cred.user);
-      showMsg(role === 'pending'
-        ? '✅ Акаунт створено/оновлено. ⏳ Очікує підтвердження адміністратором.'
-        : 'Готово, перевіряю доступ…'
-      );
-    }catch(e){
-      // Блок попапів або iOS WebView → фолбек
-      if (e.code === 'auth/popup-blocked' || e.code === 'auth/operation-not-supported-in-this-environment'){
-        try{ await auth.signInWithRedirect(provider); return; }
-        catch(e2){ showMsg(humanizeError(e2), true); return; }
-      }
-      if (e.code === 'auth/popup-closed-by-user'){
-        showMsg('Вікно входу закрито. Спробуй ще раз.', true);
-      } else if (e.code === 'auth/account-exists-with-different-credential'){
-        showMsg('Акаунт уже існує з іншим методом входу. Увійди відповідним способом.', true);
-      } else {
-        showMsg(humanizeError(e), true);
-      }
+/* ==== Google Sign-In (popup з фолбеком на redirect) ==== */
+$("googleSignIn").onclick = async () => {
+  showMsg('Входимо через Google…');
+  const provider = new firebase.auth.GoogleAuthProvider();
+  provider.setCustomParameters({ prompt: 'select_account' });
+  try {
+    const cred = await auth.signInWithPopup(provider);
+    const role = await ensureUserAndRole(cred.user);
+    showMsg(role === 'pending'
+      ? '✅ Акаунт створено/оновлено. ⏳ Очікує підтвердження адміністратором.'
+      : 'Готово, перевіряю доступ…');
+  } catch (e) {
+    if (e.code === 'auth/popup-blocked' || e.code === 'auth/operation-not-supported-in-this-environment') {
+      try { await auth.signInWithRedirect(provider); return; }
+      catch (e2) { showMsg(humanizeError(e2), true); return; }
     }
-  });
-}
+    if (e.code === 'auth/popup-closed-by-user')      showMsg('Вікно входу закрито. Спробуй ще раз.', true);
+    else if (e.code === 'auth/account-exists-with-different-credential')
+      showMsg('Акаунт уже існує з іншим методом входу. Увійди відповідним способом.', true);
+    else showMsg(humanizeError(e), true);
+  }
+};
 
 // Якщо зайшли після redirect
 auth.getRedirectResult().then(async (res) => {
-  if (res && res.user){ await ensureUserDoc(res.user); showMsg('Готово, перевіряю доступ…'); }
+  if (res && res.user){ await ensureUserAndRole(res.user); showMsg('Готово, перевіряю доступ…'); }
 }).catch(e => showMsg(humanizeError(e), true));
 
-/* ==== Реальний-тайм guard ролі + перше читання з сервера ==== */
+/* ==== Реальний-тайм guard ролі + редірект ==== */
 let unsubscribeRole = null;
+let navigated = false;
+function goNext(){ if (navigated) return; navigated = true; location.replace(next); }
 
 auth.onAuthStateChanged(async (u) => {
-  if (!u){ return; }
+  if (!u) return;
 
-  // 1) разове читання саме із сервера (щоб не брати старий кеш)
   try{
-    const serverSnap = await db.collection('users').doc(u.uid).get({ source:'server' });
-    if (!serverSnap.exists){ await ensureUserDoc(u); }
-    const initialRole = serverSnap.exists ? (serverSnap.data().role || 'pending') : 'pending';
-    await syncShadowRoleDoc(u, initialRole);
-
-    if (initialRole !== 'pending'){
-      location.replace(next);
-      return;
-    } else {
-      showMsg('⏳ Ваш акаунт очікує підтвердження адміністратором.');
-    }
+    const role = await ensureUserAndRole(u);
+    if (role !== 'pending'){ goNext(); return; }
+    showMsg('⏳ Ваш акаунт очікує підтвердження адміністратором.');
   }catch(e){
     showMsg(humanizeError(e), true);
   }
 
-  // 2) живий підпис на users/{uid} → як тільки роль зміниться — редірект
+  // живе очікування оновлення ролі
   unsubscribeRole?.();
   unsubscribeRole = db.collection('users').doc(u.uid)
     .onSnapshot({ includeMetadataChanges:true }, async (doc) => {
-      const role = doc.exists ? (doc.data().role || 'pending') : 'pending';
-      await syncShadowRoleDoc(u, role);
-      if (role !== 'pending'){ location.replace(next); }
+      const r = doc.exists ? (doc.data().role || 'pending') : 'pending';
+      // постійно тримаємо дзеркало в roles/
+      await db.collection('roles').doc(u.uid).set({
+        role: r,
+        email: u.email || '',
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+      }, { merge:true });
+
+      if (r !== 'pending') goNext();
     });
 });
 
