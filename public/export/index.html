@@ -115,16 +115,31 @@
 
   const loginURL = '/login.html?next=' + encodeURIComponent(location.pathname + location.search);
 
+  // хелпер: показувати/оновлювати бейдж ролі у шапці (якщо елемент уже намальований)
+  function setRoleBadge(r) {
+    const el = document.getElementById('authRole');
+    if (el) {
+      el.textContent = `Роль: ${r || '—'}`;
+      el.style.display = '';
+    }
+  }
+
+  // при виході/перезавантаженні — відписатися від live-ролі
+  window.addEventListener('beforeunload', () => { try { window.__roleUnsub?.(); } catch(_) {} });
+
   auth.onAuthStateChanged(async (u) => {
     if (!u) { location.replace(loginURL); return; }
 
     try {
-      // роль беремо з users/{uid}.role
-      const snap = await db.collection('users').doc(u.uid).get();
+      // ✅ ролі — лише з сервера, щоб не було "залипання" кешу
+      const snap = await db.collection('users').doc(u.uid).get({ source: 'server' });
       const role = snap.exists ? (snap.data().role || 'pending') : 'pending';
+
       // зробимо роль доступною нижнім скриптам
       window.__userRole = role;
+      setRoleBadge(role);
 
+      // якщо ще не підтверджений або без прав — одразу назад на логін
       if (role === 'pending') {
         alert('Ваш акаунт очікує підтвердження адміністратором.');
         location.replace(loginURL); return;
@@ -133,6 +148,20 @@
         alert('Недостатньо прав для сторінки Експорту.');
         location.replace(loginURL); return;
       }
+
+      // ❗ Live-оновлення ролі: якщо адмін змінить роль у процесі — одразу реагуємо
+      try {
+        window.__roleUnsub?.();
+        window.__roleUnsub = db.collection('users').doc(u.uid).onSnapshot((ds) => {
+          const r = ds.exists ? (ds.data().role || 'pending') : 'pending';
+          window.__userRole = r;
+          setRoleBadge(r);
+          if (r === 'pending' || !['admin','logist'].includes(r)) {
+            alert('Доступ відкликано або роль змінено. Потрібен повторний вхід.');
+            location.replace(loginURL);
+          }
+        });
+      } catch (_) {}
 
       // все добре — показуємо DOM
       document.documentElement.style.visibility = '';
