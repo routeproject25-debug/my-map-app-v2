@@ -378,9 +378,9 @@
     }
     hello.textContent = 'Увійшли як ' + (u.email||u.uid);
 
-    const role = window.__userRole || 'user';
-    const sec = (role === 'security' || role === 'admin');
-    document.getElementById('secButtons').style.display = sec ? 'flex' : 'none';
+    const role = String(window.__userRole || 'user').toLowerCase();
+	const sec = (role === 'security' || role === 'admin');
+	document.getElementById('secButtons').style.display = sec ? 'flex' : 'none';
 
     // bind buttons
     document.getElementById('approveBtn').onclick = ()=>applyDecision('approved', null);
