@@ -14,19 +14,49 @@
     :root{ --card:#fff; --line:#e5e7eb; --pad:clamp(12px,2vw,24px); }
     *{ box-sizing:border-box }
     html,body{ height:100% }
-    body{ margin:0; font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif; background:#1d4ed8; }
-    body::before{ content:""; position:fixed; inset:0; background:url("/img/login-bg.jpg") center/cover no-repeat fixed; z-index:-2; }
-    body::after{ content:""; position:fixed; inset:0; background:linear-gradient(to bottom right, rgba(0,0,0,.18), rgba(0,0,0,.28)); z-index:-1; }
+    body{
+      margin:0;
+      font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+      background:#1d4ed8;
+    }
+    body::before{
+      content:""; position:fixed; inset:0;
+      background:url("/img/login-bg.jpg") center/cover no-repeat fixed;
+      z-index:-2;
+    }
+    body::after{
+      content:""; position:fixed; inset:0;
+      background:linear-gradient(to bottom right, rgba(0,0,0,.18), rgba(0,0,0,.28));
+      z-index:-1;
+    }
+
     .wrap{ min-height:100%; padding:var(--pad) }
-    .card{ position:fixed; top:var(--pad); right:var(--pad); width:min(420px,94vw); background:rgba(255,255,255,.94);
-           border:1px solid var(--line); border-radius:14px; box-shadow:0 20px 60px rgba(0,0,0,.25); backdrop-filter:blur(6px); padding:22px; }
-    @media (max-width:640px){ .card{ left:var(--pad); right:var(--pad); top:var(--pad); width:auto; } }
+    .card{
+      position:fixed; top:var(--pad); right:var(--pad);
+      width:min(420px,94vw);
+      background:rgba(255,255,255,.94);
+      border:1px solid var(--line);
+      border-radius:14px;
+      box-shadow:0 20px 60px rgba(0,0,0,.25);
+      backdrop-filter:blur(6px);
+      padding:22px;
+    }
+    @media (max-width:640px){
+      .card{ left:var(--pad); right:var(--pad); top:var(--pad); width:auto; }
+    }
+
     h1{ margin:0 0 14px; font-size:22px }
     .muted{ color:#6b7280; font-size:13px }
     label{ display:block; font-size:13px; margin:2px 0 6px; color:#374151 }
-    input{ width:100%; padding:10px 12px; border:1px solid var(--line); border-radius:10px; font-size:14px; background:#fff; outline:none; }
+    input{
+      width:100%; padding:10px 12px; border:1px solid var(--line); border-radius:10px; font-size:14px;
+      background:#fff; outline:none;
+    }
     .actions{ display:flex; gap:10px; margin-top:14px; flex-wrap:wrap }
-    .btn{ cursor:pointer; border:1px solid var(--line); background:#2563eb; color:#fff; font-weight:600; border-radius:10px; padding:10px 12px; width:100%; }
+    .btn{
+      cursor:pointer; border:1px solid var(--line); background:#2563eb; color:#fff; font-weight:600;
+      border-radius:10px; padding:10px 12px; width:100%;
+    }
     .btn[disabled]{ opacity:.6; cursor:not-allowed }
     .btn.ghost{ background:#fff; color:#111 }
     .msg{ margin:10px 0 0; font-size:13px; min-height:1.25em }
@@ -34,8 +64,10 @@
     .brand{ display:flex; align-items:center; gap:10px; margin-bottom:10px }
     .brand svg{ width:28px; height:28px }
     .links{ display:flex; gap:10px; margin-top:10px; flex-wrap:wrap }
-    .a-btn{ display:inline-flex; align-items:center; justify-content:center; padding:10px 12px; border-radius:10px;
-            border:1px solid var(--line); background:#fff; color:#111; text-decoration:none; width:100%; font-weight:600; }
+    .a-btn{
+      display:inline-flex; align-items:center; justify-content:center; padding:10px 12px; border-radius:10px;
+      border:1px solid var(--line); background:#fff; color:#111; text-decoration:none; width:100%; font-weight:600;
+    }
   </style>
 </head>
 <body>
@@ -120,13 +152,13 @@ function humanizeError(e){
   }
 }
 
-/* ==== Створюємо/оновлюємо тільки users/{uid}; дзеркало roles — необов'язково ==== */
+/* ==== Єдина точка правди: створюємо/дзеркалимо users та roles ==== */
 async function ensureUserAndRole(user) {
   const usersRef = db.collection('users').doc(user.uid);
   const rolesRef = db.collection('roles').doc(user.uid);
 
-  // читаємо users з сервера (свіжі дані)
-  let snap;
+  // читаємо users з сервера (щоб не взяти застарілий кеш)
+  let snap = null;
   try { snap = await usersRef.get({ source: 'server' }); }
   catch { snap = await usersRef.get(); }
 
@@ -142,18 +174,17 @@ async function ensureUserAndRole(user) {
     role = snap.data().role || 'pending';
   }
 
-  // м'яке дзеркалення у roles — ігноруємо  PERMISSION_DENIED
-  try {
-    await rolesRef.set({
-      role, email: user.email || '',
-      updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-    }, { merge: true });
-  } catch (_) { /* ок, ролі може керувати лише адмін/CF */ }
+  // дзеркалимо в roles
+  await rolesRef.set({
+    role,
+    email: user.email || '',
+    updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+  }, { merge: true });
 
   return role;
 }
 
-/* ==== Email/пароль ==== */
+/* ==== Логін email/пароль ==== */
 async function doLogin(){
   const email = $("email").value.trim();
   const pass  = $("pass").value;
@@ -203,15 +234,15 @@ $("googleSignIn").onclick = async () => {
   }
 };
 
-// Повернення після redirect
-auth.getRedirectResult()
-  .then(async (res) => { if (res && res.user){ await ensureUserAndRole(res.user); showMsg('Готово, перевіряю доступ…'); } })
-  .catch(e => showMsg(humanizeError(e), true));
+// Якщо зайшли після redirect
+auth.getRedirectResult().then(async (res) => {
+  if (res && res.user){ await ensureUserAndRole(res.user); showMsg('Готово, перевіряю доступ…'); }
+}).catch(e => showMsg(humanizeError(e), true));
 
-/* ==== Live-guard ролі + редірект ==== */
+/* ==== Реальний-тайм guard ролі + редірект ==== */
 let unsubscribeRole = null;
 let navigated = false;
-function goNext(){ if (!navigated){ navigated = true; location.replace(next); } }
+function goNext(){ if (navigated) return; navigated = true; location.replace(next); }
 
 auth.onAuthStateChanged(async (u) => {
   if (!u) return;
@@ -221,15 +252,21 @@ auth.onAuthStateChanged(async (u) => {
     if (role !== 'pending'){ goNext(); return; }
     showMsg('⏳ Ваш акаунт очікує підтвердження адміністратором.');
   }catch(e){
-    // якщо десь зловили PERMISSION_DENIED — просто показуємо і не валимо застосунок
     showMsg(humanizeError(e), true);
   }
 
-  // слухаємо users/{uid}; НІЯКИХ записів у roles тут не робимо
+  // живе очікування оновлення ролі
   unsubscribeRole?.();
   unsubscribeRole = db.collection('users').doc(u.uid)
-    .onSnapshot({ includeMetadataChanges:true }, (doc) => {
+    .onSnapshot({ includeMetadataChanges:true }, async (doc) => {
       const r = doc.exists ? (doc.data().role || 'pending') : 'pending';
+      // постійно тримаємо дзеркало в roles/
+      await db.collection('roles').doc(u.uid).set({
+        role: r,
+        email: u.email || '',
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+      }, { merge:true });
+
       if (r !== 'pending') goNext();
     });
 });
