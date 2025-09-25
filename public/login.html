@@ -8,8 +8,7 @@
   <!-- Firebase (compat) -->
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
-  <!-- ДОДАТИ ЦЕ ПІСЛЯ auth-compat -->
-<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 
   <style>
     :root{ --card:#fff; --line:#e5e7eb; --pad:clamp(12px,2vw,24px); }
@@ -89,8 +88,7 @@
       <div class="actions">
         <button id="btnLogin" class="btn" type="button">Увійти</button>
         <button id="btnReset" class="btn ghost" type="button">Нагадати пароль</button>
-		<!-- ДОДАЙ ЦЮ -->
-  <button id="googleSignIn" class="btn ghost" type="button">Увійти через Google</button>
+        <button id="googleSignIn" class="btn ghost" type="button">Увійти через Google</button>
       </div>
 
       <div id="msg" class="msg"></div>
@@ -104,7 +102,7 @@
   </div>
 
 <script>
-/* ==== Firebase ==== */
+/* ==== Firebase init ==== */
 const firebaseConfig = {
   apiKey: "AIzaSyDjDBZkmy-skuDEQF8-AkRma7yw6TugoQc",
   authDomain: "my-map-app-58312.firebaseapp.com",
@@ -114,38 +112,27 @@ const firebaseConfig = {
   appId: "1:53260611353:web:f25e120996ad8305405f88",
   measurementId: "G-9LRX1FLTKL"
 };
-const db = firebase.firestore();
-try{ firebase.apps?.length ? firebase.app() : firebase.initializeApp(firebaseConfig); }catch(e){}
+
+// ВАЖЛИВО: спочатку initializeApp, потім auth/db
+try { firebase.apps?.length ? firebase.app() : firebase.initializeApp(firebaseConfig); } catch(e) { console.error(e); }
 const auth = firebase.auth();
+const db   = firebase.firestore();
+
+auth.useDeviceLanguage?.();
 auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch(()=>{});
 
 /* ==== Навігація після входу ==== */
 function sanitizeNext(val){
-  // дозволяємо лише відносні шляхи поточного сайту
   if (!val) return "/index.html";
   try{
-    // абсолютні URL відкинемо
     const u = new URL(val, location.origin);
     if (u.origin !== location.origin) return "/index.html";
-    // лише шляхи в межах сайту
-    return u.pathname + u.search + u.hash || "/index.html";
+    return (u.pathname + u.search + u.hash) || "/index.html";
   }catch{ return "/index.html"; }
 }
 const params = new URLSearchParams(location.search);
 let next = sanitizeNext(params.get("next"));
 document.getElementById("backLink").href = next;
-
-auth.onAuthStateChanged(async (u) => {
-  if (!u) return; // ще не ввійшов — нічого не робимо
-
-  const role = await ensureUserDoc(u); // створить users/{uid}, якщо нема
-  if (role === 'pending') {
-    showMsg('⏳ Ваш акаунт очікує підтвердження адміністратором.');
-    return; // не пускаємо далі
-  }
-  // роль призначено — пускаємо
-  location.replace(next);
-});
 
 /* ==== UI helpers ==== */
 const $ = id => document.getElementById(id);
@@ -162,28 +149,13 @@ function humanizeError(e){
     case "auth/user-not-found":
     case "auth/wrong-password": return "Невірний email або пароль.";
     case "auth/too-many-requests": return "Забагато спроб. Спробуй пізніше.";
+    case "auth/operation-not-allowed": return "Google Sign-In не дозволено в консолі Firebase (Authentication → Sign-in method).";
+    case "auth/unauthorized-domain": return "Домен не додано до дозволених у Firebase (Authentication → Settings → Authorized domains).";
     default: return e?.message || "Сталася помилка.";
   }
 }
 
-/* ==== Дії ==== */
-async function doLogin(){
-  const email = $("email").value.trim();
-  const pass  = $("pass").value;
-  if (!email || !pass){ showMsg("Заповни email і пароль", true); return; }
-  $("btnLogin").disabled = true;
-  showMsg("Входимо…");
-  try{
-    await auth.signInWithEmailAndPassword(email, pass);
-    showMsg("Готово, перевіряю доступ…"); // далі спрацює onAuthStateChanged
-  }catch(e){
-    showMsg(humanizeError(e), true);
-  }finally{
-    $("btnLogin").disabled = false;
-  }
-}
-
-// Створює users/{uid} при першому вході, повертає роль
+/* ==== Створити users/{uid} при першому вході ==== */
 async function ensureUserDoc(user) {
   const ref = db.collection('users').doc(user.uid);
   const snap = await ref.get();
@@ -200,10 +172,24 @@ async function ensureUserDoc(user) {
   return snap.data().role || 'pending';
 }
 
-$("btnLogin").onclick = doLogin;
-$("email").addEventListener("keydown", e => { if (e.key === "Enter") doLogin(); });
-$("pass").addEventListener("keydown",  e => { if (e.key === "Enter") doLogin(); });
+/* ==== Логін email/пароль ==== */
+async function doLogin(){
+  const email = $("email").value.trim();
+  const pass  = $("pass").value;
+  if (!email || !pass){ showMsg("Заповни email і пароль", true); return; }
+  $("btnLogin").disabled = true;
+  showMsg("Входимо…");
+  try{
+    await auth.signInWithEmailAndPassword(email, pass);
+    showMsg("Готово, перевіряю доступ…");
+  }catch(e){
+    showMsg(humanizeError(e), true);
+  }finally{
+    $("btnLogin").disabled = false;
+  }
+}
 
+/* ==== Скидання паролю ==== */
 $("btnReset").onclick = async () => {
   const email = $("email").value.trim();
   if (!email){ showMsg("Вкажи email для відновлення", true); return; }
@@ -212,22 +198,32 @@ $("btnReset").onclick = async () => {
     showMsg("Надіслано лист для відновлення пароля.");
   }catch(e){ showMsg(humanizeError(e), true); }
 };
-// Вхід через Google + автостворення users/{uid} з role:"pending"
+
+/* ==== Google Sign-In (з фолбеком) ==== */
 const googleBtn = document.getElementById('googleSignIn');
 if (googleBtn) {
   googleBtn.addEventListener('click', async () => {
     showMsg('Входимо через Google…');
+    const provider = new firebase.auth.GoogleAuthProvider();
     try {
-      const provider = new firebase.auth.GoogleAuthProvider();
       const cred = await auth.signInWithPopup(provider);
       const role = await ensureUserDoc(cred.user);
       if (role === 'pending') {
         showMsg('✅ Акаунт створено / оновлено. ⏳ Очікує підтвердження адміністратором.');
-        // onAuthStateChanged НЕ редіректить, бо pending
       } else {
-        showMsg('Готово, перевіряю доступ…'); // onAuthStateChanged переведе далі
+        showMsg('Готово, перевіряю доступ…');
       }
     } catch (e) {
+      // Фолбек на redirect для середовищ, де попапи блокуються/непідтримуються
+      if (e.code === 'auth/popup-blocked' || e.code === 'auth/operation-not-supported-in-this-environment') {
+        try {
+          await auth.signInWithRedirect(provider);
+          return;
+        } catch (e2) {
+          showMsg(humanizeError(e2), true);
+          return;
+        }
+      }
       if (e.code === 'auth/popup-closed-by-user') {
         showMsg('Вікно входу закрито. Спробуй ще раз.', true);
       } else if (e.code === 'auth/account-exists-with-different-credential') {
@@ -239,6 +235,29 @@ if (googleBtn) {
   });
 }
 
+/* ==== Після входу ==== */
+auth.onAuthStateChanged(async (u) => {
+  if (!u) return;
+  try{
+    const role = await ensureUserDoc(u);
+    if (role === 'pending') {
+      showMsg('⏳ Ваш акаунт очікує підтвердження адміністратором.');
+      return;
+    }
+    location.replace(next);
+  }catch(e){
+    showMsg(humanizeError(e), true);
+  }
+});
+
+/* ==== Клавіші Enter ==== */
+$("btnLogin").onclick = doLogin;
+$("email").addEventListener("keydown", e => { if (e.key === "Enter") doLogin(); });
+$("pass").addEventListener("keydown",  e => { if (e.key === "Enter") doLogin(); });
+
+/* ==== Глобальні помилки → в UI ==== */
+window.addEventListener('error', (e) => { showMsg('Помилка скрипта: ' + (e.message || ''), true); });
+window.addEventListener('unhandledrejection', (e) => { showMsg('Помилка: ' + (e.reason?.message || e.reason || ''), true); });
 </script>
 </body>
 </html>
