@@ -101,21 +101,21 @@
       try{
         const us = await db.collection('users').doc(u.uid).get();
         role = us.exists ? (us.data().role || 'pending') : 'pending';
-        if (role === 'pending') {
+        if (String(role).trim().toLowerCase() === 'pending') {
           const rs = await db.collection('roles').doc(u.uid).get();
           if (rs.exists && rs.data()?.role) role = String(rs.data().role);
         }
       }catch(_){}
 
-      window.__userRole = role;
+      window.__userRole = String(role).trim().toLowerCase();
 
-      if (role === 'pending') {
+      if (String(role).trim().toLowerCase() === 'pending') {
         alert('Ваш акаунт очікує підтвердження адміністратором.');
         location.replace(loginURL); return;
       }
 
       /* ✅ ДОЗВІЛ ЛИШЕ ДЛЯ security | admin */
-      if (!['security','admin'].includes(String(role).toLowerCase())) {
+      if (!['security','admin'].includes(String(role).trim().toLowerCase())) {
         alert('Недостатньо прав для сторінки погодження.');
         location.replace(loginURL); return;
       }
@@ -181,6 +181,16 @@
   // === Firebase (вже ініт у head-guard) ===
   const db   = firebase.firestore();
   const auth = firebase.auth();
+  async function getNormalizedRole(){
+  if (window.__userRole) return String(window.__userRole).trim().toLowerCase();
+  try{
+    const u = auth.currentUser;
+    if (!u) return 'user';
+    const us = await db.collection('users').doc(u.uid).get();
+    const r = us.exists ? (us.data().role || 'pending') : 'pending';
+    return String(r).trim().toLowerCase();
+  }catch{ return 'user'; }
+}
 
   // === Query params ===
   const qs  = new URLSearchParams(location.search);
@@ -343,8 +353,8 @@
 
   // Approve / Reject actions (перестраховка на боці клієнта по ролях)
   async function applyDecision(kind, comment){
-    const role = window.__userRole || 'user';
-    const allowed = (role === 'security' || role === 'admin');
+    const role = String(window.__userRole || 'user').trim().toLowerCase();
+	const allowed = (role === 'security' || role === 'admin');
     if (!allowed){
       alert('Недостатньо прав для цієї дії.');
       return;
@@ -378,7 +388,7 @@
     }
     hello.textContent = 'Увійшли як ' + (u.email||u.uid);
 
-    const role = String(window.__userRole || 'user').toLowerCase();
+    const role = await getNormalizedRole();
 	const sec = (role === 'security' || role === 'admin');
 	document.getElementById('secButtons').style.display = sec ? 'flex' : 'none';
 
