@@ -74,50 +74,57 @@
   </style>
 
   <!-- === AUTH GUARD у <head>: ініт Firebase, перевірка ролі, показ DOM === -->
-  <script>
-    (async function(){
-      const firebaseConfig = {
-        apiKey: "AIzaSyDjDBZkmy-skuDEQF8-AkRma7yw6TugoQc",
-        authDomain: "my-map-app-58312.firebaseapp.com",
-        projectId: "my-map-app-58312",
-        storageBucket: "my-map-app-58312.firebasestorage.app",
-        messagingSenderId: "53260611353",
-        appId: "1:53260611353:web:f25e120996ad8305405f88",
-        measurementId: "G-9LRX1FLTKL"
-      };
-      try{ firebase.apps?.length ? firebase.app() : firebase.initializeApp(firebaseConfig); }catch(e){}
+<script>
+  (async function(){
+    const firebaseConfig = {
+      apiKey: "AIzaSyDjDBZkmy-skuDEQF8-AkRma7yw6TugoQc",
+      authDomain: "my-map-app-58312.firebaseapp.com",
+      projectId: "my-map-app-58312",
+      storageBucket: "my-map-app-58312.firebasestorage.app",
+      messagingSenderId: "53260611353",
+      appId: "1:53260611353:web:f25e120996ad8305405f88",
+      measurementId: "G-9LRX1FLTKL"
+    };
+    try{ firebase.apps?.length ? firebase.app() : firebase.initializeApp(firebaseConfig); }catch(e){}
 
-      const db   = firebase.firestore();
-      const auth = firebase.auth();
-      const loginURL = '/login?next=' + encodeURIComponent(location.pathname + location.search);
+    const db   = firebase.firestore();
+    const auth = firebase.auth();
 
-      // дочекаємось стану авторизації
-      auth.onAuthStateChanged(async (u) => {
-        if (!u) { location.replace(loginURL); return; }
+    /* ✅ ФІКС: правильний шлях до логінки */
+    const loginURL = '/login.html?next=' + encodeURIComponent(location.pathname + location.search);
 
-        // 1) нова схема: users/{uid}.role
-        // 2) fallback: roles/{uid}.role
-        let role = 'pending';
-        try{
-          const us = await db.collection('users').doc(u.uid).get();
-          role = us.exists ? (us.data().role || 'pending') : 'pending';
-          if (role === 'pending') {
-            const rs = await db.collection('roles').doc(u.uid).get();
-            if (rs.exists && rs.data()?.role) role = String(rs.data().role);
-          }
-        }catch(e){ /* залишимо pending */ }
+    auth.onAuthStateChanged(async (u) => {
+      if (!u) { location.replace(loginURL); return; }
 
-        window.__userRole = role;
-
+      // читаємо роль із users/{uid}, за потреби — fallback до roles/{uid}
+      let role = 'pending';
+      try{
+        const us = await db.collection('users').doc(u.uid).get();
+        role = us.exists ? (us.data().role || 'pending') : 'pending';
         if (role === 'pending') {
-          alert('Ваш акаунт очікує підтвердження адміністратором.');
-          location.replace(loginURL); return;
+          const rs = await db.collection('roles').doc(u.uid).get();
+          if (rs.exists && rs.data()?.role) role = String(rs.data().role);
         }
+      }catch(_){}
 
-        // все гаразд — показуємо DOM
-        document.documentElement.style.visibility = '';
-      });
-    })();
+      window.__userRole = role;
+
+      if (role === 'pending') {
+        alert('Ваш акаунт очікує підтвердження адміністратором.');
+        location.replace(loginURL); return;
+      }
+
+      /* ✅ ДОЗВІЛ ЛИШЕ ДЛЯ security | admin */
+      if (!['security','admin'].includes(String(role).toLowerCase())) {
+        alert('Недостатньо прав для сторінки погодження.');
+        location.replace(loginURL); return;
+      }
+
+      // показуємо DOM
+      document.documentElement.style.visibility = '';
+    });
+  })();
+	</script>
   </script>
 </head>
 <body>
