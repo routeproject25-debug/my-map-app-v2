@@ -344,7 +344,7 @@
     if (!u) { location.replace(loginURL); return; }
 
     try {
-      const snap = await db.collection('users').doc(u.uid).get();
+      const snap = await db.collection('users').doc(u.uid).get({ source: 'server' });
       const role = snap.exists ? (snap.data().role || 'pending') : 'pending';
 
       // зробимо роль доступною нижчим скриптам (UI-бар)
@@ -2039,6 +2039,15 @@ const authPass  = document.getElementById('authPass');
 const loginBtn  = document.getElementById('authLogin');
 const logoutBtn  = document.getElementById('authLogout');
 
+// 🔧 ROLE helpers
+let roleUnsub = null;
+async function fetchRoleFromServer(u){
+  try{
+    const snap = await db.collection('users').doc(u.uid).get({ source: 'server' });
+    return snap.exists ? (snap.data().role || 'pending') : 'pending';
+  }catch{ return 'pending'; }
+}
+
 document.getElementById('mobileAuthToggle').addEventListener('click', () => {
   document.getElementById('authBar').classList.toggle('collapsed');
   requestAnimationFrame(updateLayoutHeights);
@@ -2063,20 +2072,28 @@ auth?.onAuthStateChanged(async (user) => {
     }
     requestAnimationFrame(updateLayoutHeights);
 
-    // роль уже визначив верхній AUTH GUARD і поклав у window.__userRole
+    // роль із guard або напряму з сервера (щоб не “залипало” на guest)
     let role = window.__userRole || 'pending';
-
-    // Якщо з якоїсь причини guard не відредіректив, покажемо гостьовий UI
-    if (role === 'pending' || !['admin','logist'].includes(role)) {
-      applyRoleUI('guest');
-      return;
+    if (!['admin','logist'].includes(role)) {
+      role = await fetchRoleFromServer(user);   // ← читаємо свіжу роль
+      window.__userRole = role;
     }
+    applyRoleUI(['admin','logist'].includes(role) ? role : 'guest');
 
-    applyRoleUI(role);
+    // live-оновлення ролі (підписка на users/{uid})
+    if (roleUnsub) try{ roleUnsub(); }catch{}
+    roleUnsub = db.collection('users').doc(user.uid)
+      .onSnapshot({ includeMetadataChanges: true }, (doc) => {
+        const r = doc.exists ? (doc.data().role || 'pending') : 'pending';
+        window.__userRole = r;
+        applyRoleUI(['admin','logist'].includes(r) ? r : 'guest');
+      });
+
     await loadLogists(true);
-    await loadGeozonesFromStorage(STORAGE_GEOJSON_PATH, /*force*/ true);
+    await loadGeozonesFromStorage(STORAGE_GEOJSON_PATH, true);
 
   } else {
+    if (roleUnsub) try{ roleUnsub(); }catch{}
     authHello.textContent = 'Гість';
     loginBtn.style.display='inline-block'; authEmail.style.display='inline-block'; authPass.style.display='inline-block';
     logoutBtn.style.display='none';
