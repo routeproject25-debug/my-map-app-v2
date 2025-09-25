@@ -100,17 +100,16 @@
       btnLogout.style.display = '';
 
       let role = 'pending';
-      try { role = await resolveUserRole(u.uid); } catch(e){ console.error(e); }
-
-      if (role !== 'admin') {
-        statusEl.textContent = '⛔ Доступ заборонено (потрібна роль admin)';
-        // Показуємо повідомлення, але не підвантажуємо список
-        document.documentElement.style.visibility = '';
-        return;
-      }
+	  try { role = (await resolveUserRole(u.uid)).trim().toLowerCase(); } catch(e){ console.error(e); }
+	  if (role !== 'admin') {
+	  statusEl.textContent = '⛔ Доступ заборонено (потрібна роль admin)';
+	  document.documentElement.style.visibility = 'visible';
+	  setTimeout(()=>location.replace('/'), 1200);   // м’який редірект на головну
+	  return;
+	  }
 
       statusEl.textContent = '✅ Ви увійшли як адмін';
-      document.documentElement.style.visibility = '';
+      document.documentElement.style.visibility = 'visible';
 
       // Завантаження користувачів (live)
       loadUsers();
@@ -122,13 +121,12 @@
       const email = user.email ? ` • ${user.email}` : '';
       const role = user.role || 'pending';
       const created = user.createdAt || user.created_at || '';
-      const createdInfo = created ? ` • створено: ${created}` : '';
 
       return `
         <div class="user-row" data-uid="${id}">
           <div>
             <b>${escapeHtml(name)}</b>
-            <span class="user-meta">(${escapeHtml(role)})${email ? ' • ' + escapeHtml(email) : ''}${createdInfo ? ' • ' + escapeHtml(createdInfo) : ''}</span>
+            <span class="user-meta">(${escapeHtml(role)})${email ? ' • ' + escapeHtml(email) : ''}${created ? ' • створено: ' + escapeHtml(created) : ''}</span>
           </div>
           <div class="row-actions">
             <label>Роль:
@@ -223,14 +221,14 @@
           } finally {
             e.target.disabled = false;
           }
-        }, { once: true }); // «once», щоб не навішувати дублікати при перерендері
+        });
       });
     }
 
     // Безпека: якщо раптом сталася глобальна помилка — покажемо її замість порожньої сторінки
     window.addEventListener('error', (e) => {
       try {
-        document.documentElement.style.visibility = '';
+        document.documentElement.style.visibility = 'visible';
         statusEl.textContent = 'Помилка скрипта: ' + (e.message || '');
       } catch {}
     });

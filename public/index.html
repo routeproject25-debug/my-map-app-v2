@@ -133,6 +133,7 @@
     <a href="/">🏠 Карта</a>
     <a href="/export/">📤 Експорт</a>
     <a href="/import/">📥 Імпорт</a>
+	<a id="adminLink" href="/admin/" style="display:none;">👨‍💻 Адмін</a>
   </div>
 
   <div class="spacer"></div>
@@ -348,7 +349,14 @@
       const role = snap.exists ? (snap.data().role || 'pending') : 'pending';
 
       // зробимо роль доступною нижчим скриптам (UI-бар)
-      window.__userRole = role;
+	window.__userRole = role;
+
+	// ⬇️ одразу сховаємо/покажемо лінк
+	const link = document.getElementById('adminLink');
+	if (link) link.style.display = String(role).toLowerCase() === 'admin' ? '' : 'none';
+
+	// показуємо сторінку
+	document.documentElement.style.visibility = 'visible'; // краще явно 'visible'
 
       if (role === 'pending') {
         alert('Ваш акаунт очікує підтвердження адміністратором.');
@@ -484,8 +492,14 @@ let currentRole = 'guest';
 let readOnly    = true;
 
 function applyRoleUI(role){
-  currentRole = role || 'guest';
-  readOnly = (currentRole === 'guest' || currentRole === 'user');
+  // нормалізуємо
+  role = (role || 'guest').toString().toLowerCase();
+  currentRole = role;
+  readOnly = (role === 'guest' || role === 'user');
+
+  // ⬇️ Показувати адмін-лінк лише адмінам
+  const adminLink = document.getElementById('adminLink');
+  if (adminLink) adminLink.style.display = role === 'admin' ? '' : 'none';
 
   const disableIds = [
     'toggleAdd','startLineMode','endLineMode','clearRoute','popRulerPoint','clearRulers',
