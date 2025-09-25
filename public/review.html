@@ -374,7 +374,7 @@
     const hello = document.getElementById('hello');
     if (!u){
       hello.textContent = 'Не увійшли';
-      location.replace('/login?next=' + encodeURIComponent(location.pathname + location.search));
+      location.replace('/login.html?next=' + encodeURIComponent(location.pathname + location.search));
       return;
     }
     hello.textContent = 'Увійшли як ' + (u.email||u.uid);
