@@ -121,10 +121,9 @@
       }
 
       // показуємо DOM
-      document.documentElement.style.visibility = '';
+      document.documentElement.style.visibility = 'visible';
     });
   })();
-	</script>
   </script>
 </head>
 <body>
@@ -401,6 +400,10 @@
     updateLayoutHeights();
     await loadRouteAndRender();
   });
+</script>
+<script>
+  window.addEventListener('error', ()=>{ document.documentElement.style.visibility='visible'; });
+  window.addEventListener('unhandledrejection', ()=>{ document.documentElement.style.visibility='visible'; });
 </script>
 </body>
 </html>
