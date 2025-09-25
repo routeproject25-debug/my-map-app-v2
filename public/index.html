@@ -1014,7 +1014,7 @@ async function updateRoute() {
   for (let i = 0; i < chunks.length; i++) {
     const chunk = chunks[i];
     const coordsStr = chunk.map(p => p.join(',')).join(';');
-    const url = `https://api.mapbox.com/directions/v5/mapbox/driving/${coordsStr}?geometries=geojson&access_token=${mapboxgl.accessToken}`;
+    const url = `https://api.mapbox.com/directions/v5/mapbox/driving/${coordsStr}?geometries=geojson&overview=full&continue_straight=true&access_token=${mapboxgl.accessToken}`;
     try {
       const res = await fetch(url);
       const data = await res.json();
