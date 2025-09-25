@@ -221,6 +221,8 @@ function requiredRolesForPath(pathname){
   if (/^\/import\/?($|)/i.test(pathname))                           return new Set(['admin','logist']);
   // перегляд/погодження — security або admin
   if (/^\/review\.html($|)/i.test(pathname))                        return new Set(['security','admin']);
+  // ✅ адмінка — тільки admin
+  if (/^\/admin\.html($|)/i.test(pathname))                         return new Set(['admin']);
   // інше — без обмежень
   return null;
 }

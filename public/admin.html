@@ -74,16 +74,26 @@
 
     // Отримати роль поточного користувача (users/{uid}.role, fallback roles/{uid}.role)
     async function resolveUserRole(uid){
-      try {
-        const udoc = await db.collection('users').doc(uid).get();
-        if (udoc.exists && udoc.data()?.role) return String(udoc.data().role);
-      } catch(e){ console.warn('users role read failed', e); }
-      try {
-        const rdoc = await db.collection('roles').doc(uid).get();
-        if (rdoc.exists && rdoc.data()?.role) return String(rdoc.data().role);
-      } catch(e){ console.warn('roles fallback read failed', e); }
-      return 'pending';
-    }
+  try {
+    // ПЕРШЕ — сервер (свіжі дані)
+    const udoc = await db.collection('users').doc(uid).get({ source: 'server' });
+    if (udoc.exists && udoc.data()?.role) return String(udoc.data().role);
+  } catch(e){ console.warn('users role read (server) failed', e); }
+
+  try {
+    // Фолбек — кеш/дефолт
+    const udoc2 = await db.collection('users').doc(uid).get();
+    if (udoc2.exists && udoc2.data()?.role) return String(udoc2.data().role);
+  } catch(e){ console.warn('users role read (cache) failed', e); }
+
+  try {
+    // Додатковий фолбек у roles/{uid}
+    const rdoc = await db.collection('roles').doc(uid).get({ source: 'server' });
+    if (rdoc.exists && rdoc.data()?.role) return String(rdoc.data().role);
+  } catch(e){ console.warn('roles fallback read failed', e); }
+
+  return 'pending';
+}
 
     // ===== Guard на вхід + роль admin
     auth.onAuthStateChanged(async (u) => {
