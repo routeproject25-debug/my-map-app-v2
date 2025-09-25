@@ -16,7 +16,6 @@
 
   <style>
     :root { --line:#e5e7eb; --card:#fff; --muted:#6b7280; --nav-real:56px; }
-
     html, body { height:100%; }
     *{ box-sizing:border-box }
     body{
@@ -24,6 +23,8 @@
       font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
       background:#f8fafc;
     }
+    /* приховуємо DOM до проходження guard-а */
+    html{ visibility:hidden }
 
     header{
       position:sticky; top:0; z-index:10;
@@ -71,6 +72,53 @@
     .row{ display:grid; grid-template-columns:1fr 1fr; gap:12px }
     @media(max-width:900px){ .row{ grid-template-columns:1fr } }
   </style>
+
+  <!-- === AUTH GUARD у <head>: ініт Firebase, перевірка ролі, показ DOM === -->
+  <script>
+    (async function(){
+      const firebaseConfig = {
+        apiKey: "AIzaSyDjDBZkmy-skuDEQF8-AkRma7yw6TugoQc",
+        authDomain: "my-map-app-58312.firebaseapp.com",
+        projectId: "my-map-app-58312",
+        storageBucket: "my-map-app-58312.firebasestorage.app",
+        messagingSenderId: "53260611353",
+        appId: "1:53260611353:web:f25e120996ad8305405f88",
+        measurementId: "G-9LRX1FLTKL"
+      };
+      try{ firebase.apps?.length ? firebase.app() : firebase.initializeApp(firebaseConfig); }catch(e){}
+
+      const db   = firebase.firestore();
+      const auth = firebase.auth();
+      const loginURL = '/login?next=' + encodeURIComponent(location.pathname + location.search);
+
+      // дочекаємось стану авторизації
+      auth.onAuthStateChanged(async (u) => {
+        if (!u) { location.replace(loginURL); return; }
+
+        // 1) нова схема: users/{uid}.role
+        // 2) fallback: roles/{uid}.role
+        let role = 'pending';
+        try{
+          const us = await db.collection('users').doc(u.uid).get();
+          role = us.exists ? (us.data().role || 'pending') : 'pending';
+          if (role === 'pending') {
+            const rs = await db.collection('roles').doc(u.uid).get();
+            if (rs.exists && rs.data()?.role) role = String(rs.data().role);
+          }
+        }catch(e){ /* залишимо pending */ }
+
+        window.__userRole = role;
+
+        if (role === 'pending') {
+          alert('Ваш акаунт очікує підтвердження адміністратором.');
+          location.replace(loginURL); return;
+        }
+
+        // все гаразд — показуємо DOM
+        document.documentElement.style.visibility = '';
+      });
+    })();
+  </script>
 </head>
 <body>
 <header>
@@ -108,7 +156,6 @@
       <div class="row">
         <div>
           <div class="chip" id="chipStatus">Статус: —</div>
-          <!-- ➕ два чіпи з дистанціями -->
           <div class="chip" id="chipDistanceDb">БД: —</div>
           <div class="chip" id="chipDistanceLive">По дорогах: —</div>
           <div class="chip" id="chipRevision">Подача № —</div>
@@ -125,20 +172,11 @@
 </div>
 
 <script>
-  // === Firebase init ===
-  const firebaseConfig = {
-    apiKey: "AIzaSyDjDBZkmy-skuDEQF8-AkRma7yw6TugoQc",
-    authDomain: "my-map-app-58312.firebaseapp.com",
-    projectId: "my-map-app-58312",
-    storageBucket: "my-map-app-58312.firebasestorage.app",
-    messagingSenderId: "53260611353",
-    appId: "1:53260611353:web:f25e120996ad8305405f88",
-    measurementId: "G-9LRX1FLTKL"
-  };
-  try{ firebase.apps?.length ? firebase.app() : firebase.initializeApp(firebaseConfig); }catch(e){}
+  // === Firebase (вже ініт у head-guard) ===
   const db   = firebase.firestore();
   const auth = firebase.auth();
 
+  // === Query params ===
   const qs  = new URLSearchParams(location.search);
   const rid = qs.get('rid');
 
@@ -165,12 +203,6 @@
   function fromObjPoints(arr){ return (arr||[]).map(p => Array.isArray(p) ? p : [p.lng, p.lat]); }
   function chip(id,t){ document.getElementById(id).textContent = t; }
   function fmtStatus(s){ return ({draft:'Чернетка',pending:'Очікує',approved:'Погоджено',rejected:'Відхилено'})[s] || s || '—'; }
-  async function userRole(uid){
-    try{
-      const d = await db.collection('roles').doc(uid).get();
-      return d.exists ? (d.data().role || 'user') : 'user';
-    }catch{ return 'user'; }
-  }
 
   // спліт на шматки (Mapbox Directions ≤25 координат/запит; беремо 20 з перекриттям)
   function splitIntoChunks(arr, chunkSize){
@@ -273,7 +305,7 @@
     if (!rid){ document.getElementById('statusLine').textContent = 'Не передано rid.'; return; }
     const snap = await db.collection('routes').doc(rid).get();
     if (!snap.exists){ document.getElementById('statusLine').textContent = 'Маршрут не знайдено.'; return; }
-    const d = snap.data();
+    const d = snap.data() || {};
 
     document.getElementById('routeName').textContent = d.name || rid;
     document.getElementById('fromLabel').textContent = d.fromLabel || '—';
@@ -283,15 +315,15 @@
     chip('chipDistanceDb',   (typeof d.distance_km==='number') ? `БД: ${d.distance_km.toFixed(2)} км` : 'БД: —');
     chip('chipDistanceLive', 'По дорогах: …');
 
-    chip('chipRevision', 'Подача № ' + ((d.approval?.revision)||'—'));
+    chip('chipRevision', 'Подача № ' + ((d.approval?.revision) ?? '—'));
     chip('chipStatus',   'Статус: ' + fmtStatus(d.approval?.status));
 
     const subInfo = d.approval?.submittedAt ? `Подано: ${d.approval.submittedAt} (${d.approval.submittedByEmail||d.approval.submittedByUid||''})` : '';
     const decInfo = d.approval?.decisionAt ? ` · Рішення: ${d.approval.decisionAt} (${d.approval.decidedByEmail||d.approval.decidedByUid||''})` : '';
     document.getElementById('decisionInfo').textContent = subInfo + decInfo;
 
-    document.getElementById('rejectInfo').textContent = (d.approval?.status==='rejected' && d.approval?.comment)
-      ? ('Причина відхилення: ' + d.approval.comment) : '';
+    document.getElementById('rejectInfo').textContent =
+      (d.approval?.status==='rejected' && d.approval?.comment) ? ('Причина відхилення: ' + d.approval.comment) : '';
 
     document.getElementById('openEditor').href = '/index.html?rid=' + encodeURIComponent(rid);
     document.getElementById('statusLine').textContent = 'Маршрут завантажено.';
@@ -303,8 +335,14 @@
     drawRulers(d);
   }
 
-  // Approve / Reject actions
+  // Approve / Reject actions (перестраховка на боці клієнта по ролях)
   async function applyDecision(kind, comment){
+    const role = window.__userRole || 'user';
+    const allowed = (role === 'security' || role === 'admin');
+    if (!allowed){
+      alert('Недостатньо прав для цієї дії.');
+      return;
+    }
     const user = auth.currentUser;
     const ref = db.collection('routes').doc(rid);
     const payload = {
@@ -324,7 +362,7 @@
     document.getElementById('rejectComment').value = '';
   }
 
-  // auth & role guard
+  // === Нижній onAuthStateChanged: UI та дані, роль уже в window.__userRole ===
   auth.onAuthStateChanged(async (u)=>{
     const hello = document.getElementById('hello');
     if (!u){
@@ -333,9 +371,8 @@
       return;
     }
     hello.textContent = 'Увійшли як ' + (u.email||u.uid);
-    const role = await userRole(u.uid);
 
-    // кнопки для security
+    const role = window.__userRole || 'user';
     const sec = (role === 'security' || role === 'admin');
     document.getElementById('secButtons').style.display = sec ? 'flex' : 'none';
 
@@ -354,7 +391,6 @@
       document.getElementById('rejectWrap').style.display = 'none';
     };
 
-    // піджати висоту і завантажити
     updateLayoutHeights();
     await loadRouteAndRender();
   });

@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+  <meta charset="utf-8" />
+  <title>👨‍💻 Адмін-панель</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <!-- Firebase (compat) -->
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+
+  <style>
+    /* Ховаємо DOM, доки не перевіримо роль */
+    html { visibility: hidden; }
+
+    body { font-family: Arial, sans-serif; padding:20px; margin:0; }
+    header { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:14px; }
+    .muted { color:#6b7280; font-size:13px; }
+    .btn { cursor:pointer; border:1px solid #cbd5e1; background:#fff; border-radius:8px; padding:6px 10px; }
+    .btn:disabled { opacity:.6; cursor:not-allowed; }
+
+    .user-row { margin-bottom: 10px; padding:10px; border:1px solid #e5e7eb; border-radius:8px; }
+    .user-row b { font-size:15px; }
+    .user-meta { color:#6b7280; font-size:12px; margin-left:6px; }
+    .row-actions { margin-top:8px; display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+    select { margin-left:10px; padding:6px 8px; border:1px solid #cbd5e1; border-radius:6px; }
+    #user-list { margin-top:12px; }
+    #status { margin: 6px 0 10px; }
+  </style>
+</head>
+<body>
+  <header>
+    <div>
+      <h2 style="margin:0">Адмін-панель: керування користувачами</h2>
+      <div class="muted" id="hello">Перевірка…</div>
+    </div>
+    <div>
+      <button id="btnLogout" class="btn" style="display:none;">Вийти</button>
+    </div>
+  </header>
+
+  <p id="status">Завантаження...</p>
+  <div id="user-list"></div>
+
+  <script>
+    // 🔧 Firebase init
+    const firebaseConfig = {
+      apiKey: "AIzaSyDjDBZkmy-skuDEQF8-AkRma7yw6TugoQc",
+      authDomain: "my-map-app-58312.firebaseapp.com",
+      projectId: "my-map-app-58312",
+      storageBucket: "my-map-app-58312.firebasestorage.app",
+      messagingSenderId: "53260611353",
+      appId: "1:53260611353:web:f25e120996ad8305405f88",
+      measurementId: "G-9LRX1FLTKL"
+    };
+
+    try { firebase.apps?.length ? firebase.app() : firebase.initializeApp(firebaseConfig); } catch(e) { console.error(e); }
+    const db   = firebase.firestore();
+    const auth = firebase.auth();
+
+    const loginURL = '/login.html?next=' + encodeURIComponent(location.pathname + location.search);
+    const helloEl  = document.getElementById('hello');
+    const statusEl = document.getElementById('status');
+    const listEl   = document.getElementById('user-list');
+    const btnLogout = document.getElementById('btnLogout');
+
+    let currentUser = null;
+    let unsubscribeUsers = null;
+
+    btnLogout.addEventListener('click', async () => {
+      try { await auth.signOut(); } catch(e) { console.warn(e); }
+    });
+
+    // Отримати роль поточного користувача (users/{uid}.role, fallback roles/{uid}.role)
+    async function resolveUserRole(uid){
+      try {
+        const udoc = await db.collection('users').doc(uid).get();
+        if (udoc.exists && udoc.data()?.role) return String(udoc.data().role);
+      } catch(e){ console.warn('users role read failed', e); }
+      try {
+        const rdoc = await db.collection('roles').doc(uid).get();
+        if (rdoc.exists && rdoc.data()?.role) return String(rdoc.data().role);
+      } catch(e){ console.warn('roles fallback read failed', e); }
+      return 'pending';
+    }
+
+    // ===== Guard на вхід + роль admin
+    auth.onAuthStateChanged(async (u) => {
+      currentUser = u || null;
+
+      if (!u) {
+        statusEl.textContent = 'Необхідно увійти.';
+        // Після повідомлення робимо редірект на логін
+        location.replace(loginURL);
+        return;
+      }
+
+      helloEl.textContent = 'Увійшли як ' + (u.email || u.uid);
+      btnLogout.style.display = '';
+
+      let role = 'pending';
+      try { role = await resolveUserRole(u.uid); } catch(e){ console.error(e); }
+
+      if (role !== 'admin') {
+        statusEl.textContent = '⛔ Доступ заборонено (потрібна роль admin)';
+        // Показуємо повідомлення, але не підвантажуємо список
+        document.documentElement.style.visibility = '';
+        return;
+      }
+
+      statusEl.textContent = '✅ Ви увійшли як адмін';
+      document.documentElement.style.visibility = '';
+
+      // Завантаження користувачів (live)
+      loadUsers();
+    });
+
+    // ===== Рендер одного юзера
+    function userRowHTML(id, user){
+      const name = user.displayName || user.email || id;
+      const email = user.email ? ` • ${user.email}` : '';
+      const role = user.role || 'pending';
+      const created = user.createdAt || user.created_at || '';
+      const createdInfo = created ? ` • створено: ${created}` : '';
+
+      return `
+        <div class="user-row" data-uid="${id}">
+          <div>
+            <b>${escapeHtml(name)}</b>
+            <span class="user-meta">(${escapeHtml(role)})${email ? ' • ' + escapeHtml(email) : ''}${createdInfo ? ' • ' + escapeHtml(createdInfo) : ''}</span>
+          </div>
+          <div class="row-actions">
+            <label>Роль:
+              <select data-id="${id}" data-prev="${role}">
+                <option value="pending" ${role==="pending"?"selected":""}>Очікує</option>
+                <option value="user" ${role==="user"?"selected":""}>User</option>
+                <option value="logist" ${role==="logist"?"selected":""}>Logist</option>
+                <option value="security" ${role==="security"?"selected":""}>Security</option>
+                <option value="admin" ${role==="admin"?"selected":""}>Admin</option>
+              </select>
+            </label>
+          </div>
+        </div>
+      `;
+    }
+
+    function escapeHtml(s){
+      return String(s ?? '')
+        .replace(/&/g,'&amp;').replace(/</g,'&lt;')
+        .replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+    }
+
+    // ===== Підписка на колекцію users
+    function loadUsers(){
+      try { if (unsubscribeUsers) { unsubscribeUsers(); unsubscribeUsers = null; } } catch {}
+      unsubscribeUsers = db.collection('users')
+        .orderBy('role')  // просте впорядкування; за потреби зміни
+        .onSnapshot((snap) => {
+          listEl.innerHTML = '';
+          snap.forEach((doc) => {
+            const user = doc.data() || {};
+            listEl.insertAdjacentHTML('beforeend', userRowHTML(doc.id, user));
+          });
+
+          // навішуємо обробники
+          bindRoleChangeHandlers();
+        }, (err) => {
+          console.error('onSnapshot(users) error:', err);
+          statusEl.textContent = 'Помилка завантаження користувачів: ' + (err.message || err);
+        });
+    }
+
+    // ===== Обробка зміни ролі (захист від самодемотування, аудит)
+    function bindRoleChangeHandlers(){
+      document.querySelectorAll('#user-list select').forEach((sel) => {
+        sel.addEventListener('change', async (e) => {
+          const uid = e.target.dataset.id;
+          const newRole = e.target.value;
+          const prevRole = e.target.getAttribute('data-prev') || '';
+
+          // захист: не дозволяємо собі знімати admin
+          if (currentUser && uid === currentUser.uid && newRole !== 'admin') {
+            alert('Не можна знімати з себе роль admin.');
+            e.target.value = 'admin';
+            return;
+          }
+
+          e.target.disabled = true;
+          statusEl.textContent = `Оновлення ролі користувача ${uid} → ${newRole}…`;
+
+          try {
+            // батч: оновити users/{uid} і додати запис в audit
+            const batch = db.batch();
+            const uref = db.collection('users').doc(uid);
+            batch.set(uref, {
+              role: newRole,
+              roleUpdatedAt: new Date().toISOString(),
+              roleUpdatedBy: currentUser ? currentUser.uid : null
+            }, { merge: true });
+
+            const auditRef = db.collection('audit').doc();
+            batch.set(auditRef, {
+              type: 'role_change',
+              targetUid: uid,
+              newRole,
+              prevRole,
+              by: currentUser ? currentUser.uid : null,
+              at: new Date().toISOString()
+            });
+
+            await batch.commit();
+
+            // зберігаємо як попереднє значення
+            e.target.setAttribute('data-prev', newRole);
+            statusEl.textContent = `✅ Роль оновлено: ${uid} → ${newRole}`;
+          } catch (err) {
+            console.error(err);
+            alert('Помилка збереження ролі: ' + (err.message || err));
+            // відкотити візуально
+            e.target.value = prevRole || 'pending';
+            statusEl.textContent = '❌ Не вдалося оновити роль.';
+          } finally {
+            e.target.disabled = false;
+          }
+        }, { once: true }); // «once», щоб не навішувати дублікати при перерендері
+      });
+    }
+
+    // Безпека: якщо раптом сталася глобальна помилка — покажемо її замість порожньої сторінки
+    window.addEventListener('error', (e) => {
+      try {
+        document.documentElement.style.visibility = '';
+        statusEl.textContent = 'Помилка скрипта: ' + (e.message || '');
+      } catch {}
+    });
+  </script>
+</body>
+</html>

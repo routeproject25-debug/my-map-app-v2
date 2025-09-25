@@ -335,11 +335,36 @@
   try { firebase.apps?.length ? firebase.app() : firebase.initializeApp(firebaseConfig); } catch(e) {}
 
   const auth = firebase.auth();
-  const loginURL = '/login?next=' + encodeURIComponent(location.pathname + location.search);
+  const db   = firebase.firestore();
 
-  auth.onAuthStateChanged(u => {
+  // ✅ виправляємо шлях на login.html
+  const loginURL = '/login.html?next=' + encodeURIComponent(location.pathname + location.search);
+
+  auth.onAuthStateChanged(async (u) => {
     if (!u) { location.replace(loginURL); return; }
-    document.documentElement.style.visibility = '';
+
+    try {
+      const snap = await db.collection('users').doc(u.uid).get();
+      const role = snap.exists ? (snap.data().role || 'pending') : 'pending';
+
+      // зробимо роль доступною нижчим скриптам (UI-бар)
+      window.__userRole = role;
+
+      if (role === 'pending') {
+        alert('Ваш акаунт очікує підтвердження адміністратором.');
+        location.replace(loginURL); return;
+      }
+      if (!['admin','logist'].includes(role)) {
+        alert('Недостатньо прав для цієї сторінки.');
+        location.replace(loginURL); return;
+      }
+
+      // ✅ все добре — показуємо сторінку
+      document.documentElement.style.visibility = '';
+    } catch (e) {
+      console.error('Role check failed:', e);
+      location.replace(loginURL);
+    }
   });
 })();
 </script>
@@ -2025,7 +2050,7 @@ loginBtn.onclick = async () => {
 logoutBtn.onclick = async () => {
   try{ await auth.signOut(); }
   finally{
-    location.replace('/login?next=' + encodeURIComponent('/index.html'));
+    location.replace('/login.html?next=' + encodeURIComponent('/index.html'));
   }
 };
 auth?.onAuthStateChanged(async (user) => {
@@ -2037,16 +2062,19 @@ auth?.onAuthStateChanged(async (user) => {
       document.getElementById('authBar').classList.add('collapsed');
     }
     requestAnimationFrame(updateLayoutHeights);
-    let role = 'user';
-    try{
-      const r = await db.collection('roles').doc(user.uid).get();
-      if (r.exists && r.data()?.role) role = String(r.data().role);
-    }catch{}
+
+    // роль уже визначив верхній AUTH GUARD і поклав у window.__userRole
+    let role = window.__userRole || 'pending';
+
+    // Якщо з якоїсь причини guard не відредіректив, покажемо гостьовий UI
+    if (role === 'pending' || !['admin','logist'].includes(role)) {
+      applyRoleUI('guest');
+      return;
+    }
+
     applyRoleUI(role);
     await loadLogists(true);
-
-    /* ⬇️ автозавантаження геозон після входу */
-    await loadGeozonesFromStorage(STORAGE_GEOJSON_PATH, /*force*/true);
+    await loadGeozonesFromStorage(STORAGE_GEOJSON_PATH, /*force*/ true);
 
   } else {
     authHello.textContent = 'Гість';

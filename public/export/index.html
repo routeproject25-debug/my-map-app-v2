@@ -92,6 +92,57 @@
     .col-resizer:hover { background:rgba(37,99,235,.15); }
     .resizing .col-resizer { background:rgba(37,99,235,.25); }
   </style>
+  <!-- AUTH GUARD: /export — лише admin | logist -->
+<script>
+(function () {
+  // ховаємо DOM, поки не перевіримо доступ
+  document.documentElement.style.visibility = 'hidden';
+
+  // локальна (всередині функції) копія конфіга, щоб не конфліктувати з нижнім const firebaseConfig
+  const firebaseConfig = {
+    apiKey: "AIzaSyDjDBZkmy-skuDEQF8-AkRma7yw6TugoQc",
+    authDomain: "my-map-app-58312.firebaseapp.com",
+    projectId: "my-map-app-58312",
+    storageBucket: "my-map-app-58312.firebasestorage.app",
+    messagingSenderId: "53260611353",
+    appId: "1:53260611353:web:f25e120996ad8305405f88",
+    measurementId: "G-9LRX1FLTKL"
+  };
+
+  try { firebase.apps?.length ? firebase.app() : firebase.initializeApp(firebaseConfig); } catch(e) {}
+  const auth = firebase.auth();
+  const db   = firebase.firestore();
+
+  const loginURL = '/login.html?next=' + encodeURIComponent(location.pathname + location.search);
+
+  auth.onAuthStateChanged(async (u) => {
+    if (!u) { location.replace(loginURL); return; }
+
+    try {
+      // роль беремо з users/{uid}.role
+      const snap = await db.collection('users').doc(u.uid).get();
+      const role = snap.exists ? (snap.data().role || 'pending') : 'pending';
+      // зробимо роль доступною нижнім скриптам
+      window.__userRole = role;
+
+      if (role === 'pending') {
+        alert('Ваш акаунт очікує підтвердження адміністратором.');
+        location.replace(loginURL); return;
+      }
+      if (!['admin','logist'].includes(role)) {
+        alert('Недостатньо прав для сторінки Експорту.');
+        location.replace(loginURL); return;
+      }
+
+      // все добре — показуємо DOM
+      document.documentElement.style.visibility = '';
+    } catch (e) {
+      console.error('Role check failed:', e);
+      location.replace(loginURL);
+    }
+  });
+})();
+</script>
 </head>
 <body>
 <header class="top">
@@ -348,18 +399,18 @@ auth?.onAuthStateChanged(async (u) => {
     location.replace(`/login.html?next=${next}`);
     return;
   }
+
+  // роль уже перевірив верхній AUTH GUARD
+  currentRole = window.__userRole || 'pending';
+
   authInfo.textContent = `Увійшли як ${u.email || u.uid}`;
   btnLogout.style.display = '';
-
-  try{
-    const rs = await db.collection('roles').doc(u.uid).get();
-    currentRole = rs.exists ? (rs.data().role || 'viewer') : 'viewer';
-  }catch{ currentRole = 'viewer'; }
   authRoleBadge.textContent = `Роль: ${currentRole}`;
   authRoleBadge.style.display = '';
   setBusy(false);
 
-  try{ await Promise.all([loadDirectory(), loadLogists(true)]); }catch(e){ console.warn(e); }
+  try { await Promise.all([loadDirectory(), loadLogists(true)]); }
+  catch (e) { console.warn(e); }
 });
 
 /* ---------- Довідник ---------- */

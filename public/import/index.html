@@ -14,6 +14,9 @@
       --line:#e5e7eb; --ok:#0a7a0a; --err:#b00020; --brand:#0ea5e9; --brand-2:#0369a1;
       --radius:12px; --shadow:0 1px 3px rgba(16,24,40,.06),0 1px 2px rgba(16,24,40,.04);
     }
+    /* приховуємо DOM до проходження guard-а */
+    html{ visibility:hidden }
+
     *{box-sizing:border-box}
     body{margin:0; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; background:var(--bg); color:var(--text);}
     .wrap{max-width:960px; margin:24px auto; padding:0 16px;}
@@ -54,6 +57,55 @@
     .authbar .btn { height:30px; padding:4px 10px; }
     .role-badge { background:rgba(255,255,255,.2); padding:2px 8px; border-radius:999px; font-size:12px; }
   </style>
+
+  <!-- === AUTH GUARD у <head> === -->
+  <script>
+    (async function(){
+      const firebaseConfig = {
+        apiKey: "AIzaSyDjDBZkmy-skuDEQF8-AkRma7yw6TugoQc",
+        authDomain: "my-map-app-58312.firebaseapp.com",
+        projectId: "my-map-app-58312",
+        storageBucket: "my-map-app-58312.firebasestorage.app",
+        messagingSenderId: "53260611353",
+        appId: "1:53260611353:web:f25e120996ad8305405f88",
+        measurementId: "G-9LRX1FLTKL"
+      };
+      try{ firebase.apps?.length ? firebase.app() : firebase.initializeApp(firebaseConfig); }catch(e){}
+
+      const db   = firebase.firestore();
+      const auth = firebase.auth();
+      const loginURL = '/login.html?next=' + encodeURIComponent(location.pathname + location.search);
+      const ALLOWED = new Set(['admin','logist']);
+
+      auth.onAuthStateChanged(async (u) => {
+        if (!u) { location.replace(loginURL); return; }
+
+        // читаємо роль з users/{uid}.role, fallback roles/{uid}.role
+        let role = 'pending';
+        try{
+          const us = await db.collection('users').doc(u.uid).get();
+          role = us.exists ? (us.data().role || 'pending') : 'pending';
+          if (role === 'pending') {
+            const rs = await db.collection('roles').doc(u.uid).get();
+            if (rs.exists && rs.data()?.role) role = String(rs.data().role);
+          }
+        }catch(e){ role = 'pending'; }
+
+        window.__userRole = role;
+
+        if (!ALLOWED.has(role)) {
+          alert(role === 'pending'
+            ? 'Ваш акаунт очікує підтвердження адміністратором.'
+            : 'Недостатньо прав для сторінки Імпорту (потрібно: admin або logist).');
+          location.replace(loginURL);
+          return;
+        }
+
+        // доступ дозволено — показуємо DOM
+        document.documentElement.style.visibility = '';
+      });
+    })();
+  </script>
 </head>
 <body>
   <!-- Навігація + Авторизація -->
@@ -159,7 +211,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const $ = (id) => document.getElementById(id);
   function log(msg, type=''){
     const el = $('log');
-    el.textContent += (type ? '['+type+'] ' : '') + msg + '\n';   // ⬅️ справжній перенос рядка
+    el.textContent += (type ? '['+type+'] ' : '') + msg + '\n';
     el.scrollTop = el.scrollHeight;
   }
   function setStatus(html){ $('status').innerHTML = html; }
@@ -175,21 +227,11 @@ document.addEventListener('DOMContentLoaded', () => {
   const btnLogout = $('btnLogout');
   const importBtn = $('importBtn');
 
-  let db = null, auth = null, currentUser = null, currentRole = null;
+  let db = null, auth = null, currentUser = null, currentRole = window.__userRole || null;
   const WRITE_ROLES = new Set(['admin','logist']);
 
-  const firebaseConfig = {
-    apiKey: "AIzaSyDjDBZkmy-skuDEQF8-AkRma7yw6TugoQc",
-    authDomain: "my-map-app-58312.firebaseapp.com",
-    projectId: "my-map-app-58312",
-    storageBucket: "my-map-app-58312.firebasestorage.app",
-    messagingSenderId: "53260611353",
-    appId: "1:53260611353:web:f25e120996ad8305405f88",
-    measurementId: "G-9LRX1FLTKL"
-  };
-
+  // Firebase вже ініціалізовано у head-guard
   try{
-    const app = firebase.apps && firebase.apps.length ? firebase.app() : firebase.initializeApp(firebaseConfig);
     db = firebase.firestore();
     auth = firebase.auth();
     statusTop.textContent = 'Підключено';
@@ -219,19 +261,15 @@ document.addEventListener('DOMContentLoaded', () => {
   auth?.onAuthStateChanged(async (u) => {
     currentUser = u || null;
     if (!u){
-      // 🔒 Неавторизованих перенаправляємо на логін
       const next = encodeURIComponent(location.pathname + location.search);
       location.replace(`/login.html?next=${next}`);
       return;
     }
+    // роль уже виставлена гардом
+    currentRole = window.__userRole || currentRole || 'viewer';
+
     authInfo.textContent = `Увійшли як ${u.email || u.uid}`;
     btnLogout.style.display = '';
-
-    try{
-      const rdoc = await db.collection('roles').doc(u.uid).get();
-      currentRole = rdoc.exists ? (rdoc.data().role || 'viewer') : 'viewer';
-    }catch{ currentRole = 'viewer'; }
-
     authRoleBadge.textContent = `Роль: ${currentRole}`;
     authRoleBadge.style.display = '';
     statusTop.textContent = 'Готово';
