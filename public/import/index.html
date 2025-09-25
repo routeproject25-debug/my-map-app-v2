@@ -91,7 +91,8 @@
           }
         }catch(e){ role = 'pending'; }
 
-        window.__userRole = role;
+        role = String(role).trim().toLowerCase();   // ✅ нормалізуємо
+		window.__userRole = role;
 
         if (!ALLOWED.has(role)) {
           alert(role === 'pending'
@@ -266,7 +267,7 @@ document.addEventListener('DOMContentLoaded', () => {
       return;
     }
     // роль уже виставлена гардом
-    currentRole = window.__userRole || currentRole || 'viewer';
+    currentRole = String(window.__userRole || currentRole || 'viewer').toLowerCase(); // ✅
 
     authInfo.textContent = `Увійшли як ${u.email || u.uid}`;
     btnLogout.style.display = '';
@@ -534,5 +535,10 @@ document.addEventListener('DOMContentLoaded', () => {
   updateImportButton();
 });
 </script>
+<script>
+  window.addEventListener('error',            ()=>{ document.documentElement.style.visibility = 'visible'; });
+  window.addEventListener('unhandledrejection',()=>{ document.documentElement.style.visibility = 'visible'; });
+</script>
+
 </body>
 </html>
