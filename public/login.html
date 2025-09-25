@@ -211,29 +211,69 @@ auth.getRedirectResult()
 /* ==== Live-guard ролі + редірект ==== */
 let unsubscribeRole = null;
 let navigated = false;
+
 function goNext(){ if (!navigated){ navigated = true; location.replace(next); } }
+
+// які ролі потрібні для конкретного шляху
+function requiredRolesForPath(pathname){
+  // карти/експорт/імпорт — лише admin|logist
+  if (/^\/(?:index\.html)?$|^\/$|^\/export\/?($|)/i.test(pathname)) return new Set(['admin','logist']);
+  if (/^\/import\/?($|)/i.test(pathname))                           return new Set(['admin','logist']);
+  // перегляд/погодження — security або admin
+  if (/^\/review\.html($|)/i.test(pathname))                        return new Set(['security','admin']);
+  // інше — без обмежень
+  return null;
+}
+function isAllowed(role, pathname){
+  const need = requiredRolesForPath(pathname);
+  return !need || need.has(String(role||'').toLowerCase());
+}
+function fallbackFor(role){
+  role = String(role||'').toLowerCase();
+  if (role === 'admin' || role === 'logist')  return '/index.html';
+  if (role === 'security')                     return '/review.html';
+  return '/login.html';
+}
+
+// для повідомлень
+const backLinkEl = document.getElementById('backLink');
 
 auth.onAuthStateChanged(async (u) => {
   if (!u) return;
 
+  const nextPath = new URL(next, location.origin).pathname;
+
+  let role = 'pending';
   try{
-    const role = await ensureUserAndRole(u);
-    if (role !== 'pending'){ goNext(); return; }
-    showMsg('⏳ Ваш акаунт очікує підтвердження адміністратором.');
+    role = await ensureUserAndRole(u);
   }catch(e){
-    // якщо десь зловили PERMISSION_DENIED — просто показуємо і не валимо застосунок
     showMsg(humanizeError(e), true);
+    return;
   }
 
-  // слухаємо users/{uid}; НІЯКИХ записів у roles тут не робимо
+  // якщо очікує підтвердження — показуємо статус і чекаємо live-оновлення
+  if (role === 'pending'){
+    showMsg('⏳ Ваш акаунт очікує підтвердження адміністратором.');
+  } else {
+    // роль видана — перевіряємо доступ до "next"
+    if (isAllowed(role, nextPath)){
+      goNext(); // все ок
+      return;
+    } else {
+      const fb = fallbackFor(role);
+      backLinkEl.href = fb;
+      showMsg('✅ Вхід виконано. Але у вас немає прав для цієї сторінки. Оберіть доступну сторінку вище.');
+    }
+  }
+
+  // Live-слухач ролі — як тільки роль стане достатньою для next → перенаправляємо
   unsubscribeRole?.();
   unsubscribeRole = db.collection('users').doc(u.uid)
     .onSnapshot({ includeMetadataChanges:true }, (doc) => {
       const r = doc.exists ? (doc.data().role || 'pending') : 'pending';
-      if (r !== 'pending') goNext();
+      if (r !== 'pending' && isAllowed(r, nextPath)) goNext();
     });
 });
-
 /* ==== Клавіші Enter ==== */
 $("btnLogin").onclick = doLogin;
 $("email").addEventListener("keydown", e => { if (e.key === "Enter") doLogin(); });
