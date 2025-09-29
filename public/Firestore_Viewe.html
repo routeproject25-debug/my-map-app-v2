@@ -1,0 +1,463 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>👨‍💻 Admin — Firestore Viewer</title>
+
+  <!-- Firebase (compat) -->
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+  <!-- SheetJS (Excel) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+
+  <style>
+    :root { --w: 1180px; }
+    * { box-sizing: border-box; }
+    html { background:#f6f7fb; }
+    body { margin:0; font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; color:#111; }
+
+    header { max-width:var(--w); margin:18px auto 10px; padding:0 12px; display:flex; gap:12px; align-items:center; justify-content:space-between; }
+    header h1 { font-size:18px; margin:0; font-weight:700; }
+    .muted { color:#666; font-size:12px; }
+
+    .card { max-width:var(--w); margin:10px auto; padding:14px; background:#fff; border-radius:14px; box-shadow:0 6px 22px rgba(0,0,0,.06); }
+
+    .row { display:flex; gap:10px; flex-wrap:wrap; align-items:flex-end; }
+    label { font-size:12px; color:#444; display:block; margin-bottom:6px; }
+    input[type=text], select { height:36px; padding:0 10px; border:1px solid #d6dbe3; border-radius:10px; min-width:160px; }
+    button { height:36px; padding:0 14px; border-radius:10px; border:1px solid #d6dbe3; background:#0f62fe; color:#fff; cursor:pointer; font-weight:600; }
+    button.ghost { background:#fff; color:#0f62fe; }
+    button:disabled { opacity:.5; cursor:not-allowed; }
+
+    .guard { position:fixed; inset:0; display:flex; align-items:center; justify-content:center; background:#fff; z-index:9999; }
+    .guard.hide { display:none; }
+
+    .err { color:#c62828; font-weight:600; }
+    .ok { color:#2e7d32; font-weight:600; }
+
+    .table-wrap { max-width:var(--w); margin:10px auto; padding:0 12px 18px; }
+    .scroll { overflow:auto; border:1px solid #e5e8ef; border-radius:12px; background:#fff; box-shadow:0 6px 22px rgba(0,0,0,.04); }
+    table { border-collapse:separate; border-spacing:0; width:100%; font-size:13px; }
+    thead th { position:sticky; top:0; background:#fafbff; z-index:1; }
+    th, td { border-bottom:1px solid #eef1f6; padding:8px 10px; text-align:left; white-space:nowrap; }
+    tr:nth-child(even) td { background:#fcfdff; }
+    th { font-weight:700; color:#334; }
+    .id { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace; color:#2a4; }
+    .nowrap { white-space:nowrap; }
+
+    .toolbar { display:flex; gap:8px; flex-wrap:wrap; align-items:center; justify-content:space-between; padding:8px 0; }
+    .right { display:flex; gap:8px; align-items:center; }
+
+    .badge { display:inline-block; padding:4px 8px; border-radius:999px; background:#eef3ff; color:#083; font-weight:700; font-size:12px; }
+
+    .hint { font-size:12px; color:#555; }
+  </style>
+</head>
+<body>
+  <div id="guard" class="guard">
+    <div class="card" style="max-width:520px; text-align:center;">
+      <h2 style="margin:0 0 8px;">Перевірка доступу…</h2>
+      <div class="muted">Лише адміністратори можуть переглядати цю сторінку.</div>
+    </div>
+  </div>
+
+  <header>
+    <h1>Firestore Viewer <span class="muted">(адмін)</span></h1>
+    <div class="right">
+      <div id="userBox" class="muted">—</div>
+	  <button id="btnGoHome" class="ghost" title="На карту">🏠 На карту</button>
+      <button id="btnSignOut" class="ghost" title="Вийти">Вийти</button>
+    </div>
+	<div class="right">
+  <div id="userBox" class="muted">—</div>
+  <button id="btnGoHome" class="ghost" title="На карту">🏠 На карту</button>
+  <button id="btnSignOut" class="ghost" title="Вийти">Вийти</button>
+</div>
+  </header>
+
+  <div class="card">
+    <div class="row">
+      <div>
+        <label>Виберіть колекцію</label>
+        <select id="selCollection">
+          <!-- Заповнюється у JS з KNOWN_COLLECTIONS -->
+        </select>
+      </div>
+      <div>
+        <label>або введіть назву вручну</label>
+        <input id="inpCustomCol" type="text" placeholder="наприклад: directory" />
+      </div>
+      <div>
+        <label>Розмір сторінки</label>
+        <select id="selPageSize">
+          <option>50</option>
+          <option selected>100</option>
+          <option>250</option>
+          <option>500</option>
+        </select>
+      </div>
+      <div>
+        <button id="btnLoad">Завантажити</button>
+      </div>
+    </div>
+    <div style="margin-top:10px; display:flex; gap:12px; align-items:center; flex-wrap:wrap;">
+      <div class="hint">Порада: список колекцій на клієнті автоматично отримати не можна. Використовуйте випадаючий список нижче або поле вручну.</div>
+    </div>
+  </div>
+
+  <div class="table-wrap">
+    <div class="toolbar">
+      <div>
+        <span id="lblState" class="badge">Готово</span>
+        <span id="lblStats" class="muted"></span>
+      </div>
+      <div class="right">
+        <input id="inpFilter" type="text" placeholder="Фільтр по таблиці (клієнтський)" />
+        <button id="btnPrev" class="ghost" disabled>◀️ Назад</button>
+        <button id="btnNext" class="ghost" disabled>Вперед ▶️</button>
+        <button id="btnExportPage">Експорт XLSX (ця сторінка)</button>
+        <button id="btnExportAll" class="ghost" title="Може зайняти час та використати багато read-запитів">Експорт ВСІХ сторінок</button>
+      </div>
+    </div>
+
+    <div id="grid" class="scroll">
+      <table id="tbl"><thead></thead><tbody></tbody></table>
+    </div>
+  </div>
+
+<script>
+  // 1) 🔧 Firebase config — замініть на власний
+  const firebaseConfig = {
+    // TODO: вставте свій об'єкт конфігурації Firebase
+  };
+
+  // 2) Відомі колекції (для зручності; можна редагувати)
+  const KNOWN_COLLECTIONS = [
+    'directory',
+    'routes',
+    'users',
+    'geozones',
+    'approvals'
+  ];
+
+  // ---- Глобальні змінні ----
+  let db, auth, currentUser;
+  let currentCollection = null;
+  let pageSize = 100;
+  let pageCursors = [null]; // масив курсорів (lastVisible) на початку кожної сторінки
+  let currentPageIndex = 0;  // індекс сторінки у pageCursors (0 => перед першою)
+  let currentDocs = [];      // документи поточної сторінки (масив DocumentSnapshot)
+  let flatRows = [];         // плоскі об'єкти для відображення/фільтра
+
+  // ---- DOM елементи ----
+  const guard = document.getElementById('guard');
+  const userBox = document.getElementById('userBox');
+  const btnSignOut = document.getElementById('btnSignOut');
+  const selCollection = document.getElementById('selCollection');
+  const inpCustomCol = document.getElementById('inpCustomCol');
+  const selPageSize = document.getElementById('selPageSize');
+  const btnLoad = document.getElementById('btnLoad');
+  const lblState = document.getElementById('lblState');
+  const lblStats = document.getElementById('lblStats');
+  const inpFilter = document.getElementById('inpFilter');
+  const btnPrev = document.getElementById('btnPrev');
+  const btnNext = document.getElementById('btnNext');
+  const btnExportPage = document.getElementById('btnExportPage');
+  const btnExportAll = document.getElementById('btnExportAll');
+  const tbl = document.getElementById('tbl');
+
+  // ---- Ініціалізація ----
+  firebase.initializeApp(firebaseConfig);
+  db = firebase.firestore();
+  auth = firebase.auth();
+
+  // Заповнити випадаючий список колекцій
+  KNOWN_COLLECTIONS.forEach(c => {
+    const opt = document.createElement('option');
+    opt.value = c; opt.textContent = c; selCollection.appendChild(opt);
+  });
+
+  btnSignOut.onclick = () => auth.signOut();
+
+const btnGoHome = document.getElementById('btnGoHome');
+btnGoHome.style.display = 'none';           // сховаємо до перевірки ролі
+btnGoHome.onclick = () => location.href = '/index.html';
+};
+
+  selPageSize.onchange = () => pageSize = parseInt(selPageSize.value, 10);
+  btnLoad.onclick = () => startLoad();
+  btnPrev.onclick = () => fetchPage('prev');
+  btnNext.onclick = () => fetchPage('next');
+  btnExportPage.onclick = () => exportXlsx(false);
+  btnExportAll.onclick = () => exportXlsx(true);
+  inpFilter.oninput = () => applyFilter(inpFilter.value.trim());
+
+  // ---- Перевірка ролі адміністратора ----
+  auth.onAuthStateChanged(async (user) => {
+    if (!user) {
+      userBox.textContent = 'Не увійшли';
+      showGuardError('Необхідна авторизація');
+      return;
+    }
+    currentUser = user;
+    userBox.textContent = user.email || user.uid;
+
+    const ok = await isAdmin(user);
+    if (!ok) {
+      showGuardError('403: доступ лише для адміністраторів');
+      return;
+    }
+    guard.classList.add('hide');
+	document.getElementById('btnGoHome').style.display = '';   // показуємо кнопку адмінам
+  });
+
+  async function isAdmin(user) {
+    try {
+      const token = await user.getIdTokenResult(true);
+      const c = token.claims || {};
+      if (c.admin === true || c.role === 'admin' || (c.roles && c.roles.admin === true)) return true;
+    } catch (e) {}
+
+    // Фолбек: перевірка у Firestore (колекція users/UID)
+    try {
+      const doc = await db.collection('users').doc(user.uid).get();
+      const data = doc.data() || {};
+      if (data.role === 'admin' || (data.roles && data.roles.admin === true)) return true;
+    } catch (e) {}
+
+    return false;
+  }
+
+  function showGuardError(msg) {
+    guard.classList.remove('hide');
+    guard.innerHTML = `<div class="card" style="max-width:520px; text-align:center;">
+      <h2 style="margin:0 0 6px;">${msg}</h2>
+      <div class="muted">Зверніться до власника проєкту для надання прав.</div>
+    </div>`;
+  }
+
+  // ---- Завантаження ----
+  function startLoad() {
+    const manual = inpCustomCol.value.trim();
+    const selected = selCollection.value;
+    const col = manual || selected || 'directory';
+    currentCollection = col;
+
+    pageCursors = [null];
+    currentPageIndex = 0;
+    currentDocs = [];
+    flatRows = [];
+    lblStats.textContent = '';
+    setState(`Завантаження «${col}»…`);
+
+    fetchPage('first');
+  }
+
+  async function fetchPage(direction) {
+    try {
+      btnPrev.disabled = true; btnNext.disabled = true;
+
+      let cursor = null;
+      if (direction === 'next') {
+        cursor = pageCursors[currentPageIndex];
+        if (!cursor) { /* можливо кінець */ }
+      } else if (direction === 'prev') {
+        // рухаємося на сторінку назад
+        currentPageIndex = Math.max(0, currentPageIndex - 1);
+        cursor = pageCursors[currentPageIndex];
+      } else {
+        // 'first'
+        cursor = null; currentPageIndex = 0; pageCursors = [null];
+      }
+
+      let q = db.collection(currentCollection).limit(pageSize);
+      if (cursor) q = q.startAfter(cursor);
+
+      const snap = await q.get();
+      currentDocs = snap.docs;
+
+      // Оновити курсори тільки коли йдемо вперед або перше завантаження
+      if (direction !== 'prev') {
+        const lastVisible = snap.docs[snap.docs.length - 1] || null;
+        pageCursors[currentPageIndex + 1] = lastVisible;
+        currentPageIndex += 1;
+      }
+
+      // Побудова таблиці
+      const { columns, rows } = buildGridData(snap.docs);
+      flatRows = rows;
+      renderTable(columns, rows);
+
+      // Кнопки пагінації
+      btnPrev.disabled = currentPageIndex <= 1; // якщо на першій сторінці
+      btnNext.disabled = snap.size < pageSize; // якщо менше ніж pageSize — кінець
+
+      lblStats.textContent = `Колекція: ${currentCollection} • Сторінка ${currentPageIndex} • Документів на сторінці: ${snap.size}`;
+      setState('Готово');
+    } catch (e) {
+      console.error(e);
+      setState('Помилка завантаження', true);
+      alert('Помилка: ' + e.message);
+    }
+  }
+
+  function setState(text, isErr=false) {
+    lblState.textContent = text;
+    lblState.className = isErr ? 'badge err' : 'badge ok';
+  }
+
+  // ---- Побудова даних таблиці ----
+  function buildGridData(docSnaps) {
+    const rows = [];
+    const colSet = new Set(['id']);
+
+    for (const d of docSnaps) {
+      const flat = { id: d.id };
+      flattenValue(d.data(), '', flat);
+      rows.push(flat);
+      Object.keys(flat).forEach(k => colSet.add(k));
+    }
+    // Відсортуємо колонки: id перший, далі — за абеткою
+    const columns = Array.from(colSet);
+    columns.sort((a,b) => (a==='id') ? -1 : (b==='id') ? 1 : a.localeCompare(b));
+    return { columns, rows };
+  }
+
+  function flattenValue(val, prefix, out) {
+    if (val === null || val === undefined) {
+      if (prefix) out[prefix] = null;
+      return;
+    }
+
+    // Firestore типи
+    if (val instanceof firebase.firestore.Timestamp) {
+      out[prefix] = val.toDate().toISOString(); return;
+    }
+    if (val instanceof firebase.firestore.GeoPoint) {
+      out[prefix] = `${val.latitude},${val.longitude}`; return;
+    }
+    if (typeof val === 'object' && typeof val.path === 'string' && val.parent) { // DocumentReference (груба перевірка)
+      out[prefix] = val.path; return;
+    }
+
+    if (Array.isArray(val)) {
+      // Для простоти — JSON; за потреби можна розгортати за індексами
+      out[prefix || 'array'] = JSON.stringify(val);
+      return;
+    }
+
+    if (typeof val === 'object') {
+      for (const [k, v] of Object.entries(val)) {
+        const key = prefix ? `${prefix}.${k}` : k;
+        flattenValue(v, key, out);
+      }
+      return;
+    }
+
+    if (prefix) out[prefix] = val;
+  }
+
+  function renderTable(columns, rows) {
+    // Фільтр, якщо введений
+    const q = inpFilter.value.trim().toLowerCase();
+    let view = rows;
+    if (q) view = rows.filter(r => JSON.stringify(r).toLowerCase().includes(q));
+
+    // THEAD
+    const thead = tbl.querySelector('thead');
+    thead.innerHTML = '';
+    const trh = document.createElement('tr');
+    for (const col of columns) {
+      const th = document.createElement('th');
+      th.textContent = col; trh.appendChild(th);
+    }
+    thead.appendChild(trh);
+
+    // TBODY
+    const tbody = tbl.querySelector('tbody');
+    tbody.innerHTML = '';
+    for (const r of view) {
+      const tr = document.createElement('tr');
+      for (const col of columns) {
+        const td = document.createElement('td');
+        let val = r[col];
+        if (val === undefined) val = '';
+        if (col === 'id') td.classList.add('id');
+        // Відображення довгих значень
+        if (typeof val === 'string' && val.length > 200) {
+          td.textContent = val.slice(0, 200) + '…';
+          td.title = val;
+        } else {
+          td.textContent = String(val);
+        }
+        tr.appendChild(td);
+      }
+      tbody.appendChild(tr);
+    }
+  }
+
+  function applyFilter(q) {
+    // Перебудувати, використовуючи вже обчислені колонки
+    const thead = tbl.querySelector('thead');
+    const cols = Array.from(thead.querySelectorAll('th')).map(th => th.textContent);
+    renderTable(cols, flatRows);
+  }
+
+  // ---- Експорт ----
+  async function exportXlsx(allPages=false) {
+    try {
+      setState('Експорт…');
+
+      let rows = flatRows;
+      let columns = Array.from(tbl.querySelectorAll('thead th')).map(th => th.textContent);
+
+      if (allPages) {
+        // Послідовно проходимо всі сторінки, не перевищуючи ліміти
+        let cursor = null; let page = 0; rows = []; columns = new Set(['id']);
+        while (true) {
+          let q = db.collection(currentCollection).limit(pageSize);
+          if (cursor) q = q.startAfter(cursor);
+          const snap = await q.get();
+          if (snap.empty) break;
+          page++;
+          for (const d of snap.docs) {
+            const flat = { id: d.id };
+            flattenValue(d.data(), '', flat);
+            rows.push(flat);
+            Object.keys(flat).forEach(k => columns.add(k));
+          }
+          cursor = snap.docs[snap.docs.length - 1];
+          if (snap.size < pageSize) break; // кінець
+        }
+        columns = Array.from(columns);
+        columns.sort((a,b) => (a==='id') ? -1 : (b==='id') ? 1 : a.localeCompare(b));
+      }
+
+      const aoa = [];
+      aoa.push(columns);
+      for (const r of rows) aoa.push(columns.map(c => (r[c] === undefined ? '' : r[c])));
+
+      const ws = XLSX.utils.aoa_to_sheet(aoa);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, safeSheetName(currentCollection));
+
+      const ts = new Date();
+      const pad = n => String(n).padStart(2,'0');
+      const fname = `export_${currentCollection}_${ts.getFullYear()}${pad(ts.getMonth()+1)}${pad(ts.getDate())}_${pad(ts.getHours())}${pad(ts.getMinutes())}.xlsx`;
+      XLSX.writeFile(wb, fname);
+      setState('Готово');
+    } catch (e) {
+      console.error(e);
+      setState('Помилка експорту', true);
+      alert('Помилка: ' + e.message);
+    }
+  }
+
+  function safeSheetName(name) {
+    return String(name).replace(/[\\\/*?:\[\]]/g, ' ' ).slice(0,31) || 'Sheet1';
+  }
+</script>
+</body>
+</html>

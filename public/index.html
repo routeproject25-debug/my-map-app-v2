@@ -134,6 +134,7 @@
     <a href="/export/">📤 Експорт</a>
     <a href="/import/">📥 Імпорт</a>
 	<a id="adminLink" href="/admin.html" style="display:none;">👨‍💻 Адмін</a>
+	<a id="adminLinkViewer" href="/Firestore_Viewe.html" target="_blank" style="display:none;">📂 Firestore</a>
   </div>
 
   <div class="spacer"></div>
@@ -352,8 +353,10 @@
 	window.__userRole = role;
 
 	// ⬇️ одразу сховаємо/покажемо лінк
-	const link = document.getElementById('adminLink');
-	if (link) link.style.display = String(role).toLowerCase() === 'admin' ? '' : 'none';
+	['adminLink','adminLinkViewer'].forEach(id => {
+  const el = document.getElementById(id);
+  if (el) el.style.display = String(role).toLowerCase() === 'admin' ? '' : 'none';
+});
 
 	// показуємо сторінку
 	document.documentElement.style.visibility = 'visible'; // краще явно 'visible'
@@ -498,8 +501,10 @@ function applyRoleUI(role){
   readOnly = (role === 'guest' || role === 'user');
 
   // ⬇️ Показувати адмін-лінк лише адмінам
-  const adminLink = document.getElementById('adminLink');
-  if (adminLink) adminLink.style.display = role === 'admin' ? '' : 'none';
+  ['adminLink','adminLinkViewer'].forEach(id => {
+  const el = document.getElementById(id);
+  if (el) el.style.display = (role === 'admin') ? '' : 'none';
+});
 
   const disableIds = [
     'toggleAdd','startLineMode','endLineMode','clearRoute','popRulerPoint','clearRulers',
