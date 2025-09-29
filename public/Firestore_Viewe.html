@@ -67,23 +67,16 @@
     <h1>Firestore Viewer <span class="muted">(адмін)</span></h1>
     <div class="right">
       <div id="userBox" class="muted">—</div>
-	  <button id="btnGoHome" class="ghost" title="На карту">🏠 На карту</button>
+      <button id="btnGoHome" class="ghost" title="На карту">🏠 На карту</button>
       <button id="btnSignOut" class="ghost" title="Вийти">Вийти</button>
     </div>
-	<div class="right">
-  <div id="userBox" class="muted">—</div>
-  <button id="btnGoHome" class="ghost" title="На карту">🏠 На карту</button>
-  <button id="btnSignOut" class="ghost" title="Вийти">Вийти</button>
-</div>
   </header>
 
   <div class="card">
     <div class="row">
       <div>
         <label>Виберіть колекцію</label>
-        <select id="selCollection">
-          <!-- Заповнюється у JS з KNOWN_COLLECTIONS -->
-        </select>
+        <select id="selCollection"></select>
       </div>
       <div>
         <label>або введіть назву вручну</label>
@@ -128,33 +121,34 @@
   </div>
 
 <script>
-  // 1) 🔧 Firebase config — замініть на власний
+  // 1) Firebase config — такий самий, як в index.html
   const firebaseConfig = {
-    // TODO: вставте свій об'єкт конфігурації Firebase
+    apiKey: "AIzaSyDjDBZkmy-skuDEQF8-AkRma7yw6TugoQc",
+    authDomain: "my-map-app-58312.firebaseapp.com",
+    projectId: "my-map-app-58312",
+    storageBucket: "my-map-app-58312.firebasestorage.app",
+    messagingSenderId: "53260611353",
+    appId: "1:53260611353:web:f25e120996ad8305405f88",
+    measurementId: "G-9LRX1FLTKL"
   };
 
-  // 2) Відомі колекції (для зручності; можна редагувати)
-  const KNOWN_COLLECTIONS = [
-    'directory',
-    'routes',
-    'users',
-    'geozones',
-    'approvals'
-  ];
+  // 2) Відомі колекції (за бажанням доповнюй)
+  const KNOWN_COLLECTIONS = ['directory','routes','users','geozones','approvals'];
 
   // ---- Глобальні змінні ----
   let db, auth, currentUser;
   let currentCollection = null;
   let pageSize = 100;
-  let pageCursors = [null]; // масив курсорів (lastVisible) на початку кожної сторінки
-  let currentPageIndex = 0;  // індекс сторінки у pageCursors (0 => перед першою)
-  let currentDocs = [];      // документи поточної сторінки (масив DocumentSnapshot)
-  let flatRows = [];         // плоскі об'єкти для відображення/фільтра
+  let pageCursors = [null];
+  let currentPageIndex = 0;
+  let currentDocs = [];
+  let flatRows = [];
 
   // ---- DOM елементи ----
   const guard = document.getElementById('guard');
   const userBox = document.getElementById('userBox');
   const btnSignOut = document.getElementById('btnSignOut');
+  const btnGoHome  = document.getElementById('btnGoHome');
   const selCollection = document.getElementById('selCollection');
   const inpCustomCol = document.getElementById('inpCustomCol');
   const selPageSize = document.getElementById('selPageSize');
@@ -169,7 +163,7 @@
   const tbl = document.getElementById('tbl');
 
   // ---- Ініціалізація ----
-  firebase.initializeApp(firebaseConfig);
+  try { firebase.apps?.length ? firebase.app() : firebase.initializeApp(firebaseConfig); } catch(e){ console.error(e); }
   db = firebase.firestore();
   auth = firebase.auth();
 
@@ -179,12 +173,12 @@
     opt.value = c; opt.textContent = c; selCollection.appendChild(opt);
   });
 
-  btnSignOut.onclick = () => auth.signOut();
-
-const btnGoHome = document.getElementById('btnGoHome');
-btnGoHome.style.display = 'none';           // сховаємо до перевірки ролі
-btnGoHome.onclick = () => location.href = '/index.html';
-};
+  // Кнопки
+  btnSignOut.onclick = async () => { try{ await auth.signOut(); } finally {
+    location.replace('/login.html?next=' + encodeURIComponent('/Firestore_Viewe.html'));
+  }};
+  btnGoHome.style.display = 'none'; // ховаємо до перевірки ролі
+  btnGoHome.onclick = () => location.href = '/index.html';
 
   selPageSize.onchange = () => pageSize = parseInt(selPageSize.value, 10);
   btnLoad.onclick = () => startLoad();
@@ -199,6 +193,8 @@ btnGoHome.onclick = () => location.href = '/index.html';
     if (!user) {
       userBox.textContent = 'Не увійшли';
       showGuardError('Необхідна авторизація');
+      // редирект на логін із поверненням назад
+      location.replace('/login.html?next=' + encodeURIComponent('/Firestore_Viewe.html'));
       return;
     }
     currentUser = user;
@@ -210,7 +206,7 @@ btnGoHome.onclick = () => location.href = '/index.html';
       return;
     }
     guard.classList.add('hide');
-	document.getElementById('btnGoHome').style.display = '';   // показуємо кнопку адмінам
+    btnGoHome.style.display = ''; // показуємо кнопку адмінам
   });
 
   async function isAdmin(user) {
@@ -220,7 +216,7 @@ btnGoHome.onclick = () => location.href = '/index.html';
       if (c.admin === true || c.role === 'admin' || (c.roles && c.roles.admin === true)) return true;
     } catch (e) {}
 
-    // Фолбек: перевірка у Firestore (колекція users/UID)
+    // Фолбек: перевірка у Firestore (users/{uid})
     try {
       const doc = await db.collection('users').doc(user.uid).get();
       const data = doc.data() || {};
@@ -262,13 +258,10 @@ btnGoHome.onclick = () => location.href = '/index.html';
       let cursor = null;
       if (direction === 'next') {
         cursor = pageCursors[currentPageIndex];
-        if (!cursor) { /* можливо кінець */ }
       } else if (direction === 'prev') {
-        // рухаємося на сторінку назад
         currentPageIndex = Math.max(0, currentPageIndex - 1);
         cursor = pageCursors[currentPageIndex];
       } else {
-        // 'first'
         cursor = null; currentPageIndex = 0; pageCursors = [null];
       }
 
@@ -278,21 +271,18 @@ btnGoHome.onclick = () => location.href = '/index.html';
       const snap = await q.get();
       currentDocs = snap.docs;
 
-      // Оновити курсори тільки коли йдемо вперед або перше завантаження
       if (direction !== 'prev') {
         const lastVisible = snap.docs[snap.docs.length - 1] || null;
         pageCursors[currentPageIndex + 1] = lastVisible;
         currentPageIndex += 1;
       }
 
-      // Побудова таблиці
       const { columns, rows } = buildGridData(snap.docs);
       flatRows = rows;
       renderTable(columns, rows);
 
-      // Кнопки пагінації
-      btnPrev.disabled = currentPageIndex <= 1; // якщо на першій сторінці
-      btnNext.disabled = snap.size < pageSize; // якщо менше ніж pageSize — кінець
+      btnPrev.disabled = currentPageIndex <= 1;
+      btnNext.disabled = snap.size < pageSize;
 
       lblStats.textContent = `Колекція: ${currentCollection} • Сторінка ${currentPageIndex} • Документів на сторінці: ${snap.size}`;
       setState('Готово');
@@ -319,7 +309,6 @@ btnGoHome.onclick = () => location.href = '/index.html';
       rows.push(flat);
       Object.keys(flat).forEach(k => colSet.add(k));
     }
-    // Відсортуємо колонки: id перший, далі — за абеткою
     const columns = Array.from(colSet);
     columns.sort((a,b) => (a==='id') ? -1 : (b==='id') ? 1 : a.localeCompare(b));
     return { columns, rows };
@@ -330,23 +319,11 @@ btnGoHome.onclick = () => location.href = '/index.html';
       if (prefix) out[prefix] = null;
       return;
     }
+    if (val instanceof firebase.firestore.Timestamp) { out[prefix] = val.toDate().toISOString(); return; }
+    if (val instanceof firebase.firestore.GeoPoint) { out[prefix] = `${val.latitude},${val.longitude}`; return; }
+    if (typeof val === 'object' && typeof val.path === 'string' && val.parent) { out[prefix] = val.path; return; }
 
-    // Firestore типи
-    if (val instanceof firebase.firestore.Timestamp) {
-      out[prefix] = val.toDate().toISOString(); return;
-    }
-    if (val instanceof firebase.firestore.GeoPoint) {
-      out[prefix] = `${val.latitude},${val.longitude}`; return;
-    }
-    if (typeof val === 'object' && typeof val.path === 'string' && val.parent) { // DocumentReference (груба перевірка)
-      out[prefix] = val.path; return;
-    }
-
-    if (Array.isArray(val)) {
-      // Для простоти — JSON; за потреби можна розгортати за індексами
-      out[prefix || 'array'] = JSON.stringify(val);
-      return;
-    }
+    if (Array.isArray(val)) { out[prefix || 'array'] = JSON.stringify(val); return; }
 
     if (typeof val === 'object') {
       for (const [k, v] of Object.entries(val)) {
@@ -355,17 +332,14 @@ btnGoHome.onclick = () => location.href = '/index.html';
       }
       return;
     }
-
     if (prefix) out[prefix] = val;
   }
 
   function renderTable(columns, rows) {
-    // Фільтр, якщо введений
     const q = inpFilter.value.trim().toLowerCase();
     let view = rows;
     if (q) view = rows.filter(r => JSON.stringify(r).toLowerCase().includes(q));
 
-    // THEAD
     const thead = tbl.querySelector('thead');
     thead.innerHTML = '';
     const trh = document.createElement('tr');
@@ -375,7 +349,6 @@ btnGoHome.onclick = () => location.href = '/index.html';
     }
     thead.appendChild(trh);
 
-    // TBODY
     const tbody = tbl.querySelector('tbody');
     tbody.innerHTML = '';
     for (const r of view) {
@@ -385,7 +358,6 @@ btnGoHome.onclick = () => location.href = '/index.html';
         let val = r[col];
         if (val === undefined) val = '';
         if (col === 'id') td.classList.add('id');
-        // Відображення довгих значень
         if (typeof val === 'string' && val.length > 200) {
           td.textContent = val.slice(0, 200) + '…';
           td.title = val;
@@ -398,8 +370,7 @@ btnGoHome.onclick = () => location.href = '/index.html';
     }
   }
 
-  function applyFilter(q) {
-    // Перебудувати, використовуючи вже обчислені колонки
+  function applyFilter() {
     const thead = tbl.querySelector('thead');
     const cols = Array.from(thead.querySelectorAll('th')).map(th => th.textContent);
     renderTable(cols, flatRows);
@@ -414,7 +385,6 @@ btnGoHome.onclick = () => location.href = '/index.html';
       let columns = Array.from(tbl.querySelectorAll('thead th')).map(th => th.textContent);
 
       if (allPages) {
-        // Послідовно проходимо всі сторінки, не перевищуючи ліміти
         let cursor = null; let page = 0; rows = []; columns = new Set(['id']);
         while (true) {
           let q = db.collection(currentCollection).limit(pageSize);
@@ -429,7 +399,7 @@ btnGoHome.onclick = () => location.href = '/index.html';
             Object.keys(flat).forEach(k => columns.add(k));
           }
           cursor = snap.docs[snap.docs.length - 1];
-          if (snap.size < pageSize) break; // кінець
+          if (snap.size < pageSize) break;
         }
         columns = Array.from(columns);
         columns.sort((a,b) => (a==='id') ? -1 : (b==='id') ? 1 : a.localeCompare(b));
@@ -456,7 +426,7 @@ btnGoHome.onclick = () => location.href = '/index.html';
   }
 
   function safeSheetName(name) {
-    return String(name).replace(/[\\\/*?:\[\]]/g, ' ' ).slice(0,31) || 'Sheet1';
+    return String(name).replace(/[\\/*?:\[\]]/g, ' ' ).slice(0,31) || 'Sheet1';
   }
 </script>
 </body>
