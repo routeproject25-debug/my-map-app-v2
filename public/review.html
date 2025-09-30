@@ -192,6 +192,38 @@
   }catch{ return 'user'; }
 }
 
+  // --- нормалізація координат ---
+  function toLonLat(p){
+    if (Array.isArray(p) && p.length>=2){
+      const a=Number(p[0]), b=Number(p[1]);
+      return (Math.abs(a)<=90 && Math.abs(b)<=180) ? [b,a] : [a,b]; // авто-обмін lat/lng
+    }
+    if (p && typeof p==='object'){
+      const lat=Number(p.lat ?? p.latitude), lng=Number(p.lng ?? p.lon ?? p.longitude);
+      if (Number.isFinite(lat) && Number.isFinite(lng)) return [lng,lat];
+    }
+    if (typeof p==='string'){
+      const m=p.split(/[;, ]/).map(Number).filter(v=>!Number.isNaN(v));
+      if (m.length>=2) return toLonLat(m);
+    }
+    return null;
+  }
+  function normalizePoints(raw){
+    if (!raw) return null;
+    // GeoJSON Feature/Geometry
+    if (raw.type==='Feature' && raw.geometry?.type==='LineString') return normalizePoints(raw.geometry.coordinates);
+    if (raw.type==='LineString' && Array.isArray(raw.coordinates))   return normalizePoints(raw.coordinates);
+    if (raw.type==='FeatureCollection' && Array.isArray(raw.features)){
+      const f=raw.features.find(f=>f.geometry?.type==='LineString'); if (f) return normalizePoints(f.geometry.coordinates);
+    }
+    // масив точок
+    if (Array.isArray(raw)){
+      const out=[]; for (const it of raw){ const pt=toLonLat(it); if (pt) out.push(pt); }
+      return out.length>=2 ? out : null;
+    }
+    return null;
+  }
+
   // === Query params ===
   const qs  = new URLSearchParams(location.search);
   const rid = qs.get('rid');
@@ -259,9 +291,10 @@
       const url = `https://api.mapbox.com/directions/v5/mapbox/driving/${coordsStr}?geometries=geojson&overview=full&continue_straight=true&access_token=${mapboxgl.accessToken}`;
       try{
         const res = await fetch(url);
+        if (!res.ok) throw new Error('Directions HTTP ' + res.status);
         const data = await res.json();
-        const route = data?.routes?.[0];
-        if(!route) continue;
+         const route = data?.routes?.[0];
+         if(!route) continue;
 
         totalMeters += (route.distance||0);
         const geom = route.geometry;
@@ -319,9 +352,13 @@
 
   async function loadRouteAndRender(){
     if (!rid){ document.getElementById('statusLine').textContent = 'Не передано rid.'; return; }
-    const snap = await db.collection('routes').doc(rid).get();
-    if (!snap.exists){ document.getElementById('statusLine').textContent = 'Маршрут не знайдено.'; return; }
-    const d = snap.data() || {};
+        // краще тягнути з сервера (щоб не зловити кеш)
+    let snap = null;
+    try { snap = await db.collection('routes').doc(rid).get({ source:'server' }); }
+    catch { snap = await db.collection('routes').doc(rid).get(); }
+     if (!snap.exists){ document.getElementById('statusLine').textContent = 'Маршрут не знайдено.'; return; }
+     const d = snap.data() || {};
+    window.__lastStatus = (d.approval?.status)||'';
 
     document.getElementById('routeName').textContent = d.name || rid;
     document.getElementById('fromLabel').textContent = d.fromLabel || '—';
@@ -333,6 +370,11 @@
 
     chip('chipRevision', 'Подача № ' + ((d.approval?.revision) ?? '—'));
     chip('chipStatus',   'Статус: ' + fmtStatus(d.approval?.status));
+	    // якщо вже є рішення — не показуємо дії
+    const decided = ['approved','rejected'].includes(String(d.approval?.status||'').toLowerCase());
+    const role = await getNormalizedRole();
+    const canDecide = (role==='security' || role==='admin') && !decided;
+    document.getElementById('secButtons').style.display = canDecide ? 'flex' : 'none';
 
     const subInfo = d.approval?.submittedAt ? `Подано: ${d.approval.submittedAt} (${d.approval.submittedByEmail||d.approval.submittedByUid||''})` : '';
     const decInfo = d.approval?.decisionAt ? ` · Рішення: ${d.approval.decisionAt} (${d.approval.decidedByEmail||d.approval.decidedByUid||''})` : '';
@@ -345,10 +387,18 @@
     document.getElementById('statusLine').textContent = 'Маршрут завантажено.';
 
     // --- snapped маршрут + dashed rulers ---
-    const pts = fromObjPoints(d.points||[]);
+        // ⚙️ fallback по полях і нормалізація
+    const pts =
+      normalizePoints(d.points) ||
+      normalizePoints(d.coordinates) ||
+      normalizePoints(d.route) ||
+      normalizePoints(d.geojson) ||
+      normalizePoints(d.geometry) ||
+      fromObjPoints(d.points||[]) || [];
     await drawSnappedRoute(pts);
     setSEMarkers(pts);
     drawRulers(d);
+	drawManualSegments(d);
   }
 
   // Approve / Reject actions (перестраховка на боці клієнта по ролях)
@@ -359,12 +409,17 @@
       alert('Недостатньо прав для цієї дії.');
       return;
     }
+	    const decided = ['approved','rejected'].includes(String(window.__lastStatus||'').toLowerCase());
+    if (decided){ alert('Рішення вже прийнято. Оновіть сторінку.'); return; }
+    const approveBtn = document.getElementById('approveBtn');
+    const rejectBtn  = document.getElementById('rejectBtn');
+    approveBtn.disabled = true; rejectBtn.disabled = true;
     const user = auth.currentUser;
     const ref = db.collection('routes').doc(rid);
     const payload = {
       approval: {
         status: kind, // 'approved' | 'rejected'
-        decisionAt: new Date().toISOString(),
+        decisionAt: new Date().toISOString(),   // не міняємо формат (узгоджено з export)
         decidedByUid: user?.uid || null,
         decidedByEmail: user?.email || null,
         comment: kind === 'approved' ? null : (comment || '')
@@ -376,6 +431,7 @@
     alert(kind === 'approved' ? 'Погоджено ✅' : 'Відхилено ❌');
     document.getElementById('rejectWrap').style.display = 'none';
     document.getElementById('rejectComment').value = '';
+	approveBtn.disabled = false; rejectBtn.disabled = false;
   }
 
   // === Нижній onAuthStateChanged: UI та дані, роль уже в window.__userRole ===
