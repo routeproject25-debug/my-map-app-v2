@@ -182,6 +182,7 @@
         <span>“КОД”:</span><input id="codeCol" type="number" min="0" style="width:90px" placeholder="індекс" />
         <span>“Підприємство”:</span><input id="companyCol" type="number" min="0" style="width:110px" placeholder="індекс" />
         <span>“Підрозділ”:</span><input id="unitCol" type="number" min="0" style="width:100px" placeholder="індекс" />
+		<span>“ХАБ”:</span><input id="hubCol"  type="number" min="0" style="width:100px" placeholder="індекс" />
         <span class="muted">(рахунок з 0; заголовок – окремо)</span>
       </div>
       <div class="row" style="margin-top:6px">
@@ -384,8 +385,14 @@ auth?.onAuthStateChanged(async (u) => {
     const codeIdx = h.findIndex(x => ['код','код цб','код цб','code'].includes(x));
     const companyIdx = h.findIndex(x => ['підприємство','pidpryiemstvo','company'].includes(x));
     const unitIdx = h.findIndex(x => ['підрозділ','pidrozdil','unit','division'].includes(x));
-    return { nameIdx: nameIdx>=0?nameIdx:null, codeIdx: codeIdx>=0?codeIdx:null,
-             companyIdx: companyIdx>=0?companyIdx:null, unitIdx: unitIdx>=0?unitIdx:null };
+    const hubIdx = h.findIndex(x => ['хаб','hub'].includes(x));
+	return {
+	nameIdx: nameIdx>=0?nameIdx:null,
+	codeIdx: codeIdx>=0?codeIdx:null,
+	companyIdx: companyIdx>=0?companyIdx:null,
+	unitIdx: unitIdx>=0?unitIdx:null,
+	hubIdx: hubIdx>=0?hubIdx:null
+	};
   }
 
   function sanitizeId(s){
@@ -401,9 +408,10 @@ auth?.onAuthStateChanged(async (u) => {
 
     let rows = parsed.table, startIdx = 0;
     let nameIdx = $('nameCol').value ? parseInt($('nameCol').value,10) : null;
-    let codeIdx = $('codeCol').value ? parseInt($('codeCol').value,10) : null;
-    let companyIdx = $('companyCol').value ? parseInt($('companyCol').value,10) : null;
-    let unitIdx = $('unitCol').value ? parseInt($('unitCol').value,10) : null;
+	let codeIdx = $('codeCol').value ? parseInt($('codeCol').value,10) : null;
+	let companyIdx = $('companyCol').value ? parseInt($('companyCol').value,10) : null;
+	let unitIdx = $('unitCol').value ? parseInt($('unitCol').value,10) : null;
+	let hubIdx = $('hubCol').value ? parseInt($('hubCol').value,10) : null;
 
     if (hasHeader && rows.length){
       const g = guessColumns(rows[0]);
@@ -411,6 +419,7 @@ auth?.onAuthStateChanged(async (u) => {
       if (codeIdx === null) codeIdx = g.codeIdx;
       if (companyIdx === null) companyIdx = g.companyIdx;
       if (unitIdx === null) unitIdx = g.unitIdx;
+	  if (hubIdx === null) hubIdx = g.hubIdx;
       startIdx = 1;
       setStatus(`<span class="muted">Виявлено розділювач: <b>${parsed.sep === '\t' ? 'TAB' : parsed.sep}</b>. Заголовки визначені.</span>`);
     }
@@ -431,11 +440,20 @@ auth?.onAuthStateChanged(async (u) => {
       const name = (r[nameIdx]||'').toString().trim();
       const code = (r[codeIdx]||'').toString().trim();
       const company = companyIdx!=null ? (r[companyIdx]||'').toString().trim() : '';
-      const unit = unitIdx!=null ? (r[unitIdx]||'').toString().trim() : '';
+	  const unit = unitIdx!=null ? (r[unitIdx]||'').toString().trim() : '';
+	  const hub = hubIdx!=null ? (r[hubIdx]||'').toString().trim() : '';
       if (!name && !code) { skippedBlankRow++; continue; }
       if (!name) { skippedEmptyName++; continue; }
       if (!code) { skippedEmptyCode++; continue; }
-      entries.push({ id: sanitizeId(code), data: { name, ...(company?{company}:{}), ...(unit?{unit}:{}) } });
+      entries.push({
+	id: sanitizeId(code),
+	data: {
+	name,
+	...(company ? { company } : {}),
+	...(unit ? { unit } : {}),
+	...(hub ? { hub } : {})   // ← нове поле "hub"
+	}
+	});
     }
 
     // Дедуп за id
@@ -459,7 +477,7 @@ auth?.onAuthStateChanged(async (u) => {
   });
 
   // Порівняння тільки важливих полів
-  function normData(d){ return { name: d?.name || '', company: d?.company || '', unit: d?.unit || '' }; }
+  function normData(d){ return { name: d?.name || '', company: d?.company || '', unit: d?.unit || '', hub: d?.hub || '' }; }
   function equalData(a,b){
     const x = JSON.stringify(normData(a));
     const y = JSON.stringify(normData(b));
