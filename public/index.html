@@ -137,6 +137,7 @@
     <a href="/import/">📥 Імпорт</a>
 	<a id="adminLink" href="/admin.html" style="display:none;">👨‍💻 Адмін</a>
 	<a id="adminLinkViewer" href="/Firestore_Viewe.html" target="_blank" style="display:none;">📂 Firestore</a>
+	<a id="uploadRoutesLink" href="/import/upload-routes.html" style="display:none;">⬆ Імпорт маршрутів</a>
   </div>
 
   <div class="spacer"></div>
@@ -353,10 +354,10 @@ try { firebase.apps?.length ? firebase.app() : firebase.initializeApp(CFG); } ca
       window.__userRole = role;
 
       // показ/приховання адмін-лінків
-      ['adminLink','adminLinkViewer'].forEach(id => {
-        const el = document.getElementById(id);
-        if (el) el.style.display = role === 'admin' ? '' : 'none';
-      });
+      ['adminLink','adminLinkViewer','uploadRoutesLink'].forEach(id => {
+  const el = document.getElementById(id);
+  if (el) el.style.display = role === 'admin' ? '' : 'none';
+});
 
       // відкриваємо сторінку
       document.documentElement.style.visibility = 'visible';
@@ -500,7 +501,7 @@ function applyRoleUI(role){
   readOnly = (role === 'guest' || role === 'user');
 
   // ⬇️ Показувати адмін-лінк лише адмінам
-  ['adminLink','adminLinkViewer'].forEach(id => {
+  ['adminLink','adminLinkViewer','uploadRoutesLink'].forEach(id => {
   const el = document.getElementById(id);
   if (el) el.style.display = (role === 'admin') ? '' : 'none';
 });

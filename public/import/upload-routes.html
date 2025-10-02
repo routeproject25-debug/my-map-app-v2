@@ -1,0 +1,475 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+  <meta charset="utf-8" />
+  <title>Імпорт маршрутів (JSON/ZIP → Firestore)</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <!-- Firebase (compat) -->
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+  <!-- App config -->
+  <script src="/config/config.js"></script>
+  <!-- ZIP reader -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+
+  <style>
+    :root { --w: 1080px; }
+    * { box-sizing: border-box; }
+    body { margin:0; font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; background:#f6f7f9; color:#111; }
+    header, .wrap { max-width:var(--w); margin:16px auto; padding:0 14px; }
+    .card { background:#fff; border-radius:12px; box-shadow:0 4px 16px rgba(0,0,0,.06); padding:14px; }
+    .row { display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
+    .muted { color:#667085; font-size:12.5px; }
+    .pill { background:#eef2ff; color:#3730a3; padding:2px 8px; border-radius:999px; font-size:12px; }
+    .btn { padding:8px 12px; border:1px solid #cbd5e1; background:#fff; border-radius:8px; cursor:pointer; }
+    .btn.primary { background:#2563eb; border-color:#2563eb; color:#fff; }
+    .btn:disabled { opacity:.6; cursor:not-allowed; }
+    .drop { border:2px dashed #cbd5e1; border-radius:12px; padding:18px; text-align:center; background:#fafbff; }
+    .drop.drag { background:#eef6ff; border-color:#2563eb; }
+    table { width:100%; border-collapse:collapse; table-layout:fixed; }
+    th, td { border:1px solid #e5e7eb; padding:6px 8px; font-size:13px; text-align:left; vertical-align:top; }
+    th { background:#f1f5f9; }
+    .ok { color:#2e7d32; }
+    .err { color:#c62828; }
+    .warn { color:#b45309; }
+    .right { margin-left:auto; display:flex; gap:8px; align-items:center; }
+    .guard { visibility:hidden; }
+    .gen { background:#fff8e1; } /* підсвітити згенеровані ключі */
+  </style>
+
+  <!-- AUTH GUARD: тільки admin -->
+  <script>
+  (function(){
+    document.documentElement.classList.add('guard');
+    const CFG = window.APP_CONFIG?.firebase;
+    try { firebase.apps?.length ? firebase.app() : firebase.initializeApp(CFG); } catch(e){}
+    const auth = firebase.auth(), db = firebase.firestore();
+    const loginURL = '/login.html?next=' + encodeURIComponent(location.pathname + location.search);
+
+    auth.onAuthStateChanged(async (u)=>{
+      if(!u){ location.replace(loginURL); return; }
+      try{
+        const snap = await db.collection('users').doc(u.uid).get({source:'server'});
+        const role = snap.exists ? (snap.data().role || 'pending') : 'pending';
+        if(role !== 'admin'){ alert('Доступ лише для admin'); location.replace('/'); return; }
+        document.documentElement.classList.remove('guard');
+        document.getElementById('authInfo').textContent = u.email || u.uid;
+      }catch(e){ console.error(e); location.replace(loginURL); }
+    });
+  })();
+  </script>
+</head>
+<body>
+<header class="row">
+  <div class="row" style="gap:12px;">
+    <a href="/" class="btn">🏠 Карта</a>
+    <a href="/export/" class="btn">📤 Експорт</a>
+    <span class="pill">Імпорт маршрутів</span>
+  </div>
+  <div class="right">
+    <span id="authInfo" class="muted">Перевірка…</span>
+    <button id="btnLogout" class="btn">Вийти</button>
+    <span id="state" class="pill">Готово</span>
+  </div>
+</header>
+
+<div class="wrap">
+  <div class="card" style="margin-bottom:12px;">
+    <div class="row">
+      <input id="fileInput" type="file" multiple accept=".json,.zip" />
+      <button id="btnPickZip" class="btn">Обрати ZIP</button>
+      <button id="btnClear" class="btn">Очистити</button>
+      <div class="right muted">Можна перетягнути файли або ZIP у зону нижче.</div>
+    </div>
+    <div id="drop" class="drop" style="margin-top:10px;">
+      Перетягніть сюди .json файли або ZIP з папкою <b>routes/</b>
+    </div>
+    <div class="row" style="margin-top:10px;">
+      <label><input type="checkbox" id="optMerge" checked> Записувати з <b>merge</b> (не стирає наявні поля)</label>
+      <label><input type="checkbox" id="optOverwriteKeys"> Дозволити перезапис у <b>routeKeys</b> при колізії</label>
+      <label><input type="checkbox" id="optAlwaysOverwriteKeys"> <b>Завжди</b> перезаписувати <b>routeKeys</b></label>
+      <label><input type="checkbox" id="optPrefixFromCodes"> Префікс ключа брати <b>лише з кодів</b> (fromCode/toCode)</label>
+      <label><input type="checkbox" id="optDryRun"> Тестовий прогін (без запису)</label>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="row" style="justify-content:space-between; margin-bottom:8px;">
+      <div>
+        <b>Прев’ю</b>
+        <span id="stats" class="muted"></span>
+      </div>
+      <div class="right">
+        <button id="btnImport" class="btn primary" disabled>Імпортувати в Firestore</button>
+      </div>
+    </div>
+    <div style="overflow:auto; max-height:60vh;">
+      <table id="tbl">
+        <thead>
+          <tr>
+            <th style="width:160px;">id</th>
+            <th>fromCode</th>
+            <th>toCode</th>
+            <th>distance_km</th>
+            <th>routeKey</th>
+            <th>status</th>
+            <th>note</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <div id="problems" class="muted" style="margin-top:8px;"></div>
+  </div>
+</div>
+
+<script>
+const stateEl = document.getElementById('state');
+const btnLogout = document.getElementById('btnLogout');
+btnLogout.onclick = async () => { try{ await firebase.auth().signOut(); }catch{} };
+
+let db = null, auth = null;
+try { db = firebase.firestore(); auth = firebase.auth(); } catch(e){}
+
+const drop = document.getElementById('drop');
+const fileInput = document.getElementById('fileInput');
+const btnPickZip = document.getElementById('btnPickZip');
+const btnClear = document.getElementById('btnClear');
+const btnImport = document.getElementById('btnImport');
+const optMerge = document.getElementById('optMerge');
+const optOverwriteKeys = document.getElementById('optOverwriteKeys');
+const optAlwaysOverwriteKeys = document.getElementById('optAlwaysOverwriteKeys');
+const optPrefixFromCodes = document.getElementById('optPrefixFromCodes');
+const optDryRun = document.getElementById('optDryRun');
+const statsEl = document.getElementById('stats');
+const problemsEl = document.getElementById('problems');
+const tbody = document.querySelector('#tbl tbody');
+
+let parsed = [];        // [{id, data, routeKey?, fileName, _ok, _err, _warn, _genKey?}]
+let conflicts = [];     // routeKey колізії
+
+// ---------- helpers ----------
+const pad = n => String(n).padStart(2,'0');
+const nowIso = () => {
+  const d = new Date();
+  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}Z`;
+};
+
+function setState(s){ stateEl.textContent = s; }
+function clearAll(){
+  parsed = []; conflicts = [];
+  tbody.innerHTML = ''; statsEl.textContent = ''; problemsEl.textContent = '';
+  btnImport.disabled = true;
+}
+
+function rowHTML(r){
+  const ok = r._ok === true;
+  const st = ok ? '<span class="ok">OK</span>' : '<span class="err">ERR</span>';
+  const note = r._err || (r._warn||'');
+  const rkClass = r._genKey ? 'class="gen"' : '';
+  return `<tr>
+    <td>${r.id||''}</td>
+    <td>${r.data?.fromCode||''}</td>
+    <td>${r.data?.toCode||''}</td>
+    <td>${typeof r.data?.distance_km==='number' ? r.data.distance_km : ''}</td>
+    <td ${rkClass}>${r.routeKey||''}</td>
+    <td>${st}</td>
+    <td class="${r._err?'err': (r._warn?'warn':'')}">${note||''}</td>
+  </tr>`;
+}
+
+function refreshTable(){
+  tbody.innerHTML = parsed.map(rowHTML).join('');
+  const total = parsed.length;
+  const ok = parsed.filter(r=>r._ok).length;
+  const bad = parsed.filter(r=>r._err).length;
+  const needKey = parsed.filter(r=>!r._err && !r.routeKey).length;
+  statsEl.textContent = ` • файлів: ${total} • валідні: ${ok} • помилки: ${bad} • без routeKey: ${needKey}`;
+  btnImport.disabled = ok === 0;
+}
+
+function normalizeRouteObj(obj){
+  const d = {...obj};
+  Object.keys(d).forEach(k => { if (d[k] === undefined) delete d[k]; });
+  return d;
+}
+
+// === directory cache для префіксів по fromCode/toCode ===
+const dirNamesByCode = new Map();
+async function loadDirectoryByCodes(codes){
+  const list = Array.from(new Set((codes||[]).filter(Boolean)));
+  for (let i=0;i<list.length;i+=10){
+    const chunk = list.slice(i, i+10);
+    try{
+      const snap = await db.collection('directory')
+        .where(firebase.firestore.FieldPath.documentId(), 'in', chunk)
+        .get({ source:'server' });
+      snap.forEach(doc=>{
+        const d = doc.data() || {};
+        dirNamesByCode.set(doc.id, d.name || doc.id);
+      });
+    }catch(e){}
+    chunk.forEach(id => { if (!dirNamesByCode.has(id)) dirNamesByCode.set(id, id); });
+  }
+}
+
+// перша літера (укр/лат), fallback — перший символ
+function firstLetterUA(s){
+  const t = String(s||'').trim();
+  for (const ch of t){
+    if (/[A-Za-zА-Яа-яҐґЄєІіЇї]/.test(ch)) return ch.toUpperCase();
+  }
+  return t ? t[0].toUpperCase() : 'X';
+}
+
+// prefix "ЛЛ": або з назв (fromName/toName/довідник), або тільки з кодів (when preferCodesOnly=true)
+function computePrefixFor(rec, preferCodesOnly){
+  const d = rec.data || {};
+  if (preferCodesOnly){
+    const A = firstLetterUA(d.fromCode || '');
+    const B = firstLetterUA(d.toCode || '');
+    return `${A}${B}`;
+  }
+  let fromName = d.fromName || d.fromLabel || d.fromTitle || null;
+  let toName   = d.toName   || d.toLabel   || d.toTitle   || null;
+  if ((!fromName || !toName) && (d.fromCode || d.toCode)){
+    if (d.fromCode && dirNamesByCode.has(d.fromCode)) fromName = fromName || dirNamesByCode.get(d.fromCode);
+    if (d.toCode   && dirNamesByCode.has(d.toCode))   toName   = toName   || dirNamesByCode.get(d.toCode);
+  }
+  const A = firstLetterUA(fromName || d.fromCode || '');
+  const B = firstLetterUA(toName   || d.toCode   || '');
+  return `${A}${B}`;
+}
+
+// 10 випадкових цифр (crypto)
+function randomDigits(len=10){
+  const buf = new Uint8Array(len);
+  (crypto || window.crypto).getRandomValues(buf);
+  let s=''; for (let i=0;i<len;i++) s += (buf[i] % 10);
+  return s;
+}
+
+// ---------- read JSON / ZIP ----------
+async function handleFiles(fileList){
+  setState('Парсинг…');
+  const files = Array.from(fileList || []);
+  if(!files.length){ setState('Готово'); return; }
+
+  clearAll();
+
+  for (const f of files){
+    if (f.name.toLowerCase().endsWith('.zip')){
+      const zip = await JSZip.loadAsync(f);
+      const entries = Object.values(zip.files).filter(e => !e.dir && e.name.toLowerCase().endsWith('.json'));
+      for (const e of entries){
+        if (/\/?index\.json$/i.test(e.name)) continue;
+        try{
+          const txt = await e.async('string');
+          const obj = JSON.parse(txt);
+          acceptObject(obj, e.name);
+        }catch(err){
+          parsed.push({ id:null, data:null, routeKey:null, fileName:e.name, _ok:false, _err:'bad json in zip' });
+        }
+      }
+    } else if (f.name.toLowerCase().endsWith('.json')){
+      try{
+        const txt = await f.text();
+        const obj = JSON.parse(txt);
+        if (Array.isArray(obj)){
+          obj.forEach((o,i)=> acceptObject(o, `${f.name}#${i+1}`));
+        }else{
+          acceptObject(obj, f.name);
+        }
+      }catch(err){
+        parsed.push({ id:null, data:null, routeKey:null, fileName:f.name, _ok:false, _err:'bad json' });
+      }
+    }
+  }
+
+  // перевірка routeKey дублів у завантажених файлах
+  const seenKeys = new Map();
+  for (const r of parsed){
+    if (!r._ok || !r.routeKey) continue;
+    const who = seenKeys.get(r.routeKey);
+    if (who && who !== r.id){
+      r._warn = `routeKey дублюється у файлі (вже є для ${who})`;
+    } else {
+      seenKeys.set(r.routeKey, r.id);
+    }
+  }
+
+  refreshTable();
+  setState('Готово. Готово до імпорту.');
+}
+
+function acceptObject(obj, fileName){
+  const id = obj?.id || obj?.routeId || null;
+  if (!id){
+    parsed.push({ id:null, data:null, routeKey:null, fileName, _ok:false, _err:'немає поля id' });
+    return;
+  }
+  const data = normalizeRouteObj(obj);
+  const routeKey = data.routeKey || data.key || null;
+
+  const rec = { id, data, routeKey, fileName, _ok:true };
+  parsed.push(rec);
+}
+
+// ---------- preflight з Firestore ----------
+async function preflight(){
+  setState('Перевірка ключів у Firestore…');
+  problemsEl.textContent = '';
+  conflicts = [];
+
+  const toCheck = Array.from(new Set(parsed.map(r=>r.routeKey).filter(Boolean)));
+  const CHUNK = 200;
+  for (let i=0;i<toCheck.length;i+=CHUNK){
+    const chunk = toCheck.slice(i, i+CHUNK);
+    await Promise.all(chunk.map(async (rk) => {
+      try{
+        const ds = await db.collection('routeKeys').doc(rk).get();
+        if (ds.exists){
+          const existing = ds.data()?.routeId || null;
+          const rIn = parsed.find(x => x.routeKey === rk);
+          if (existing && rIn && existing !== rIn.id){
+            conflicts.push({ routeKey: rk, firestoreRouteId: existing, incomingRouteId: rIn.id });
+          }
+        }
+      }catch{}
+    }));
+  }
+
+  if (conflicts.length){
+    problemsEl.innerHTML = `<div class="warn"><b>Знайдені колізії routeKey:</b><br>${conflicts.map(c=>`• ${c.routeKey}: в Firestore → ${c.firestoreRouteId}, у файлі → ${c.incomingRouteId}`).join('<br>')}</div>`;
+  } else {
+    problemsEl.textContent = '';
+  }
+}
+
+// ---------- генерація routeKey у форматі "ЛЛ-##########" ----------
+async function assignMissingRouteKeys(){
+  const need = parsed.filter(r=>r._ok && !r.routeKey);
+  if (!need.length) return;
+
+  // якщо дозволено брати префікс з назв — підвантажити довідник за кодами
+  if (!optPrefixFromCodes.checked){
+    const codes = [];
+    need.forEach(r => {
+      const d = r.data || {};
+      if (d.fromCode) codes.push(d.fromCode);
+      if (d.toCode)   codes.push(d.toCode);
+    });
+    if (codes.length) await loadDirectoryByCodes(codes);
+  }
+
+  // унікальність у межах партії
+  const inBatch = new Set(parsed.map(r=>r.routeKey).filter(Boolean));
+
+  for (const r of need){
+    const prefix = computePrefixFor(r, optPrefixFromCodes.checked); // «БГ» тощо
+    let attempts = 0;
+    while (attempts < 20){
+      attempts++;
+      const candidate = `${prefix}-${randomDigits(10)}`;
+      if (inBatch.has(candidate)) continue;
+
+      // перевірка у Firestore на всяк випадок
+      try{
+        const ds = await db.collection('routeKeys').doc(candidate).get({ source:'server' });
+        if (ds.exists) continue;
+      }catch(_){}
+
+      r.routeKey = candidate;
+      r.data.routeKey = candidate;
+      r._genKey = true;
+      inBatch.add(candidate);
+      break;
+    }
+    if (!r.routeKey){ r._ok = false; r._err = 'не вдалося згенерувати унікальний routeKey'; }
+  }
+  refreshTable();
+}
+
+// ---------- commit у батчах ----------
+async function commitImport(){
+  const user = auth.currentUser;
+  const uid = user ? user.uid : null;
+
+  await preflight();
+
+  // якщо «завжди перезаписувати» вимкнений — застосовуємо стару логіку блокування
+  if (!optAlwaysOverwriteKeys.checked && conflicts.length && !optOverwriteKeys.checked){
+    alert('Є конфлікти routeKey. Увімкніть «Дозволити перезапис у routeKeys» або виправте файли.\n(Або ввімкніть «Завжди перезаписувати routeKeys» для форс-перезапису.)');
+    return;
+  }
+
+  // Згенерувати ключі у форматі "ЛЛ-##########" для відсутніх
+  await assignMissingRouteKeys();
+
+  if (optDryRun.checked){
+    setState('Dry-run завершено (без запису)');
+    alert('Dry-run: ключі згенеровані та показані у прев’ю. Зніміть галочку, щоб записати.');
+    return;
+  }
+
+  const todo = parsed.filter(r=>r._ok);
+  const BATCH = 400;
+  let done = 0;
+
+  for (let i=0;i<todo.length;i+=BATCH){
+    const slice = todo.slice(i, i+BATCH);
+    const batch = db.batch();
+
+    for (const r of slice){
+      const data = { ...r.data };
+      if (!data.updatedAt) data.updatedAt = nowIso();
+      data.importedAt = nowIso();
+      if (uid) data.importedBy = uid;
+
+      const routeRef = db.collection('routes').doc(r.id);
+      optMerge.checked ? batch.set(routeRef, data, { merge:true }) : batch.set(routeRef, data);
+
+      if (r.routeKey){
+        const rkRef = db.collection('routeKeys').doc(r.routeKey);
+        const rkData = { routeId: r.id, updatedAt: nowIso(), updatedBy: uid || null, active: true };
+        // якщо «завжди перезаписувати» або «дозволити перезапис при колізії» — все одно set(..., {merge:true})
+        // у протилежному випадку preflight уже гарантував відсутність конфліктів
+        batch.set(rkRef, rkData, { merge:true });
+      }
+    }
+
+    setState(`Запис: ${done}/${todo.length}…`);
+    await batch.commit();
+    done += slice.length;
+  }
+
+  setState('Готово');
+  alert(`Імпорт завершено: ${done} маршрутів`);
+}
+
+// ---------- drag & drop / file pick ----------
+function setupDnD(){
+  drop.addEventListener('dragover', (e)=>{ e.preventDefault(); drop.classList.add('drag'); });
+  drop.addEventListener('dragleave', ()=> drop.classList.remove('drag'));
+  drop.addEventListener('drop', (e)=>{
+    e.preventDefault(); drop.classList.remove('drag');
+    handleFiles(e.dataTransfer.files);
+  });
+}
+setupDnD();
+
+fileInput.addEventListener('change', (e)=> handleFiles(e.target.files));
+btnPickZip.onclick = ()=> {
+  const inp = document.createElement('input');
+  inp.type = 'file'; inp.accept = '.zip'; inp.multiple = true;
+  inp.onchange = (e)=> handleFiles(e.target.files);
+  inp.click();
+};
+btnClear.onclick = clearAll;
+btnImport.onclick = ()=> commitImport();
+
+</script>
+</body>
+</html>
