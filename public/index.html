@@ -321,16 +321,17 @@
 <!-- AUTH GUARD -->
 <script>
 (function(){
+  // ховаємо сторінку, поки не визначимо роль
   document.documentElement.style.visibility = 'hidden';
 
   const firebaseConfig = {
     apiKey: "AIzaSyAREP_iNSUZqNFH5RB5PE084b3wNyxaJ6c",
-  authDomain: "route-project-ba7c6.firebaseapp.com",
-  projectId: "route-project-ba7c6",
-  storageBucket: "route-project-ba7c6.firebasestorage.app",
-  messagingSenderId: "953368824279",
-  appId: "1:953368824279:web:68d28c2fd40292c13ee392",
-  measurementId: "G-B6B2JK7BXE"
+    authDomain: "route-project-ba7c6.firebaseapp.com",
+    projectId: "route-project-ba7c6",
+    storageBucket: "route-project-ba7c6.firebasestorage.app",
+    messagingSenderId: "953368824279",
+    appId: "1:953368824279:web:68d28c2fd40292c13ee392",
+    measurementId: "G-B6B2JK7BXE"
   };
 
   try { firebase.apps?.length ? firebase.app() : firebase.initializeApp(firebaseConfig); } catch(e) {}
@@ -338,39 +339,43 @@
   const auth = firebase.auth();
   const db   = firebase.firestore();
 
-  // ✅ виправляємо шлях на login.html
   const loginURL = '/login.html?next=' + encodeURIComponent(location.pathname + location.search);
+  const ALLOWED = new Set(['admin','logist','user']);
 
   auth.onAuthStateChanged(async (u) => {
     if (!u) { location.replace(loginURL); return; }
 
     try {
-      const snap = await db.collection('users').doc(u.uid).get({ source: 'server' });
-      const role = snap.exists ? (snap.data().role || 'pending') : 'pending';
+      // 1) спроба з users/{uid}
+      const usersDoc = await db.collection('users').doc(u.uid).get({ source: 'server' });
+      let role = usersDoc.exists ? (String(usersDoc.data().role || 'pending').toLowerCase()) : null;
 
-      // зробимо роль доступною нижчим скриптам (UI-бар)
-	window.__userRole = role;
+      // 2) fallback на roles/{uid}, якщо users/{uid} ще нема
+      if (!role) {
+        const rolesDoc = await db.collection('roles').doc(u.uid).get({ source: 'server' });
+        role = rolesDoc.exists ? (String(rolesDoc.data().role || 'pending').toLowerCase()) : 'pending';
+      }
 
-	// ⬇️ одразу сховаємо/покажемо лінк
-	['adminLink','adminLinkViewer'].forEach(id => {
-  const el = document.getElementById(id);
-  if (el) el.style.display = String(role).toLowerCase() === 'admin' ? '' : 'none';
-});
+      window.__userRole = role;
 
-	// показуємо сторінку
-	document.documentElement.style.visibility = 'visible'; // краще явно 'visible'
+      // показ/приховання адмін-лінків
+      ['adminLink','adminLinkViewer'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.style.display = role === 'admin' ? '' : 'none';
+      });
+
+      // відкриваємо сторінку
+      document.documentElement.style.visibility = 'visible';
 
       if (role === 'pending') {
         alert('Ваш акаунт очікує підтвердження адміністратором.');
         location.replace(loginURL); return;
       }
-      if (!['admin','logist','user'].includes(role)) {
+      if (!ALLOWED.has(role)) {
         alert('Недостатньо прав для цієї сторінки.');
         location.replace(loginURL); return;
       }
-
-      // ✅ все добре — показуємо сторінку
-      document.documentElement.style.visibility = '';
+      // якщо роль дозволена — просто залишаємо користувача на сторінці
     } catch (e) {
       console.error('Role check failed:', e);
       location.replace(loginURL);
@@ -1091,13 +1096,13 @@ document.head.appendChild(turfScript);
 
 /* ===================== Firebase ===================== */
 const firebaseConfig = {
-  apiKey: "AIzaSyDjDBZkmy-skuDEQF8-AkRma7yw6TugoQc",
-  authDomain: "my-map-app-58312.firebaseapp.com",
-  projectId: "my-map-app-58312",
-  storageBucket: "my-map-app-58312.firebasestorage.app",
-  messagingSenderId: "53260611353",
-  appId: "1:53260611353:web:f25e120996ad8305405f88",
-  measurementId: "G-9LRX1FLTKL"
+  apiKey: "AIzaSyAREP_iNSUZqNFH5RB5PE084b3wNyxaJ6c",
+  authDomain: "route-project-ba7c6.firebaseapp.com",
+  projectId: "route-project-ba7c6",
+  storageBucket: "route-project-ba7c6.firebasestorage.app",
+  messagingSenderId: "953368824279",
+  appId: "1:953368824279:web:68d28c2fd40292c13ee392",
+  measurementId: "G-B6B2JK7BXE"
 };
 
 let db = null, auth = null;
@@ -1108,7 +1113,7 @@ try {
   db = firebase.firestore();
   auth = firebase.auth();
   storage = firebase.storage();
-  console.log('✅ Firebase ініціалізовано:', firebaseConfig.projectId);
+  console.log('✅ Firebase:', firebase.app().options.projectId);
   firebase.firestore().enablePersistence({ synchronizeTabs: true }).catch((e) => {
     console.warn('Firestore persistence is off:', e.code || e.message);
   });
@@ -1788,6 +1793,7 @@ async function copyReviewLink(){
 
 // виставляємо статус pending та підвищуємо revision
 async function sendForApproval(){
+  if (readOnly) { alert('⛔ Недостатньо прав'); return; }   // ⬅️ додай тут
   if (!db || !auth?.currentUser){ alert('Увійдіть у систему.'); return; }
   const sel = document.getElementById('remoteRoutes');
   const id  = sel.value;
@@ -2125,12 +2131,14 @@ applyRoleUI(['admin','logist','user'].includes(role) ? role : 'guest');
 
     // live-оновлення ролі (підписка на users/{uid})
     if (roleUnsub) try{ roleUnsub(); }catch{}
-    roleUnsub = db.collection('users').doc(user.uid)
-      .onSnapshot({ includeMetadataChanges: true }, (doc) => {
-        const r = doc.exists ? (doc.data().role || 'pending') : 'pending';
-        window.__userRole = r;
-        applyRoleUI(['admin','logist'].includes(r) ? r : 'guest');
-      });
+    const ALLOWED = new Set(['admin','logist','user']);
+
+roleUnsub = db.collection('users').doc(user.uid)
+  .onSnapshot({ includeMetadataChanges: true }, (doc) => {
+    const r = doc.exists ? (String(doc.data().role || 'pending').toLowerCase()) : 'pending';
+    window.__userRole = r;
+    applyRoleUI(ALLOWED.has(r) ? r : 'guest'); // ✅ 'user' зберігається як read-only
+  });
 
     await loadLogists(true);
     await loadGeozonesFromStorage(STORAGE_GEOJSON_PATH, true);
