@@ -14,6 +14,8 @@
   <!-- LZ-String (srcz) -->
   <script src="https://cdn.jsdelivr.net/npm/lz-string@1.5.0/libs/lz-string.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+  <!-- App config -->
+<script src="/config/config.js"></script>
 
   <style>
     :root { --w: 1080px; }
@@ -100,17 +102,9 @@
   document.documentElement.style.visibility = 'hidden';
 
   // локальна (всередині функції) копія конфіга, щоб не конфліктувати з нижнім const firebaseConfig
-  const firebaseConfig = {
-    apiKey: "AIzaSyAREP_iNSUZqNFH5RB5PE084b3wNyxaJ6c",
-  authDomain: "route-project-ba7c6.firebaseapp.com",
-  projectId: "route-project-ba7c6",
-  storageBucket: "route-project-ba7c6.firebasestorage.app",
-  messagingSenderId: "953368824279",
-  appId: "1:953368824279:web:68d28c2fd40292c13ee392",
-  measurementId: "G-B6B2JK7BXE"
-  };
-
-  try { firebase.apps?.length ? firebase.app() : firebase.initializeApp(firebaseConfig); } catch(e) {}
+  const CFG = window.APP_CONFIG?.firebase;
+if (!CFG) console.error('APP_CONFIG.firebase відсутній. Перевір /config/config.js і підключення <script src="/config/config.js">.');
+try { firebase.apps?.length ? firebase.app() : firebase.initializeApp(CFG); } catch(e) {}
   const auth = firebase.auth();
   const db   = firebase.firestore();
 
@@ -374,24 +368,28 @@ window.addEventListener('error', (e) => {
   try { document.getElementById('status').textContent = 'Помилка скрипта'; } catch(_) {}
 });
 
-/* ---------- Firebase config ---------- */
-const firebaseConfig = {
-  apiKey: "AIzaSyDjDBZkmy-skuDEQF8-AkRma7yw6TugoQc",
-  authDomain: "my-map-app-58312.firebaseapp.com",
-  projectId: "my-map-app-58312",
-  storageBucket: "my-map-app-58312.firebasestorage.app",
-  messagingSenderId: "53260611353",
-  appId: "1:53260611353:web:f25e120996ad8305405f88",
-  measurementId: "G-9LRX1FLTKL"
-};
-
 const statusEl = document.getElementById('status');
 let db = null, auth = null;
 let currentUser = null;
 let currentRole = null;
 
 try{
-  const app = firebase.apps?.length ? firebase.app() : firebase.initializeApp(firebaseConfig);
+  const CFG = window.APP_CONFIG?.firebase;
+  if (!CFG) throw new Error('APP_CONFIG.firebase відсутній. Перевір /config/config.js.');
+
+  const app = firebase.apps?.length ? firebase.app() : firebase.initializeApp(CFG);
+  db = firebase.firestore();
+  auth = firebase.auth();
+
+  statusEl.textContent = 'Підключено';
+  // (опційно) зберігання офлайн
+  firebase.firestore().enablePersistence({ synchronizeTabs: true }).catch((e) => {
+    console.warn('Persistence off:', e.code || e.message);
+  });
+} catch(e){
+  console.error('Init error:', e);
+  statusEl.textContent = 'Помилка ініціалізації';
+}
   db = firebase.firestore();
   auth = firebase.auth();
   statusEl.textContent = 'Підключено';
