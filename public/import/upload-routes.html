@@ -392,16 +392,65 @@ async function assignMissingRouteKeys(){
   refreshTable();
 }
 
-// ---------- commit у батчах ----------
+/* ==== Новий механізм нарізання батчів за кількістю операцій ==== */
+const MAX_OPS_PER_BATCH = 450;                     // запас до 500
+const opsFor = (r) => 1 + (r.routeKey ? 1 : 0);   // routes + (routeKeys)
+
+function splitByOps(records){
+  const out = [];
+  let cur = [], ops = 0;
+  for (const r of records){
+    const need = opsFor(r);
+    if (ops + need > MAX_OPS_PER_BATCH && cur.length){
+      out.push(cur); cur = []; ops = 0;
+    }
+    cur.push(r); ops += need;
+  }
+  if (cur.length) out.push(cur);
+  return out;
+}
+
+// Фолбек: якщо пакетний commit впав — пишемо по одному документу
+async function commitSliceSafely(slice, uid, mergeFlag){
+  for (const r of slice){
+    const b = db.batch();
+
+    const routeRef = db.collection('routes').doc(r.id);
+    const data = { ...r.data };
+    if (!data.updatedAt) data.updatedAt = nowIso();
+    data.importedAt = nowIso();
+    if (uid) data.importedBy = uid;
+
+    mergeFlag ? b.set(routeRef, data, { merge:true }) : b.set(routeRef, data);
+
+    if (r.routeKey){
+      const rkRef = db.collection('routeKeys').doc(r.routeKey);
+      b.set(rkRef, {
+        routeId: r.id,
+        updatedAt: nowIso(),
+        updatedBy: uid || null,
+        active: true
+      }, { merge:true });
+    }
+    await b.commit();
+    // дати можливість UI оновитися
+    await new Promise(requestAnimationFrame);
+  }
+}
+
+/* ---------- commit у батчах ---------- */
 async function commitImport(){
   const user = auth.currentUser;
   const uid = user ? user.uid : null;
 
+  // підстрахуємося від офлайн-режиму
+  try { await firebase.firestore().enableNetwork(); } catch {}
+
   await preflight();
 
-  // якщо «завжди перезаписувати» вимкнений — застосовуємо стару логіку блокування
+  // якщо «завжди перезаписувати» вимкнений — застосовуємо блокування на конфліктах
   if (!optAlwaysOverwriteKeys.checked && conflicts.length && !optOverwriteKeys.checked){
-    alert('Є конфлікти routeKey. Увімкніть «Дозволити перезапис у routeKeys» або виправте файли.\n(Або ввімкніть «Завжди перезаписувати routeKeys» для форс-перезапису.)');
+    alert('Є конфлікти routeKey. Увімкніть «Дозволити перезапис у routeKeys» або виправте файли.\n(Або увімкніть «Завжди перезаписувати routeKeys» для форс-перезапису.)');
     return;
   }
 
@@ -415,11 +464,11 @@ async function commitImport(){
   }
 
   const todo = parsed.filter(r=>r._ok);
-  const BATCH = 400;
+  const batches = splitByOps(todo);
   let done = 0;
 
-  for (let i=0;i<todo.length;i+=BATCH){
-    const slice = todo.slice(i, i+BATCH);
+  for (let bi = 0; bi < batches.length; bi++){
+    const slice = batches[bi];
     const batch = db.batch();
 
     for (const r of slice){
@@ -434,15 +483,22 @@ async function commitImport(){
       if (r.routeKey){
         const rkRef = db.collection('routeKeys').doc(r.routeKey);
         const rkData = { routeId: r.id, updatedAt: nowIso(), updatedBy: uid || null, active: true };
-        // якщо «завжди перезаписувати» або «дозволити перезапис при колізії» — все одно set(..., {merge:true})
-        // у протилежному випадку preflight уже гарантував відсутність конфліктів
         batch.set(rkRef, rkData, { merge:true });
       }
     }
 
-    setState(`Запис: ${done}/${todo.length}…`);
-    await batch.commit();
+    setState(`Запис: ${done}/${todo.length}… (пакет ${bi+1}/${batches.length})`);
+    try{
+      await batch.commit();
+    }catch(e){
+      console.warn('batch.commit помилка, пишу по одному:', e);
+      await commitSliceSafely(slice, uid, optMerge.checked);
+    }
+
     done += slice.length;
+    setState(`Запис: ${done}/${todo.length}… (пакет ${bi+1}/${batches.length})`);
+    // дати можливість промалюватися індикатору
+    await new Promise(requestAnimationFrame);
   }
 
   setState('Готово');
