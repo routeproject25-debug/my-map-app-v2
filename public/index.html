@@ -1373,8 +1373,8 @@ document.getElementById('saveRoute').onclick = () => {
     logisticId: logistId || null,
     logisticName: logistName || '',
     distance_km: parseFloat(document.getElementById('distance').textContent) || 0,
-    date: new Date().toISOString()
-	hub // 👈 додано
+    date: new Date().toISOString(),
+	hub: hub || '' // 👈 додано
   };
   const blob = new Blob([JSON.stringify(routeData, null, 2)], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
@@ -1526,7 +1526,7 @@ async function saveToDB() {
       createdByUid: user?.uid || null,
       createdByEmail: user?.email || null,
       distance_km: parseFloat(document.getElementById('distance').textContent) || 0,
-      updatedAt: new Date().toISOString()
+      updatedAt: new Date().toISOString(),
 	  hub: hub || null // 👈 додано
     };
 
