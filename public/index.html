@@ -13,6 +13,8 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
   <!-- ⬇️ Firebase Storage -->
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
+  <!-- App config -->
+<script src="/config/config.js"></script>
 
   <style>
   :root { --nav-h:56px; --nav-real:56px; --card:#fff; --line:#e5e7eb; --muted:#6b7280; }
@@ -324,17 +326,9 @@
   // ховаємо сторінку, поки не визначимо роль
   document.documentElement.style.visibility = 'hidden';
 
-  const firebaseConfig = {
-    apiKey: "AIzaSyAREP_iNSUZqNFH5RB5PE084b3wNyxaJ6c",
-    authDomain: "route-project-ba7c6.firebaseapp.com",
-    projectId: "route-project-ba7c6",
-    storageBucket: "route-project-ba7c6.firebasestorage.app",
-    messagingSenderId: "953368824279",
-    appId: "1:953368824279:web:68d28c2fd40292c13ee392",
-    measurementId: "G-B6B2JK7BXE"
-  };
-
-  try { firebase.apps?.length ? firebase.app() : firebase.initializeApp(firebaseConfig); } catch(e) {}
+  const CFG = window.APP_CONFIG?.firebase;
+if (!CFG) console.error('APP_CONFIG.firebase відсутній. Перевір /config/config.js та <script src="/config/config.js"> у <head>.');
+try { firebase.apps?.length ? firebase.app() : firebase.initializeApp(CFG); } catch(e) {}
 
   const auth = firebase.auth();
   const db   = firebase.firestore();
@@ -386,7 +380,8 @@
 
 <script>
 /* ===================== Mapbox init ===================== */
-mapboxgl.accessToken = 'pk.eyJ1Ijoicm91dGUtcHJvamVjdCIsImEiOiJjbWc2ZGlsYnQwYmlrMmpyMnJmdHhya3VhIn0.dTb3s9o92U18k-w5qBBj-Q';
+mapboxgl.accessToken = window.APP_CONFIG?.mapboxToken || '';
+if (!mapboxgl.accessToken) console.error('APP_CONFIG.mapboxToken порожній або відсутній.');
 let currentStyle = 'mapbox://styles/mapbox/streets-v12';
 const map = new mapboxgl.Map({ container: 'map', style: currentStyle, center: [28.468, 49.234], zoom: 12 });
 
@@ -1095,24 +1090,18 @@ turfScript.onload = () => { updateRoute(); };
 document.head.appendChild(turfScript);
 
 /* ===================== Firebase ===================== */
-const firebaseConfig = {
-  apiKey: "AIzaSyAREP_iNSUZqNFH5RB5PE084b3wNyxaJ6c",
-  authDomain: "route-project-ba7c6.firebaseapp.com",
-  projectId: "route-project-ba7c6",
-  storageBucket: "route-project-ba7c6.firebasestorage.app",
-  messagingSenderId: "953368824279",
-  appId: "1:953368824279:web:68d28c2fd40292c13ee392",
-  measurementId: "G-B6B2JK7BXE"
-};
-
 let db = null, auth = null;
 let storage = null;
 
 try {
-  firebase.apps && firebase.apps.length ? firebase.app() : firebase.initializeApp(firebaseConfig);
+  const CFG = window.APP_CONFIG?.firebase;
+  if (!CFG) console.error('APP_CONFIG.firebase відсутній. Перевір /config/config.js.');
+  firebase.apps?.length ? firebase.app() : firebase.initializeApp(CFG);
+
   db = firebase.firestore();
   auth = firebase.auth();
   storage = firebase.storage();
+
   console.log('✅ Firebase:', firebase.app().options.projectId);
   firebase.firestore().enablePersistence({ synchronizeTabs: true }).catch((e) => {
     console.warn('Firestore persistence is off:', e.code || e.message);
