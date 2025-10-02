@@ -8,6 +8,8 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+  <!-- App config (додати цей рядок!) -->
+<script src="/config/config.js"></script>
   <style>
     :root{
       --bg:#f6f7f9; --card:#fff; --text:#1f2328; --muted:#6b7280;
@@ -60,53 +62,51 @@
 
   <!-- === AUTH GUARD у <head> === -->
   <script>
-    (async function(){
-      const firebaseConfig = {
-        apiKey: "AIzaSyAREP_iNSUZqNFH5RB5PE084b3wNyxaJ6c",
-  authDomain: "route-project-ba7c6.firebaseapp.com",
-  projectId: "route-project-ba7c6",
-  storageBucket: "route-project-ba7c6.firebasestorage.app",
-  messagingSenderId: "953368824279",
-  appId: "1:953368824279:web:68d28c2fd40292c13ee392",
-  measurementId: "G-B6B2JK7BXE"
-      };
-      try{ firebase.apps?.length ? firebase.app() : firebase.initializeApp(firebaseConfig); }catch(e){}
+  (async function(){
+    // 1) Беремо конфіг із /config/config.js
+    const CFG = window.APP_CONFIG?.firebase;
+    if (!CFG) {
+      console.error('APP_CONFIG.firebase відсутній. Перевір підключення /config/config.js');
+      // щоб сторінка не висіла прихованою
+      document.documentElement.style.visibility = 'visible';
+      return;
+    }
+    try { firebase.apps?.length ? firebase.app() : firebase.initializeApp(CFG); } catch(e){}
 
-      const db   = firebase.firestore();
-      const auth = firebase.auth();
-      const loginURL = '/login.html?next=' + encodeURIComponent(location.pathname + location.search);
-      const ALLOWED = new Set(['admin','logist']);
+    const db   = firebase.firestore();
+    const auth = firebase.auth();
+    const loginURL = '/login.html?next=' + encodeURIComponent(location.pathname + location.search);
+    const ALLOWED = new Set(['admin','logist']);
 
-      auth.onAuthStateChanged(async (u) => {
-        if (!u) { location.replace(loginURL); return; }
+    auth.onAuthStateChanged(async (u) => {
+      if (!u) { location.replace(loginURL); return; }
 
-        // читаємо роль з users/{uid}.role, fallback roles/{uid}.role
-        let role = 'pending';
-        try{
-          const us = await db.collection('users').doc(u.uid).get();
-          role = us.exists ? (us.data().role || 'pending') : 'pending';
-          if (role === 'pending') {
-            const rs = await db.collection('roles').doc(u.uid).get();
-            if (rs.exists && rs.data()?.role) role = String(rs.data().role);
-          }
-        }catch(e){ role = 'pending'; }
-
-        role = String(role).trim().toLowerCase();   // ✅ нормалізуємо
-		window.__userRole = role;
-
-        if (!ALLOWED.has(role)) {
-          alert(role === 'pending'
-            ? 'Ваш акаунт очікує підтвердження адміністратором.'
-            : 'Недостатньо прав для сторінки Імпорту (потрібно: admin або logist).');
-          location.replace(loginURL);
-          return;
+      // читаємо роль users/{uid}.role з фолбеком на roles/{uid}.role — саме зі "server"
+      let role = 'pending';
+      try {
+        const us = await db.collection('users').doc(u.uid).get({ source: 'server' });
+        role = us.exists ? (us.data().role || 'pending') : 'pending';
+        if (role === 'pending') {
+          const rs = await db.collection('roles').doc(u.uid).get({ source: 'server' });
+          if (rs.exists && rs.data()?.role) role = String(rs.data().role);
         }
+      } catch {}
 
-        // доступ дозволено — показуємо DOM
-        document.documentElement.style.visibility = 'visible';
-      });
-    })();
-  </script>
+      role = String(role).trim().toLowerCase();
+      window.__userRole = role;
+
+      if (!ALLOWED.has(role)) {
+        alert(role === 'pending'
+          ? 'Ваш акаунт очікує підтвердження адміністратором.'
+          : 'Недостатньо прав для сторінки Імпорту (потрібно: admin або logist).');
+        location.replace(loginURL); return;
+      }
+
+      // ok — показуємо DOM
+      document.documentElement.style.visibility = '';
+    });
+  })();
+</script>
 </head>
 <body>
   <!-- Навігація + Авторизація -->
@@ -578,7 +578,7 @@ auth?.onAuthStateChanged(async (u) => {
     $('raw').value = '';
     $('sep').value = 'auto';
     $('enc').value = 'utf-8';
-    ['nameCol','codeCol','companyCol','unitCol'].forEach(id => { $(id).value = ''; });
+    ['nameCol','codeCol','companyCol','unitCol','hubCol'].forEach(id => { $(id).value = ''; });
     $('hasHeader').checked = true;
     $('dryRun').checked = true;
     $('status').innerHTML = '';
