@@ -11,6 +11,8 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
   <!-- SheetJS (Excel) -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <!-- ⬇️ додай це -->
+<script src="/config/config.js"></script>
 
   <style>
     :root { --w: 1180px; }
@@ -126,18 +128,22 @@
   </div>
 
 <script>
-  // 1) Firebase config — такий самий, як в index.html
-  const firebaseConfig = {
-    apiKey: "AIzaSyAREP_iNSUZqNFH5RB5PE084b3wNyxaJ6c",
-  authDomain: "route-project-ba7c6.firebaseapp.com",
-  projectId: "route-project-ba7c6",
-  storageBucket: "route-project-ba7c6.firebasestorage.app",
-  messagingSenderId: "953368824279",
-  appId: "1:953368824279:web:68d28c2fd40292c13ee392",
-  measurementId: "G-B6B2JK7BXE"
-  };
+  // 1) Firebase config — беремо з /config/config.js
+  const CFG = window.APP_CONFIG?.firebase;
+  if (!CFG) {
+    console.error('APP_CONFIG.firebase is missing. Check /config/config.js and its <script> include.');
+    (function showGuardErrorInline(){
+      const guard = document.getElementById('guard');
+      guard.classList.remove('hide');
+      guard.innerHTML = `<div class="card" style="max-width:520px; text-align:center;">
+        <h2 style="margin:0 0 6px;">Не знайдено APP_CONFIG.firebase</h2>
+        <div class="muted">Перевір, що /config/config.js підключено і містить window.APP_CONFIG.firebase</div>
+      </div>`;
+    })();
+    throw new Error('Missing APP_CONFIG.firebase');
+  }
 
-  // 2) Відомі колекції (за бажанням доповнюй)
+  // 2) Відомі колекції
   const KNOWN_COLLECTIONS = ['directory','routes','users','geozones','approvals','roles','routeKeys'];
 
   // ---- Глобальні змінні ----
@@ -167,8 +173,8 @@
   const btnExportAll = document.getElementById('btnExportAll');
   const tbl = document.getElementById('tbl');
 
-  // ---- Ініціалізація ----
-  try { firebase.apps?.length ? firebase.app() : firebase.initializeApp(firebaseConfig); } catch(e){ console.error(e); }
+  // ---- Ініціалізація Firebase ----
+  try { firebase.apps?.length ? firebase.app() : firebase.initializeApp(CFG); } catch(e){ console.error(e); }
   db = firebase.firestore();
   auth = firebase.auth();
 
@@ -178,11 +184,12 @@
     opt.value = c; opt.textContent = c; selCollection.appendChild(opt);
   });
 
+  // Логін-URL (з поверненням на ту ж сторінку)
+  const loginURL = '/login.html?next=' + encodeURIComponent(location.pathname + location.search);
+
   // Кнопки
-  btnSignOut.onclick = async () => { try{ await auth.signOut(); } finally {
-    location.replace('/login.html?next=' + encodeURIComponent('/Firestore_Viewe.html'));
-  }};
-  btnGoHome.style.display = 'none'; // ховаємо до перевірки ролі
+  btnSignOut.onclick = async () => { try{ await auth.signOut(); } finally { location.replace(loginURL); }};
+  btnGoHome.style.display = 'none';
   btnGoHome.onclick = () => location.href = '/index.html';
 
   selPageSize.onchange = () => pageSize = parseInt(selPageSize.value, 10);
@@ -198,8 +205,7 @@
     if (!user) {
       userBox.textContent = 'Не увійшли';
       showGuardError('Необхідна авторизація');
-      // редирект на логін із поверненням назад
-      location.replace('/login.html?next=' + encodeURIComponent('/Firestore_Viewe.html'));
+      location.replace(loginURL);
       return;
     }
     currentUser = user;
@@ -211,7 +217,7 @@
       return;
     }
     guard.classList.add('hide');
-    btnGoHome.style.display = ''; // показуємо кнопку адмінам
+    btnGoHome.style.display = '';
   });
 
   async function isAdmin(user) {
@@ -220,14 +226,11 @@
       const c = token.claims || {};
       if (c.admin === true || c.role === 'admin' || (c.roles && c.roles.admin === true)) return true;
     } catch (e) {}
-
-    // Фолбек: перевірка у Firestore (users/{uid})
     try {
       const doc = await db.collection('users').doc(user.uid).get();
       const data = doc.data() || {};
       if (data.role === 'admin' || (data.roles && data.roles.admin === true)) return true;
     } catch (e) {}
-
     return false;
   }
 
@@ -298,16 +301,11 @@
     }
   }
 
-  function setState(text, isErr=false) {
-    lblState.textContent = text;
-    lblState.className = isErr ? 'badge err' : 'badge ok';
-  }
+  function setState(text, isErr=false) { lblState.textContent = text; lblState.className = isErr ? 'badge err' : 'badge ok'; }
 
-  // ---- Побудова даних таблиці ----
   function buildGridData(docSnaps) {
     const rows = [];
     const colSet = new Set(['id']);
-
     for (const d of docSnaps) {
       const flat = { id: d.id };
       flattenValue(d.data(), '', flat);
@@ -320,23 +318,12 @@
   }
 
   function flattenValue(val, prefix, out) {
-    if (val === null || val === undefined) {
-      if (prefix) out[prefix] = null;
-      return;
-    }
+    if (val === null || val === undefined) { if (prefix) out[prefix] = null; return; }
     if (val instanceof firebase.firestore.Timestamp) { out[prefix] = val.toDate().toISOString(); return; }
     if (val instanceof firebase.firestore.GeoPoint) { out[prefix] = `${val.latitude},${val.longitude}`; return; }
     if (typeof val === 'object' && typeof val.path === 'string' && val.parent) { out[prefix] = val.path; return; }
-
     if (Array.isArray(val)) { out[prefix || 'array'] = JSON.stringify(val); return; }
-
-    if (typeof val === 'object') {
-      for (const [k, v] of Object.entries(val)) {
-        const key = prefix ? `${prefix}.${k}` : k;
-        flattenValue(v, key, out);
-      }
-      return;
-    }
+    if (typeof val === 'object') { for (const [k, v] of Object.entries(val)) flattenValue(v, prefix ? `${prefix}.${k}` : k, out); return; }
     if (prefix) out[prefix] = val;
   }
 
@@ -345,30 +332,20 @@
     let view = rows;
     if (q) view = rows.filter(r => JSON.stringify(r).toLowerCase().includes(q));
 
-    const thead = tbl.querySelector('thead');
-    thead.innerHTML = '';
+    const thead = tbl.querySelector('thead'); thead.innerHTML = '';
     const trh = document.createElement('tr');
-    for (const col of columns) {
-      const th = document.createElement('th');
-      th.textContent = col; trh.appendChild(th);
-    }
+    for (const col of columns) { const th = document.createElement('th'); th.textContent = col; trh.appendChild(th); }
     thead.appendChild(trh);
 
-    const tbody = tbl.querySelector('tbody');
-    tbody.innerHTML = '';
+    const tbody = tbl.querySelector('tbody'); tbody.innerHTML = '';
     for (const r of view) {
       const tr = document.createElement('tr');
       for (const col of columns) {
         const td = document.createElement('td');
-        let val = r[col];
-        if (val === undefined) val = '';
+        let val = r[col]; if (val === undefined) val = '';
         if (col === 'id') td.classList.add('id');
-        if (typeof val === 'string' && val.length > 200) {
-          td.textContent = val.slice(0, 200) + '…';
-          td.title = val;
-        } else {
-          td.textContent = String(val);
-        }
+        if (typeof val === 'string' && val.length > 200) { td.textContent = val.slice(0, 200) + '…'; td.title = val; }
+        else { td.textContent = String(val); }
         tr.appendChild(td);
       }
       tbody.appendChild(tr);
@@ -381,11 +358,9 @@
     renderTable(cols, flatRows);
   }
 
-  // ---- Експорт ----
   async function exportXlsx(allPages=false) {
     try {
       setState('Експорт…');
-
       let rows = flatRows;
       let columns = Array.from(tbl.querySelectorAll('thead th')).map(th => th.textContent);
 
@@ -410,18 +385,12 @@
         columns.sort((a,b) => (a==='id') ? -1 : (b==='id') ? 1 : a.localeCompare(b));
       }
 
-      const aoa = [];
-      aoa.push(columns);
-      for (const r of rows) aoa.push(columns.map(c => (r[c] === undefined ? '' : r[c])));
-
+      const aoa = [columns, ...rows.map(r => columns.map(c => (r[c] === undefined ? '' : r[c])))];
       const ws = XLSX.utils.aoa_to_sheet(aoa);
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, ws, safeSheetName(currentCollection));
-
-      const ts = new Date();
-      const pad = n => String(n).padStart(2,'0');
-      const fname = `export_${currentCollection}_${ts.getFullYear()}${pad(ts.getMonth()+1)}${pad(ts.getDate())}_${pad(ts.getHours())}${pad(ts.getMinutes())}.xlsx`;
-      XLSX.writeFile(wb, fname);
+      const ts = new Date(); const pad = n => String(n).padStart(2,'0');
+      XLSX.writeFile(wb, `export_${currentCollection}_${ts.getFullYear()}${pad(ts.getMonth()+1)}${pad(ts.getDate())}_${pad(ts.getHours())}${pad(ts.getMinutes())}.xlsx`);
       setState('Готово');
     } catch (e) {
       console.error(e);
@@ -430,9 +399,7 @@
     }
   }
 
-  function safeSheetName(name) {
-    return String(name).replace(/[\\/*?:\[\]]/g, ' ' ).slice(0,31) || 'Sheet1';
-  }
+  function safeSheetName(name) { return String(name).replace(/[\\/*?:\[\]]/g, ' ' ).slice(0,31) || 'Sheet1'; }
 </script>
 </body>
 </html>
