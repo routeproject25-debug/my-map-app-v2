@@ -62,13 +62,11 @@
 
   <!-- === AUTH GUARD у <head> === -->
   <script>
-  (async function(){
-    // 1) Беремо конфіг із /config/config.js
+  (function () {
     const CFG = window.APP_CONFIG?.firebase;
     if (!CFG) {
-      console.error('APP_CONFIG.firebase відсутній. Перевір підключення /config/config.js');
-      // щоб сторінка не висіла прихованою
-      document.documentElement.style.visibility = 'visible';
+      console.error('APP_CONFIG.firebase відсутній. Перевір /config/config.js');
+      document.documentElement.style.visibility = ''; // не ховаємо сторінку
       return;
     }
     try { firebase.apps?.length ? firebase.app() : firebase.initializeApp(CFG); } catch(e){}
@@ -78,32 +76,39 @@
     const loginURL = '/login.html?next=' + encodeURIComponent(location.pathname + location.search);
     const ALLOWED = new Set(['admin','logist']);
 
+    // запасний таймер, щоб сторінка гарантовано стала видимою
+    const safety = setTimeout(() => { document.documentElement.style.visibility = ''; }, 3000);
+
+    async function fetchRole(uid){
+      // 1) server → 2) default (server або cache) → 3) cache
+      const tryGet = async (source) => {
+        try { const snap = await db.collection('users').doc(uid).get({ source }); 
+              if (snap.exists && snap.data()?.role) return String(snap.data().role); } catch {}
+        try { const snap = await db.collection('roles').doc(uid).get({ source }); 
+              if (snap.exists && snap.data()?.role) return String(snap.data().role); } catch {}
+        return null;
+      };
+      return (await tryGet('server')) || (await tryGet('default')) || (await tryGet('cache')) || 'pending';
+    }
+
     auth.onAuthStateChanged(async (u) => {
       if (!u) { location.replace(loginURL); return; }
 
-      // читаємо роль users/{uid}.role з фолбеком на roles/{uid}.role — саме зі "server"
-      let role = 'pending';
-      try {
-        const us = await db.collection('users').doc(u.uid).get({ source: 'server' });
-        role = us.exists ? (us.data().role || 'pending') : 'pending';
-        if (role === 'pending') {
-          const rs = await db.collection('roles').doc(u.uid).get({ source: 'server' });
-          if (rs.exists && rs.data()?.role) role = String(rs.data().role);
-        }
-      } catch {}
+      // Показуємо UI негайно — навіть якщо роль ще не прочитана
+      document.documentElement.style.visibility = '';
+      clearTimeout(safety);
 
-      role = String(role).trim().toLowerCase();
+      let role = 'pending';
+      try { role = (await fetchRole(u.uid)) || 'pending'; } catch (e) { console.warn('role fetch error:', e); }
+      role = role.trim().toLowerCase();
       window.__userRole = role;
 
       if (!ALLOWED.has(role)) {
         alert(role === 'pending'
           ? 'Ваш акаунт очікує підтвердження адміністратором.'
           : 'Недостатньо прав для сторінки Імпорту (потрібно: admin або logist).');
-        location.replace(loginURL); return;
+        location.replace(loginURL);
       }
-
-      // ok — показуємо DOM
-      document.documentElement.style.visibility = '';
     });
   })();
 </script>
