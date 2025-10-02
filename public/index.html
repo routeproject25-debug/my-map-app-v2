@@ -216,6 +216,16 @@
         <option value="ТМЦ">ТМЦ</option>
       </select>
     </div>
+	  <div>
+    <label>Хаб</label>
+    <select id="hubSelect">
+      <option value="">— не вказано —</option>
+      <option value="Вінницький">Вінницький</option>
+      <option value="Західний">Західний</option>
+      <option value="Центральний">Центральний</option>
+      <option value="Урожайна Країна">Урожайна Країна</option>
+    </select>
+  </div>
     <div style="grid-column:1 / -1">
       <label>Проміжні пункти</label>
       <input id="intermediateText" type="text" placeholder="Напр.: Немирів; Гайсин; Тульчин">
@@ -511,7 +521,8 @@ function applyRoleUI(role){
     'saveRoute','loadRoute','saveToDB','deleteFromDB','routeName',
     'fromName','toName','routeType','routePurpose','intermediateText',
 	// ⬇️ додай ці дві кнопки, щоб user не міг відправляти на погодження
-    'sendForApproval','copyReviewLink'
+    'sendForApproval','copyReviewLink',
+  'hubSelect' // 👈 додано
   ];
   disableIds.forEach(id=>{
     const el = document.getElementById(id);
@@ -1346,6 +1357,7 @@ document.getElementById('saveRoute').onclick = () => {
   const toCode   = getCodeByInput('toName');
   const routeType = document.getElementById('routeType').value;
   const purpose   = document.getElementById('routePurpose').value;
+  const hub = (document.getElementById('hubSelect').value || '').trim();
   const intermediateText = document.getElementById('intermediateText').value.trim();
   const logistId = getLogistIdByInput('logistInput');
   const logistName = logistId ? getLogistNameById(logistId) : '';
@@ -1362,6 +1374,7 @@ document.getElementById('saveRoute').onclick = () => {
     logisticName: logistName || '',
     distance_km: parseFloat(document.getElementById('distance').textContent) || 0,
     date: new Date().toISOString()
+	hub // 👈 додано
   };
   const blob = new Blob([JSON.stringify(routeData, null, 2)], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
@@ -1423,6 +1436,8 @@ const arrFrom = (pts) => {
       if (routeData.purpose)   document.getElementById('routePurpose').value = routeData.purpose;
       document.getElementById('intermediateText').value = routeData.intermediateText || '';
       document.getElementById('routeName').value = routeData.name || '';
+	  if (routeData.hub) document.getElementById('hubSelect').value = routeData.hub;
+
 	// ⬇️ додай
 	updateHighlights();
 
@@ -1483,6 +1498,7 @@ async function saveToDB() {
     const routeType = document.getElementById('routeType').value;
     const purpose   = document.getElementById('routePurpose').value;
     const intermediateText = document.getElementById('intermediateText').value.trim();
+	const hub = (document.getElementById('hubSelect').value || '').trim();
     const logistId = getLogistIdByInput('logistInput');
     if (!fromCode || !toCode) { alert('Оберіть значення “Від” та “До” зі списку довідника.'); return; }
     if (!logistId) { alert('Оберіть логіста зі списку.'); return; }
@@ -1511,6 +1527,7 @@ async function saveToDB() {
       createdByEmail: user?.email || null,
       distance_km: parseFloat(document.getElementById('distance').textContent) || 0,
       updatedAt: new Date().toISOString()
+	  hub: hub || null // 👈 додано
     };
 
     const existing = await findExistingRoute(fromCode, toCode, routeType);
@@ -1703,6 +1720,7 @@ async function loadFromDB() {
     document.getElementById('routeType').value = data.routeType || 'Основний';
     document.getElementById('routePurpose').value = data.purpose || 'Зерно';
     document.getElementById('intermediateText').value = data.intermediateText || '';
+	document.getElementById('hubSelect').value = data.hub || '';
     document.getElementById('routeName').value = formatRouteTitle(data);
 	setApprovalUI(data.approval);
 
@@ -1880,6 +1898,7 @@ async function loadRouteById(rid) {
     document.getElementById('routeType').value = data.routeType || 'Основний';
     document.getElementById('routePurpose').value = data.purpose || 'Зерно';
     document.getElementById('intermediateText').value = data.intermediateText || '';
+	document.getElementById('hubSelect').value = data.hub || '';
     document.getElementById('routeName').value = formatRouteTitle(data);
 	setApprovalUI(data.approval);
 
@@ -1907,6 +1926,7 @@ function clearForm() {
   document.getElementById('routeType').value = 'Основний';
   document.getElementById('routePurpose').value = 'Зерно';
   document.getElementById('intermediateText').value = '';
+  document.getElementById('hubSelect').value = '';
   document.getElementById('routeName').value = '';
   document.getElementById('logistInput').value = '';
   document.getElementById('distance').textContent = '0';
