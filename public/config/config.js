@@ -10,6 +10,6 @@
       appId: "1:953368824279:web:68d28c2fd40292c13ee392",
       measurementId: "G-B6B2JK7BXE"
     },
-    mapboxToken: "pk.eyJ1Ijoicm91dGUtcHJvamVjdCIsImEiOiJjbWc2ZGlsYnQwYmlrMmpyMnJmdHhya3VhIn0.dTb3s9o92U18k-w5qBBj-Q"
+    mapboxToken: "pk.eyJ1Ijoicm91dGUtcHJvamVjdCIsImEiOiJjbWc2YW92dHQwYXAzMmpyMnk0bXVuaWZmIn0.RCbWRVvqx6q9skCB-rv5pA"
   });
 })();
