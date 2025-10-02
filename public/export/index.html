@@ -373,30 +373,18 @@ let db = null, auth = null;
 let currentUser = null;
 let currentRole = null;
 
-try{
-  const CFG = window.APP_CONFIG?.firebase;
-  if (!CFG) throw new Error('APP_CONFIG.firebase відсутній. Перевір /config/config.js.');
-
-  const app = firebase.apps?.length ? firebase.app() : firebase.initializeApp(CFG);
+try {
+  // Додаток уже ініціалізовано guard-скриптом вище
+  const app = firebase.app();
   db = firebase.firestore();
   auth = firebase.auth();
 
   statusEl.textContent = 'Підключено';
-  // (опційно) зберігання офлайн
-  firebase.firestore().enablePersistence({ synchronizeTabs: true }).catch((e) => {
-    console.warn('Persistence off:', e.code || e.message);
-  });
-} catch(e){
-  console.error('Init error:', e);
-  statusEl.textContent = 'Помилка ініціалізації';
-}
-  db = firebase.firestore();
-  auth = firebase.auth();
-  statusEl.textContent = 'Підключено';
+  // офлайн-кеш
   db.enablePersistence({ synchronizeTabs: true }).catch((e) => {
     console.warn('Persistence off:', e.code || e.message);
   });
-} catch(e){
+} catch (e) {
   console.error('Init error:', e);
   statusEl.textContent = 'Помилка ініціалізації';
 }
