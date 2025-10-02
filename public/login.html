@@ -216,24 +216,37 @@ function goNext(){ if (!navigated){ navigated = true; location.replace(next); } 
 
 // які ролі потрібні для конкретного шляху
 function requiredRolesForPath(pathname){
-  // карти/експорт/імпорт — лише admin|logist
-  if (/^\/(?:index\.html)?$|^\/$|^\/export\/?($|)/i.test(pathname)) return new Set(['admin','logist']);
-  if (/^\/import\/?($|)/i.test(pathname))                           return new Set(['admin','logist']);
-  // перегляд/погодження — security або admin
-  if (/^\/review\.html($|)/i.test(pathname))                        return new Set(['security','admin']);
-  // ✅ адмінка — тільки admin
-  if (/^\/admin\.html($|)/i.test(pathname))                         return new Set(['admin']);
-  // інше — без обмежень
+  // карта — admin | logist | user
+  if (/^\/(?:index\.html)?$|^\/$/i.test(pathname))
+    return new Set(['admin','logist','user']);
+
+  // експорт
+  if (/^\/export\/?($|)/i.test(pathname))
+    return new Set(['admin','logist']);
+
+  // імпорт
+  if (/^\/import\/?($|)/i.test(pathname))
+    return new Set(['admin','logist']);
+
+  // перегляд/погодження
+  if (/^\/review\.html($|)/i.test(pathname))
+    return new Set(['security','admin']);
+
+  // адмінка
+  if (/^\/admin\.html($|)/i.test(pathname))
+    return new Set(['admin']);
+
   return null;
 }
+
 function isAllowed(role, pathname){
   const need = requiredRolesForPath(pathname);
   return !need || need.has(String(role||'').toLowerCase());
 }
 function fallbackFor(role){
   role = String(role||'').toLowerCase();
-  if (role === 'admin' || role === 'logist')  return '/index.html';
-  if (role === 'security')                     return '/review.html';
+  if (role === 'admin' || role === 'logist' || role === 'user') return '/index.html';
+  if (role === 'security')                                      return '/review.html';
   return '/login.html';
 }
 
