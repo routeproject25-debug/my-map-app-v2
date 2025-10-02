@@ -9,6 +9,9 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+  <!-- ⬇️ додай це -->
+<script src="/config/config.js"></script>
+
 
   <style>
     /* Ховаємо DOM, доки не перевіримо роль */
@@ -46,19 +49,19 @@
 
   <script>
     // 🔧 Firebase init
-    const firebaseConfig = {
-      apiKey: "AIzaSyAREP_iNSUZqNFH5RB5PE084b3wNyxaJ6c",
-  authDomain: "route-project-ba7c6.firebaseapp.com",
-  projectId: "route-project-ba7c6",
-  storageBucket: "route-project-ba7c6.firebasestorage.app",
-  messagingSenderId: "953368824279",
-  appId: "1:953368824279:web:68d28c2fd40292c13ee392",
-  measurementId: "G-B6B2JK7BXE"
-    };
+    // 🔧 Firebase init (через /config/config.js)
+const CFG = window.APP_CONFIG?.firebase;
+if (!CFG) {
+  // щоб сторінка не «висіла» прихованою, якщо конфіг не підвантажився
+  document.getElementById('status').textContent = 'Не знайдено APP_CONFIG.firebase. Перевір /config/config.js та шлях у <script src="/config/config.js">';
+  console.error('APP_CONFIG.firebase is missing');
+  document.documentElement.style.visibility = 'visible';
+} else {
+  try { firebase.apps?.length ? firebase.app() : firebase.initializeApp(CFG); } catch(e) { console.error(e); }
+}
 
-    try { firebase.apps?.length ? firebase.app() : firebase.initializeApp(firebaseConfig); } catch(e) { console.error(e); }
-    const db   = firebase.firestore();
-    const auth = firebase.auth();
+const db   = firebase.firestore();
+const auth = firebase.auth();
 
     const loginURL = '/login.html?next=' + encodeURIComponent(location.pathname + location.search);
     const helloEl  = document.getElementById('hello');
