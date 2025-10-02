@@ -145,10 +145,10 @@
         alert('Ваш акаунт очікує підтвердження адміністратором.');
         location.replace(loginURL); return;
       }
-      if (!['admin','logist'].includes(role)) {
-        alert('Недостатньо прав для сторінки Експорту.');
-        location.replace(loginURL); return;
-      }
+      if (!['admin','logist','user','security'].includes(role)) {
+  alert('Недостатньо прав для сторінки Експорту.');
+  location.replace(loginURL); return;
+}
 
       // ❗ Live-оновлення ролі: якщо адмін змінить роль у процесі — одразу реагуємо
       try {
@@ -157,10 +157,10 @@
           const r = ds.exists ? (ds.data().role || 'pending') : 'pending';
           window.__userRole = r;
           setRoleBadge(r);
-          if (r === 'pending' || !['admin','logist'].includes(r)) {
-            alert('Доступ відкликано або роль змінено. Потрібен повторний вхід.');
-            location.replace(loginURL);
-          }
+          if (r === 'pending' || !['admin','logist','user','security'].includes(r)) {
+  alert('Доступ відкликано або роль змінено. Потрібен повторний вхід.');
+  location.replace(loginURL);
+}
         });
       } catch (_) {}
 

@@ -222,7 +222,7 @@ function requiredRolesForPath(pathname){
 
   // експорт
   if (/^\/export\/?($|)/i.test(pathname))
-    return new Set(['admin','logist']);
+  return new Set(['admin','logist','user','security']);
 
   // імпорт
   if (/^\/import\/?($|)/i.test(pathname))
