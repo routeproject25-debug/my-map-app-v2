@@ -13,7 +13,8 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
-
+<!-- App config -->
+<script src="/config/config.js"></script>
   <style>
     :root { --line:#e5e7eb; --card:#fff; --muted:#6b7280; --nav-real:56px; }
     html, body { height:100%; }
@@ -76,16 +77,13 @@
   <!-- === AUTH GUARD у <head>: ініт Firebase, перевірка ролі, показ DOM === -->
 <script>
   (async function(){
-    const firebaseConfig = {
-      apiKey: "AIzaSyAREP_iNSUZqNFH5RB5PE084b3wNyxaJ6c",
-  authDomain: "route-project-ba7c6.firebaseapp.com",
-  projectId: "route-project-ba7c6",
-  storageBucket: "route-project-ba7c6.firebasestorage.app",
-  messagingSenderId: "953368824279",
-  appId: "1:953368824279:web:68d28c2fd40292c13ee392",
-  measurementId: "G-B6B2JK7BXE"
-    };
-    try{ firebase.apps?.length ? firebase.app() : firebase.initializeApp(firebaseConfig); }catch(e){}
+    const CFG = window.APP_CONFIG?.firebase;
+	if (!CFG) {
+   console.error('APP_CONFIG.firebase відсутній. Перевір /config/config.js');
+   document.documentElement.style.visibility = 'visible';
+   return;
+	}
+	try { firebase.apps?.length ? firebase.app() : firebase.initializeApp(CFG); } catch(e){}
 
     const db   = firebase.firestore();
     const auth = firebase.auth();
@@ -229,7 +227,7 @@
   const rid = qs.get('rid');
 
   // === Mapbox init ===
-  mapboxgl.accessToken = 'pk.eyJ1Ijoicm91dGUtcHJvamVjdCIsImEiOiJjbWc2ZGlsYnQwYmlrMmpyMnJmdHhya3VhIn0.dTb3s9o92U18k-w5qBBj-Q';
+  mapboxgl.accessToken = (window.APP_CONFIG && window.APP_CONFIG.mapboxToken) || '';
   const map = new mapboxgl.Map({
     container:'map',
     style:'mapbox://styles/mapbox/streets-v12',
@@ -340,7 +338,85 @@
         paint:{ 'line-color':'#22c55e','line-width':3,'line-dasharray':[1,2]}});
     }
   }
+// ---- нормалізація «домальованих» сегментів з різних форматів ----
+function normalizeSegments(source){
+  const segments = [];
+  function toLonLat(p){
+    if (Array.isArray(p) && p.length>=2){
+      const a=Number(p[0]), b=Number(p[1]);
+      return (Math.abs(a)<=90 && Math.abs(b)<=180) ? [b,a] : [a,b];
+    }
+    if (p && typeof p==='object'){
+      const lat=Number(p.lat ?? p.latitude), lng=Number(p.lng ?? p.lon ?? p.longitude);
+      if (Number.isFinite(lat) && Number.isFinite(lng)) return [lng,lat];
+    }
+    if (typeof p==='string'){
+      const m=p.split(/[;, ]+/).map(Number).filter(v=>!Number.isNaN(v));
+      if (m.length>=2) return toLonLat(m);
+    }
+    return null;
+  }
+  function pushLine(arr){
+    if (!Array.isArray(arr)) return;
+    const pts = arr.map(toLonLat).filter(Boolean);
+    if (pts.length>=2) segments.push(pts);
+  }
+  function scan(val){
+    if (!val) return;
+    if (val.type==='FeatureCollection' && Array.isArray(val.features)){
+      val.features.forEach(f=>{
+        const g=f.geometry;
+        if (g?.type==='LineString') pushLine(g.coordinates);
+        if (g?.type==='MultiLineString') (g.coordinates||[]).forEach(pushLine);
+      });
+      return;
+    }
+    if (val.type==='Feature' && val.geometry) return scan(val.geometry);
+    if (val.type==='LineString' && Array.isArray(val.coordinates)) return pushLine(val.coordinates);
+    if (val.type==='MultiLineString' && Array.isArray(val.coordinates)) return (val.coordinates||[]).forEach(pushLine);
+    if (Array.isArray(val)){
+      if (val.length && Array.isArray(val[0])) return pushLine(val);         // [[lng,lat],...]
+      if (val.length && typeof val[0]==='object'){
+        const pts = val.map(toLonLat).filter(Boolean);
+        if (pts.length>=2) return segments.push(pts);
+        val.forEach(scan); return;
+      }
+    }
+    if (typeof val==='object'){
+      for (const [k,v] of Object.entries(val)){
+        if (/(ruler|manual|line|path|segment|polyline|draw)/i.test(k)) scan(v);
+      }
+    }
+  }
+  scan(source);
+  return segments;
+}
 
+// ---- відмальовка сегментів на мапі (пунктир, помаранчевий) ----
+let manualLayers = [];
+function clearManualSegments(){
+  manualLayers.forEach(id=>{
+    try{ if (map.getLayer(id)) map.removeLayer(id); }catch{}
+    try{ if (map.getSource(id)) map.removeSource(id); }catch{}
+  });
+  manualLayers = [];
+}
+
+function drawManualSegments(d){
+  clearManualSegments();
+  const segs = normalizeSegments(d);
+  if (!segs.length) return;
+  segs.forEach((coords, idx)=>{
+    const id = `manual-seg-${idx}`;
+    map.addSource(id, { type:'geojson', data:{ type:'Feature', geometry:{ type:'LineString', coordinates: coords } } });
+    map.addLayer({
+      id, type:'line', source:id,
+      layout:{ 'line-cap':'round','line-join':'round' },
+      paint:{ 'line-color':'#f59e0b', 'line-width':3, 'line-dasharray':[2,2] }
+    });
+    manualLayers.push(id);
+  });
+}
   // маркери початку/кінця
   let startMarker=null, endMarker=null;
   function setSEMarkers(points){
