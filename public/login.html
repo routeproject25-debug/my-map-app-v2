@@ -9,6 +9,8 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+  <!-- App config -->
+<script src="/config/config.js"></script>
 
   <style>
     :root{ --card:#fff; --line:#e5e7eb; --pad:clamp(12px,2vw,24px); }
@@ -70,17 +72,13 @@
   </div>
 
 <script>
-/* ==== Firebase init ==== */
-const firebaseConfig = {
-  apiKey: "AIzaSyAREP_iNSUZqNFH5RB5PE084b3wNyxaJ6c",
-  authDomain: "route-project-ba7c6.firebaseapp.com",
-  projectId: "route-project-ba7c6",
-  storageBucket: "route-project-ba7c6.firebasestorage.app",
-  messagingSenderId: "953368824279",
-  appId: "1:953368824279:web:68d28c2fd40292c13ee392",
-  measurementId: "G-B6B2JK7BXE"
-};
-try { firebase.apps?.length ? firebase.app() : firebase.initializeApp(firebaseConfig); } catch(e) { console.error(e); }
+/* ==== Firebase init (із /config/config.js) ==== */
+const CFG = window.APP_CONFIG?.firebase;
+if (!CFG) {
+  console.error('APP_CONFIG.firebase відсутній. Перевір /config/config.js і <script src="/config/config.js"> у <head>.');
+}
+try { firebase.apps?.length ? firebase.app() : firebase.initializeApp(CFG); } catch(e) { console.error(e); }
+
 const auth = firebase.auth();
 const db   = firebase.firestore();
 auth.useDeviceLanguage?.();
