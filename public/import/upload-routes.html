@@ -115,6 +115,7 @@
             <th>distance_km</th>
             <th>routeKey</th>
             <th>status</th>
+            <th>upload</th>
             <th>note</th>
           </tr>
         </thead>
@@ -147,7 +148,7 @@ const statsEl = document.getElementById('stats');
 const problemsEl = document.getElementById('problems');
 const tbody = document.querySelector('#tbl tbody');
 
-let parsed = [];        // [{id, data, routeKey?, fileName, _ok, _err, _warn, _genKey?}]
+let parsed = [];        // [{id, data, routeKey?, fileName, _ok, _err, _warn, _genKey?, _upload?, _uploadNote?}]
 let conflicts = [];     // routeKey колізії
 
 // ---------- helpers ----------
@@ -156,19 +157,32 @@ const nowIso = () => {
   const d = new Date();
   return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}Z`;
 };
-
 function setState(s){ stateEl.textContent = s; }
 function clearAll(){
   parsed = []; conflicts = [];
   tbody.innerHTML = ''; statsEl.textContent = ''; problemsEl.textContent = '';
   btnImport.disabled = true;
 }
+// екранування рядків для title/HTML
+function esc(v){
+  return String(v || '').replace(/[&<>"']/g, m => (
+    {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m]
+  ));
+}
+// що показувати в колонці "upload"
+function uploadCell(r){
+  if (r._upload === 'writing') return '<span class="muted">⏳</span>';
+  if (r._upload === 'done')    return '<span class="ok">✓</span>';
+  if (r._upload === 'error')   return `<span class="err" title="${esc(r._uploadNote||'')}">ERR</span>`;
+  return '—';
+}
 
 function rowHTML(r){
   const ok = r._ok === true;
   const st = ok ? '<span class="ok">OK</span>' : '<span class="err">ERR</span>';
-  const note = r._err || (r._warn||'');
+  const note = r._err || r._uploadNote || (r._warn||'');
   const rkClass = r._genKey ? 'class="gen"' : '';
+  const noteClass = r._err || r._upload === 'error' ? 'err' : (r._warn ? 'warn' : '');
   return `<tr>
     <td>${r.id||''}</td>
     <td>${r.data?.fromCode||''}</td>
@@ -176,7 +190,8 @@ function rowHTML(r){
     <td>${typeof r.data?.distance_km==='number' ? r.data.distance_km : ''}</td>
     <td ${rkClass}>${r.routeKey||''}</td>
     <td>${st}</td>
-    <td class="${r._err?'err': (r._warn?'warn':'')}">${note||''}</td>
+    <td>${uploadCell(r)}</td>
+    <td class="${noteClass}">${note||''}</td>
   </tr>`;
 }
 
@@ -188,6 +203,14 @@ function refreshTable(){
   const needKey = parsed.filter(r=>!r._err && !r.routeKey).length;
   statsEl.textContent = ` • файлів: ${total} • валідні: ${ok} • помилки: ${bad} • без routeKey: ${needKey}`;
   btnImport.disabled = ok === 0;
+}
+function setUploadState(rec, state, note){
+  rec._upload = state;                 // 'idle' | 'writing' | 'done' | 'error'
+  rec._uploadNote = note || '';
+}
+function markSlice(slice, state, note){
+  slice.forEach(r => setUploadState(r, state, note));
+  refreshTable();
 }
 
 function normalizeRouteObj(obj){
@@ -410,9 +433,12 @@ function splitByOps(records){
   return out;
 }
 
-// Фолбек: якщо пакетний commit впав — пишемо по одному документу
+// Фолбек: якщо пакетний commit впав — пишемо по одному документу (з оновленням індикаторів)
 async function commitSliceSafely(slice, uid, mergeFlag){
   for (const r of slice){
+    setUploadState(r, 'writing');
+    refreshTable();
+
     const b = db.batch();
 
     const routeRef = db.collection('routes').doc(r.id);
@@ -432,7 +458,15 @@ async function commitSliceSafely(slice, uid, mergeFlag){
         active: true
       }, { merge:true });
     }
-    await b.commit();
+
+    try{
+      await b.commit();
+      setUploadState(r, 'done');          // ✅
+    }catch(e){
+      setUploadState(r, 'error', String(e && e.message || e));  // ❌
+    }
+
+    refreshTable();
     // дати можливість UI оновитися
     await new Promise(requestAnimationFrame);
   }
@@ -471,6 +505,9 @@ async function commitImport(){
     const slice = batches[bi];
     const batch = db.batch();
 
+    // показуємо, що цей шмат пишеться
+    markSlice(slice, 'writing');
+
     for (const r of slice){
       const data = { ...r.data };
       if (!data.updatedAt) data.updatedAt = nowIso();
@@ -490,8 +527,10 @@ async function commitImport(){
     setState(`Запис: ${done}/${todo.length}… (пакет ${bi+1}/${batches.length})`);
     try{
       await batch.commit();
+      markSlice(slice, 'done');        // ✅ усім у батчі — done
     }catch(e){
       console.warn('batch.commit помилка, пишу по одному:', e);
+      // тут кожен рядок отримає власний статус
       await commitSliceSafely(slice, uid, optMerge.checked);
     }
 
