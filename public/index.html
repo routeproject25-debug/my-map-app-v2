@@ -364,7 +364,7 @@
         alert('Ваш акаунт очікує підтвердження адміністратором.');
         location.replace(loginURL); return;
       }
-      if (!['admin','logist'].includes(role)) {
+      if (!['admin','logist','user'].includes(role)) {
         alert('Недостатньо прав для цієї сторінки.');
         location.replace(loginURL); return;
       }
