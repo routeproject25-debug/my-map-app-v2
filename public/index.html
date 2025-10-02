@@ -508,7 +508,9 @@ function applyRoleUI(role){
   const disableIds = [
     'toggleAdd','startLineMode','endLineMode','clearRoute','popRulerPoint','clearRulers',
     'saveRoute','loadRoute','saveToDB','deleteFromDB','routeName',
-    'fromName','toName','routeType','routePurpose','intermediateText'
+    'fromName','toName','routeType','routePurpose','intermediateText',
+	// ⬇️ додай ці дві кнопки, щоб user не міг відправляти на погодження
+    'sendForApproval','copyReviewLink'
   ];
   disableIds.forEach(id=>{
     const el = document.getElementById(id);
@@ -2114,11 +2116,12 @@ auth?.onAuthStateChanged(async (user) => {
 
     // роль із guard або напряму з сервера (щоб не “залипало” на guest)
     let role = window.__userRole || 'pending';
-    if (!['admin','logist'].includes(role)) {
-      role = await fetchRoleFromServer(user);   // ← читаємо свіжу роль
-      window.__userRole = role;
-    }
-    applyRoleUI(['admin','logist'].includes(role) ? role : 'guest');
+if (!['admin','logist','user'].includes(role)) {
+  role = await fetchRoleFromServer(user);
+  window.__userRole = role;
+}
+// ✅ показуємо реальну роль, у т.ч. user (read-only)
+applyRoleUI(['admin','logist','user'].includes(role) ? role : 'guest');
 
     // live-оновлення ролі (підписка на users/{uid})
     if (roleUnsub) try{ roleUnsub(); }catch{}
