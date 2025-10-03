@@ -18,7 +18,7 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 
   <style>
-    :root { --w: min(1400px, 96vw); }  /* ширше і адаптивно */
+    :root { --w: min(1600px, 98vw); }  /* ширше і адаптивно */
     * { box-sizing: border-box; }
     body { margin:0; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; background:#f6f7f9; }
     .wrap { max-width:var(--w); margin:24px auto; padding:0 16px; }
@@ -103,7 +103,7 @@
 /* стало — сайдбар гнучкий і може згортатися */
 .layout{
   display:grid;
-  grid-template-columns: clamp(200px, 18vw, 280px) 1fr; /* менше «з’їдає» ширини */
+  grid-template-columns: 1fr; /* одна колонка: результати тягнуться на всю, інше центруємо */
   gap:16px;
   align-items:start;
 }
@@ -114,9 +114,11 @@
   min-width: 0; /* те саме, що було раніше */
 }
 
-/* Картка з фільтрами лишається у правій колонці */
+/* Фільтри по центру, обмежуємо ширину */
 .filters-card{
-  grid-column: 2;
+  grid-column: 1 / -1;     /* займає всю сітку, але… */
+  max-width: 1100px;       /* …візуально не розляпується */
+  justify-self: center;    /* центруємо */
 }
 
 /* Картка «Результати» тягнеться через обидві колонки */
