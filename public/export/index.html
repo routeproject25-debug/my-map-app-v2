@@ -107,6 +107,23 @@
   gap:16px;
   align-items:start;
 }
+
+/* Діти .main розкладаються безпосередньо в грід .layout */
+.layout .main{
+  display: contents;
+  min-width: 0; /* те саме, що було раніше */
+}
+
+/* Картка з фільтрами лишається у правій колонці */
+.filters-card{
+  grid-column: 2;
+}
+
+/* Картка «Результати» тягнеться через обидві колонки */
+.results-card{
+  grid-column: 1 / -1;
+}
+
 .colpicker{
   position:sticky; top:12px; align-self:start;
   background:#fff; border:1px solid #e5e7eb; border-radius:8px; padding:10px;
@@ -144,10 +161,6 @@
 @media (max-width: 980px){
   .layout{ grid-template-columns: 1fr; }
   .colpicker{ position:static; }
-}
-/* критично для гріда, щоб контент не розтягував сторінку */
-.layout .main { 
-  min-width: 0;
 }
 
 /* і щоб «Результати» не робили фул-блід */
@@ -260,7 +273,7 @@ try { firebase.apps?.length ? firebase.app() : firebase.initializeApp(CFG); } ca
   <aside id="columnPicker" class="colpicker"></aside>
 
   <div class="main">
-    <div class="card" style="margin-bottom:12px;">
+    <div class="card filters-card" style="margin-bottom:12px;">
       <div id="filtersArea">
         <div class="row cols-2">
           <div>
@@ -326,7 +339,7 @@ try { firebase.apps?.length ? firebase.app() : firebase.initializeApp(CFG); } ca
       </div>
     </div>
 
-    <div class="card">
+   <div class="card results-card">
       <div class="bar" style="justify-content:space-between; margin-bottom:8px;">
         <strong>Результати</strong>
         <span class="muted" id="countInfo">Натисніть «Попередній перегляд»</span>
