@@ -221,6 +221,23 @@
 /* Щоб короткі колонки не стискались зовсім */
 #resTable th, #resTable td { min-width: 90px; }
 
+/* Липкий верхній горизонтальний скрол поверх таблиці */
+.results-card { position: relative; }
+#xScroller{
+  position: sticky;
+  top: 8px;              /* якщо перекривається хедером – збільш це число */
+  z-index: 20;
+  height: 16px;          /* висота зони скролу */
+  overflow-x: auto;
+  overflow-y: hidden;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  margin-bottom: 8px;
+}
+#xScroller::-webkit-scrollbar { height: 12px; }   /* товстіший скрол у WebKit */
+#xScroller > div { height: 1px; }                 /* «доріжка» для ширини */
+
   </style>
   
   <!-- AUTH GUARD: /export — лише admin | logist -->
@@ -411,6 +428,8 @@ try { firebase.apps?.length ? firebase.app() : firebase.initializeApp(CFG); } ca
         <button id="btnClearFilters" class="btn sm">Очистити фільтри таблиці</button>
         <button id="btnAutosize" class="btn sm">↔️ Автоширина колонок</button>
       </div>
+<!-- Липкий верхній горизонтальний скрол -->
+<div id="xScroller"><div></div></div>
 
       <div class="table-wrap">
         <table id="resTable">
@@ -719,6 +738,62 @@ function downloadJson(objOrArray, filename){
   a.href = URL.createObjectURL(blob); a.download = filename; a.click();
   setTimeout(()=> URL.revokeObjectURL(a.href), 5000);
 }
+
+/* ===== Верхній липкий скрол: синхронізація з .table-wrap ===== */
+let _xScroller = null, _xInner = null, _xBound = false, _xRO = null;
+
+function ensureXScroller(){
+  _xScroller = document.getElementById('xScroller');
+  if (!_xScroller){
+    const card = document.querySelector('.results-card');
+    if (!card) return;
+    const s = document.createElement('div'); s.id = 'xScroller';
+    const i = document.createElement('div'); s.appendChild(i);
+    card.insertBefore(s, card.querySelector('.table-wrap'));
+    _xScroller = s; _xInner = i;
+  } else {
+    _xInner = _xScroller.firstElementChild;
+  }
+}
+
+function syncXWidth(){
+  ensureXScroller();
+  const table = document.getElementById('resTable');
+  const wrap  = document.querySelector('.table-wrap');
+  if (!_xScroller || !_xInner || !table || !wrap) return;
+  _xInner.style.width = table.scrollWidth + 'px';
+  _xScroller.scrollLeft = wrap.scrollLeft;
+}
+
+function bindXSync(){
+  ensureXScroller();
+  const wrap = document.querySelector('.table-wrap');
+  if (!wrap || !_xScroller || _xBound) return;
+
+  let lock = false;
+  wrap.addEventListener('scroll', () => {
+    if (lock) return; lock = true;
+    _xScroller.scrollLeft = wrap.scrollLeft;
+    lock = false;
+  }, { passive:true });
+
+  _xScroller.addEventListener('scroll', () => {
+    if (lock) return; lock = true;
+    wrap.scrollLeft = _xScroller.scrollLeft;
+    lock = false;
+  }, { passive:true });
+
+  // стежимо за зміною ширини таблиці
+  try {
+    _xRO?.disconnect();
+    _xRO = new ResizeObserver(syncXWidth);
+    _xRO.observe(document.getElementById('resTable'));
+  } catch(_) {}
+
+  window.addEventListener('resize', debounce(syncXWidth, 120));
+  _xBound = true;
+}
+
 const toNum = v => (v==='' || v==null) ? NaN : Number(v);
 
 /* --- нормалізація точок --- */
@@ -1236,41 +1311,49 @@ const COL_MIN_PX = {
   map: 120, navigator: 120, json: 120
 };
 
-// Якщо видимих колонок мало і вони влазять у вікно — розтягуємо їх на 100%.
-// Якщо не влазять — повертаємо авто-розкладку та даємо горизонтальний скрол.
+/// Якщо видимих колонок мало і вони влазять у вікно — розтягуємо відсотками.
+// Якщо у колонок вже задані ручні ширини (перетягування/автоширина) — нічого не чіпаємо.
 function fitTableToViewport() {
-  const card = document.querySelector('.results-card');
-  if (!card) return;
-  const wrap = card.querySelector('.table-wrap');
+  const card  = document.querySelector('.results-card');
+  const wrap  = card?.querySelector('.table-wrap');
   const table = document.getElementById('resTable');
   if (!wrap || !table) return;
 
   const cols = table.querySelectorAll('colgroup col');
   const visibleKeys = COLS_ORDER.filter(k => visibleCols.has(k));
 
+  // якщо є хоч одна задана ширина — поважаємо її і не перераховуємо
+  const hasManual = Array.from(cols).some(c => c.style.width);
+  if (hasManual){
+    table.style.tableLayout = 'fixed';
+    syncXWidth();
+    return;
+  }
+
   // Мінімально потрібна ширина для всіх видимих колонок
   const needed = visibleKeys.reduce((s, k) => s + (COL_MIN_PX[k] || 140), 0) + 24;
-  const avail = wrap.clientWidth;
+  const avail  = wrap.clientWidth;
 
-  // Скидаємо ручні ширини, які могли бути збережені/перетягнуті
+  // очищаємо лише якщо немає ручних ширин
   cols.forEach(c => (c.style.width = ''));
 
   if (needed <= avail) {
-    // Вміщається — рівномірно (з вагами) розтягуємо на 100%
+    // Вміщається — розтягуємо відсотками з вагами
     table.style.tableLayout = 'fixed';
     const totalWeight = visibleKeys.reduce((s, k) => s + (COL_WEIGHTS[k] || 1), 0);
     visibleKeys.forEach(k => {
-      const idx = COL_INDEX[k] - 1; // позиція у <colgroup>
+      const idx = COL_INDEX[k] - 1;
       if (!cols[idx]) return;
       const pct = ((COL_WEIGHTS[k] || 1) / totalWeight) * 100;
       cols[idx].style.width = pct.toFixed(4) + '%';
     });
   } else {
-    // Не вміщається — даємо природну ширину та горизонтальний скрол
+    // Не вміщається — «природна» ширина + горизонтальний скрол
     table.style.tableLayout = 'auto';
   }
-}
 
+  syncXWidth();
+}
 
 let visibleCols = new Set();
 function loadVisibleCols(){
@@ -1443,6 +1526,7 @@ function reRender(){
   applyColumnVisibility();
   updatePagerUI();
   updateSortIcons();
+  syncXWidth();           // ← додали
 }
 
 /* ---------- Події ---------- */
@@ -1588,6 +1672,7 @@ function enableResizableColumns(){
       document.removeEventListener('mouseup', onUp);
       table.classList.remove('resizing');
       saveColumnWidths();
+	  syncXWidth();
     };
     h.addEventListener('mousedown', (e)=>{
       e.preventDefault();
@@ -1602,6 +1687,7 @@ function enableResizableColumns(){
       const w = measureColumnWidth(i);
       cols[i].style.width = w + 'px';
       saveColumnWidths();
+	  syncXWidth();
     });
   });
 }
@@ -1655,6 +1741,7 @@ function autosizeColumns(){
     cols[i].style.width = w + 'px';
   }
   saveColumnWidths();
+  syncXWidth();
 }
 
 function saveColumnWidths(){
@@ -1687,6 +1774,7 @@ btnAutosize.addEventListener('click', autosizeColumns);
   enableResizableColumns();
   buildColumnPickerUI();
   fitTableToViewport();      // ← додали
+  bindXSync();            // ← додали
 })();
 
 btnExportJson.addEventListener('click', async ()=>{
