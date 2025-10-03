@@ -95,13 +95,31 @@
     .col-resizer:hover { background:rgba(37,99,235,.15); }
     .resizing .col-resizer { background:rgba(37,99,235,.25); }
 	
-	/* ==== Панель колонок ліворуч ==== */
-.grid2{ display:grid; grid-template-columns:260px 1fr; gap:12px; align-items:start; }
-.colpicker{ position:sticky; top:12px; align-self:start; background:#fff; border:1px solid #e5e7eb; border-radius:8px; padding:10px; }
+	/* ==== Лівий сайдбар з чекбоксами ==== */
+.layout{ display:grid; grid-template-columns: 280px 1fr; gap:16px; align-items:start; }
+.colpicker{
+  position:sticky; top:12px; align-self:start;
+  background:#fff; border:1px solid #e5e7eb; border-radius:8px; padding:10px;
+
+  max-height: calc(100vh - 24px);
+  overflow: auto;
+}
 .colpicker h3{ margin:0 0 8px; font-size:14px; }
 .colpicker .list{ display:grid; gap:6px; }
 .colpicker label{ display:flex; align-items:center; gap:8px; font-size:13px; }
 .colpicker .btns{ display:flex; gap:6px; margin-top:8px; }
+
+/* таблиця: ширина колонки ХАБ */
+.col-hub { width: 120px; }
+
+/* щоб «Результати» не розтягувались на всю ширину в межах layout */
+.layout .main .card.edge { width:100%; margin-left:0; margin-right:0; border-radius:12px; }
+
+/* мобільне: сайдбар під контент */
+@media (max-width: 980px){
+  .layout{ grid-template-columns: 1fr; }
+  .colpicker{ position:static; }
+}
 
   </style>
   <!-- AUTH GUARD: /export — лише admin | logist -->
@@ -198,73 +216,74 @@ try { firebase.apps?.length ? firebase.app() : firebase.initializeApp(CFG); } ca
       <div class="bar"><a class="btn" href="/index.html">← До карти</a></div>
     </div>
 
-    <div class="card" style="margin-bottom:12px;">
-	<div class="grid2">
-    <aside id="columnPicker" class="colpicker"></aside>
-    <div id="filtersArea">
-	
-      <div class="row cols-2">
-        <div>
-          <label>Фільтр: Від</label>
-          <input id="fromName" type="text" placeholder="Почни вводити..." list="directoryList" autocomplete="off">
-        </div>
-        <div>
-          <label>Фільтр: До</label>
-          <input id="toName" type="text" placeholder="Почни вводити..." list="directoryList" autocomplete="off">
-        </div>
-      </div>
+<div class="layout">
+  <aside id="columnPicker" class="colpicker"></aside>
 
-      <div class="row cols-2" style="margin-top:12px;">
-        <div>
-          <label>Тип</label>
-          <select id="routeType">
-            <option value="">— будь-який —</option>
-            <option value="Основний">Основний</option>
-            <option value="Альтернативний1">Альтернативний1</option>
-            <option value="Альтернативний2">Альтернативний2</option>
-          </select>
-        </div>
-        <div>
-          <label>Оновлено: з → по</label>
-          <div class="row dates">
-            <input id="dateFrom" type="date">
-            <input id="dateTo" type="date">
+  <div class="main">
+    <div class="card" style="margin-bottom:12px;">
+      <div id="filtersArea">
+        <div class="row cols-2">
+          <div>
+            <label>Фільтр: Від</label>
+            <input id="fromName" type="text" placeholder="Почни вводити..." list="directoryList" autocomplete="off">
+          </div>
+          <div>
+            <label>Фільтр: До</label>
+            <input id="toName" type="text" placeholder="Почни вводити..." list="directoryList" autocomplete="off">
           </div>
         </div>
-      </div>
 
-      <div class="row cols-4" style="margin-top:12px;">
-        <div>
-          <label>Виробничий підрозділ (у Від або До)</label>
-          <select id="unitFilter"><option value="">— будь-який —</option></select>
+        <div class="row cols-2" style="margin-top:12px;">
+          <div>
+            <label>Тип</label>
+            <select id="routeType">
+              <option value="">— будь-який —</option>
+              <option value="Основний">Основний</option>
+              <option value="Альтернативний1">Альтернативний1</option>
+              <option value="Альтернативний2">Альтернативний2</option>
+            </select>
+          </div>
+          <div>
+            <label>Оновлено: з → по</label>
+            <div class="row dates">
+              <input id="dateFrom" type="date">
+              <input id="dateTo" type="date">
+            </div>
+          </div>
         </div>
-        <div>
-          <label>Відстань, км — від</label>
-          <input id="distMin" type="number" step="0.001" placeholder="мін.">
-        </div>
-        <div>
-          <label>Відстань, км — до</label>
-          <input id="distMax" type="number" step="0.001" placeholder="макс.">
-        </div>
-        <div>
-          <label>Логіст</label>
-          <input id="logistFilter" type="text" placeholder="Почни вводити..." list="logistsList" autocomplete="off">
-          <datalist id="logistsList"></datalist>
-          <div id="logistsMsg" class="warn" style="display:none;margin-top:4px"></div>
-        </div>
-      </div>
 
-      <div class="bar" style="margin-top:12px;">
-        <button id="btnPreview" class="btn" disabled>👁️ Попередній перегляд</button>
-        <button id="btnExport" class="btn primary" disabled>📥 Експорт у Excel</button>
-        <button id="btnRefresh" class="btn" disabled>🔄 Оновити базу</button>
-		<button id="btnExportJson" class="btn">JSON (видимі)</button>
-		<button id="btnExportJsonAll" class="btn ghost" title="Довантажить усі сторінки і збереже в JSON">JSON (усі сторінки)</button>
-        <span class="muted">Порожні фільтри = не обмежувати. Якщо Firestore попросить індекс — створіть, за посиланням із консолі.</span>
+        <div class="row cols-4" style="margin-top:12px;">
+          <div>
+            <label>Виробничий підрозділ (у Від або До)</label>
+            <select id="unitFilter"><option value="">— будь-який —</option></select>
+          </div>
+          <div>
+            <label>Відстань, км — від</label>
+            <input id="distMin" type="number" step="0.001" placeholder="мін.">
+          </div>
+          <div>
+            <label>Відстань, км — до</label>
+            <input id="distMax" type="number" step="0.001" placeholder="макс.">
+          </div>
+          <div>
+            <label>Логіст</label>
+            <input id="logistFilter" type="text" placeholder="Почни вводити..." list="logistsList" autocomplete="off">
+            <datalist id="logistsList"></datalist>
+            <div id="logistsMsg" class="warn" style="display:none;margin-top:4px"></div>
+          </div>
+        </div>
+
+        <div class="bar" style="margin-top:12px;">
+          <button id="btnPreview" class="btn" disabled>👁️ Попередній перегляд</button>
+          <button id="btnExport" class="btn primary" disabled>📥 Експорт у Excel</button>
+          <button id="btnRefresh" class="btn" disabled>🔄 Оновити базу</button>
+          <button id="btnExportJson" class="btn">JSON (видимі)</button>
+          <button id="btnExportJsonAll" class="btn ghost" title="Довантажить усі сторінки і збереже в JSON">JSON (усі сторінки)</button>
+          <span class="muted">Порожні фільтри = не обмежувати. Якщо Firestore попросить індекс — створіть, за посиланням із консолі.</span>
+        </div>
+
+        <datalist id="directoryList"></datalist>
       </div>
-      <datalist id="directoryList"></datalist>
-	      </div> <!-- /filtersArea -->
-		</div> <!-- /grid2 -->
     </div>
 
     <div class="card edge">
