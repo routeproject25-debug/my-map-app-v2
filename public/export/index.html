@@ -149,6 +149,7 @@
 .colpicker .btns{ display:flex; flex-wrap:wrap; gap:8px; margin-top:10px; }
 /* ► Саме це додай */
 .colpicker.is-hidden{ display:none; }
+.filters-card.is-hidden{ display:none; }
 
 /* кнопка-тогл зверху праворуч */
 .coltoggle{ margin-left:8px; }
@@ -265,9 +266,9 @@ try { firebase.apps?.length ? firebase.app() : firebase.initializeApp(CFG); } ca
       <h1>Експорт маршрутів (Firestore → Excel)</h1>
       <div class="bar">
   <a class="btn" href="/index.html">← До карти</a>
+  <button id="btnToggleFilters" class="btn coltoggle">☰ Фільтри</button>
   <button id="btnToggleSidebar" class="btn coltoggle">☰ Поля таблиці</button>
 </div>
-    </div>
 
 <div class="layout">
   <aside id="columnPicker" class="colpicker"></aside>
@@ -1618,6 +1619,21 @@ applyColpickerState();
 document.getElementById('btnToggleSidebar')?.addEventListener('click', () => {
   const hidden = COLPICKER.classList.toggle('is-hidden');
   localStorage.setItem(COLPICKER_STATE_KEY, hidden ? '1' : '0');
+});
+
+/* ==== Тогл «Фільтри» як секції (показати/сховати) ==== */
+const FILTERS = document.querySelector('.filters-card');
+const FILTERS_STATE_KEY = 'export.filtersHidden.v1';
+
+function applyFiltersState(){
+  const hidden = localStorage.getItem(FILTERS_STATE_KEY) === '1';
+  FILTERS.classList.toggle('is-hidden', hidden);
+}
+applyFiltersState();
+
+document.getElementById('btnToggleFilters')?.addEventListener('click', () => {
+  const hidden = FILTERS.classList.toggle('is-hidden');
+  localStorage.setItem(FILTERS_STATE_KEY, hidden ? '1' : '0');
 });
 
 </script>
