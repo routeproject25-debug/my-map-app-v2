@@ -94,8 +94,8 @@
     .range { display:grid; grid-template-columns: 1fr 1fr; gap:6px; }
 
     /* === Ручки для зміни ширини колонок === */
-    .col-resizer {
-  position:absolute; top:0; right:0; width:6px; height:100%;
+    .col-resizer{
+  position:absolute; top:0; right:-2px; width:8px; height:100%;
   cursor:col-resize; user-select:none;
 }
     .col-resizer:hover { background:rgba(37,99,235,.15); }
@@ -447,71 +447,73 @@ try { firebase.apps?.length ? firebase.app() : firebase.initializeApp(CFG); } ca
 			<!-- додай ще один col наприкінці -->
 			<col>
           </colgroup>
-          <thead>
-            <tr>
-			  <th class="sortable" data-sort="hub">ХАБ <span class="s">↕</span></th>
-              <th class="sortable" data-sort="fromCode">Код Від <span class="s">↕</span></th>
-              <th class="sortable" data-sort="toCode">Код До <span class="s">↕</span></th>
-              <th class="sortable" data-sort="fromName">Від <span class="s">↕</span></th>
-              <th class="sortable" data-sort="toName">До <span class="s">↕</span></th>
-              <th class="sortable" data-sort="viaNames">Проміжні пункти <span class="s">↕</span></th>
-              <th class="sortable" data-sort="distance_km">Відстань, км <span class="s">↕</span></th>
-              <th class="sortable" data-sort="type">Тип <span class="s">↕</span></th>
-              <th class="sortable" data-sort="logisticName">Логіст <span class="s">↕</span></th>
-              <th class="sortable" data-sort="statusLabel">Статус погодження <span class="s">↕</span></th>
-              <th class="sortable" data-sort="rejectComment">Причина відхилення <span class="s">↕</span></th>
-              <th class="sortable" data-sort="updatedAtRaw">Оновлено <span class="s">↕</span></th>
-              <th class="sortable" data-sort="routeKey">Код маршруту <span class="s">↕</span></th>
-              <th class="sortable" data-sort="id">ID <span class="s">↕</span></th>
-              <th>Карта</th>
-              <th>Навігатор</th>
-			  <th>JSON</th>
-            </tr>
-            <!-- Рядок фільтрів -->
-            <tr class="filters">
-			  <th><input id="f_hub" type="text" placeholder="пошук…"></th>
-              <th><input id="f_fromCode" type="text" placeholder="пошук…"></th>
-              <th><input id="f_toCode" type="text" placeholder="пошук…"></th>
-              <th><input id="f_fromName" type="text" placeholder="пошук…" list="directoryList"></th>
-              <th><input id="f_toName" type="text" placeholder="пошук…" list="directoryList"></th>
-              <th><input id="f_via" type="text" placeholder="проміжні…"></th>
-              <th>
-                <div class="range">
-                  <input id="f_distMin" type="number" step="0.001" placeholder="мін.">
-                  <input id="f_distMax" type="number" step="0.001" placeholder="макс.">
-                </div>
-              </th>
-              <th>
-                <select id="f_type">
-                  <option value=""></option>
-                  <option value="Основний">Основний</option>
-                  <option value="Альтернативний1">Альтернативний1</option>
-                  <option value="Альтернативний2">Альтернативний2</option>
-                </select>
-              </th>
-              <th><input id="f_logist" type="text" placeholder="логіст…" list="logistsList"></th>
-              <th>
-                <select id="f_status">
-                  <option value=""></option>
-                  <option>Погоджено</option>
-                  <option>Відхилено</option>
-                  <option>Очікує</option>
-                </select>
-              </th>
-              <th><input id="f_comment" type="text" placeholder="коментар…"></th>
-              <th>
-                <div class="range">
-                  <input id="f_dateFrom" type="date">
-                  <input id="f_dateTo" type="date">
-                </div>
-              </th>
-              <th><input id="f_routeKey" type="text" placeholder="пошук…"></th>
-              <th><input id="f_id" type="text" placeholder="пошук…"></th>
-              <th></th>
-              <th></th>
-			  <th></th>
-            </tr>
-          </thead>
+<thead>
+  <!-- Рядок заголовків -->
+  <tr>
+    <th class="sortable" data-sort="hub"           data-colkey="hub">ХАБ <span class="s">↕</span></th>
+    <th class="sortable" data-sort="fromCode"      data-colkey="fromCode">Код Від <span class="s">↕</span></th>
+    <th class="sortable" data-sort="toCode"        data-colkey="toCode">Код До <span class="s">↕</span></th>
+    <th class="sortable" data-sort="fromName"      data-colkey="fromName">Від <span class="s">↕</span></th>
+    <th class="sortable" data-sort="toName"        data-colkey="toName">До <span class="s">↕</span></th>
+    <th class="sortable" data-sort="viaNames"      data-colkey="via">Проміжні пункти <span class="s">↕</span></th>
+    <th class="sortable" data-sort="distance_km"   data-colkey="distance">Відстань, км <span class="s">↕</span></th>
+    <th class="sortable" data-sort="type"          data-colkey="type">Тип <span class="s">↕</span></th>
+    <th class="sortable" data-sort="logisticName"  data-colkey="logist">Логіст <span class="s">↕</span></th>
+    <th class="sortable" data-sort="statusLabel"   data-colkey="status">Статус погодження <span class="s">↕</span></th>
+    <th class="sortable" data-sort="rejectComment" data-colkey="comment">Причина відхилення <span class="s">↕</span></th>
+    <th class="sortable" data-sort="updatedAtRaw"  data-colkey="updated">Оновлено <span class="s">↕</span></th>
+    <th class="sortable" data-sort="routeKey"      data-colkey="routeKey">Код маршруту <span class="s">↕</span></th>
+    <th class="sortable" data-sort="id"            data-colkey="id">ID <span class="s">↕</span></th>
+    <th                                            data-colkey="map">Карта</th>
+    <th                                            data-colkey="navigator">Навігатор</th>
+    <th                                            data-colkey="json">JSON</th>
+  </tr>
+
+  <!-- Рядок фільтрів (без змін по суті) -->
+  <tr class="filters">
+    <th><input id="f_hub" type="text" placeholder="пошук…"></th>
+    <th><input id="f_fromCode" type="text" placeholder="пошук…"></th>
+    <th><input id="f_toCode" type="text" placeholder="пошук…"></th>
+    <th><input id="f_fromName" type="text" placeholder="пошук…" list="directoryList"></th>
+    <th><input id="f_toName" type="text" placeholder="пошук…" list="directoryList"></th>
+    <th><input id="f_via" type="text" placeholder="проміжні…"></th>
+    <th>
+      <div class="range">
+        <input id="f_distMin" type="number" step="0.001" placeholder="мін.">
+        <input id="f_distMax" type="number" step="0.001" placeholder="макс.">
+      </div>
+    </th>
+    <th>
+      <select id="f_type">
+        <option value=""></option>
+        <option value="Основний">Основний</option>
+        <option value="Альтернативний1">Альтернативний1</option>
+        <option value="Альтернативний2">Альтернативний2</option>
+      </select>
+    </th>
+    <th><input id="f_logist" type="text" placeholder="логіст…" list="logistsList"></th>
+    <th>
+      <select id="f_status">
+        <option value=""></option>
+        <option>Погоджено</option>
+        <option>Відхилено</option>
+        <option>Очікує</option>
+      </select>
+    </th>
+    <th><input id="f_comment" type="text" placeholder="коментар…"></th>
+    <th>
+      <div class="range">
+        <input id="f_dateFrom" type="date">
+        <input id="f_dateTo" type="date">
+      </div>
+    </th>
+    <th><input id="f_routeKey" type="text" placeholder="пошук…"></th>
+    <th><input id="f_id" type="text" placeholder="пошук…"></th>
+    <th></th>
+    <th></th>
+    <th></th>
+  </tr>
+</thead>
           <tbody></tbody>
         </table>
       </div>
@@ -1371,13 +1373,22 @@ function saveVisibleCols(){
   try{ localStorage.setItem(VCOL_KEY, JSON.stringify([...visibleCols])); }catch{}
 }
 function setColVisible(key, show){
-  const idx = COL_INDEX[key]; if (!idx) return;
+  const idx = COL_INDEX[key];
+  if (!idx) return;
+
+  // заголовок + фільтри + тіло
   const sel = `#resTable thead tr > *:nth-child(${idx}), #resTable tbody tr > *:nth-child(${idx})`;
-  document.querySelectorAll(sel).forEach(el=>{ el.style.display = show ? '' : 'none'; });
+  document.querySelectorAll(sel).forEach(el => { el.style.display = show ? '' : 'none'; });
+
+  // ВАЖЛИВО: сам <col>, щоб прихована колонка не впливала на розкладку
+  const colEl = document.querySelector(`#resTable colgroup col:nth-child(${idx})`);
+  if (colEl) colEl.style.display = show ? '' : 'none';
 }
+
 function applyColumnVisibility(){
   COLS_ORDER.forEach(k => setColVisible(k, visibleCols.has(k)));
   fitTableToViewport();       // ← ключовий виклик
+  enableResizableColumns();  // ← ДОДАВ
 }
 
 function buildColumnPickerUI(){
@@ -1649,45 +1660,59 @@ if (jsonOne){
 /* ---------- Розтягування та автоширина колонок ---------- */
 const WIDTHS_KEY = 'export.tableWidths.v1';
 
-function enableResizableColumns(){
+function enableResizableColumns() {
   const table = document.getElementById('resTable');
+  if (!table || !table.tHead || !table.tHead.rows.length) return;
+
   const headerRow = table.tHead.rows[0];
   const cols = Array.from(table.querySelector('colgroup').children);
 
-  // вставляємо ручки
-  Array.from(headerRow.cells).forEach((th, i) => {
+  // прибираємо старі ручки (на випадок перевстановлення)
+  headerRow.querySelectorAll('.col-resizer').forEach(el => el.remove());
+
+  // додаємо нові, прив’язані до data-colkey
+  Array.from(headerRow.cells).forEach((th) => {
+    const key = th.dataset.colkey;
+    if (!key || !COL_INDEX[key]) return;
+
+    const colIdx = COL_INDEX[key] - 1;    // 0-based у <colgroup>
+    const colEl = cols[colIdx];
+    if (!colEl) return;
+
     const h = document.createElement('span');
     h.className = 'col-resizer';
+    th.style.position = 'relative';
     th.appendChild(h);
 
-    let startX=0, startW=0;
-    const onMove = (e)=>{
+    let startX = 0, startW = 0;
+
+    const onMove = (e) => {
       const dx = e.clientX - startX;
       const w = Math.max(60, Math.min(900, startW + dx));
-      cols[i].style.width = w + 'px';
+      colEl.style.width = w + 'px';
       table.classList.add('resizing');
     };
-    const onUp = ()=>{
+
+    const onUp = () => {
       document.removeEventListener('mousemove', onMove);
       document.removeEventListener('mouseup', onUp);
       table.classList.remove('resizing');
       saveColumnWidths();
-	  syncXWidth();
     };
-    h.addEventListener('mousedown', (e)=>{
+
+    h.addEventListener('mousedown', (e) => {
       e.preventDefault();
       startX = e.clientX;
-      startW = (cols[i].getBoundingClientRect().width || th.getBoundingClientRect().width);
+      startW = (colEl.getBoundingClientRect().width || th.getBoundingClientRect().width);
       document.addEventListener('mousemove', onMove);
       document.addEventListener('mouseup', onUp);
     });
 
-    // подвоєний клік — автопідбір ширини для конкретної колонки
-    h.addEventListener('dblclick', ()=>{
-      const w = measureColumnWidth(i);
-      cols[i].style.width = w + 'px';
+    // Подвійний клік — автопідібрати ширину саме цієї колонки
+    h.addEventListener('dblclick', () => {
+      const w = measureColumnWidth(colIdx);
+      colEl.style.width = w + 'px';
       saveColumnWidths();
-	  syncXWidth();
     });
   });
 }
