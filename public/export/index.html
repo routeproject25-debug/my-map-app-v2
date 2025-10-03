@@ -55,8 +55,13 @@
     .stats { display:flex; gap:12px; flex-wrap:wrap; font-size:13px; color:#111827; }
     .stats .chip { background:#f3f4f6; border:1px solid #e5e7eb; border-radius:999px; padding:4px 10px; }
 
-    /* картка з таблицею на всю ширину */
-    .card.edge { width: 100vw; margin-left: calc(50% - 50vw); margin-right: calc(50% - 50vw); border-radius: 0; }
+    /* картка з таблицею в межах контейнера */
+.card.edge{
+  width: 100%;
+  margin-left: 0;
+  margin-right: 0;
+  border-radius: 12px;
+}
 
     /* ширини/поведінка комірок */
     .col-code { width: 120px; }
