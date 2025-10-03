@@ -62,13 +62,12 @@
   margin-right: 0;
   border-radius: 12px;
 }
-
     /* ширини/поведінка комірок */
     .col-code { width: 120px; }
     .cell-code { word-break: break-all; overflow-wrap: anywhere; white-space: normal; line-height:1.25; }
 
     /* Проміжні пункти */
-    .col-via { width: clamp(220px, 32vw, 520px); }
+    .col-via { width: clamp(220px, 28%, 520px); } /* або 40ch / 30% — як зручніше */
     .cell-via { white-space: normal; overflow-wrap: anywhere; word-break: break-word; line-height: 1.25; }
 
     .col-key { width: clamp(140px, 16vw, 200px); }
@@ -291,7 +290,7 @@ try { firebase.apps?.length ? firebase.app() : firebase.initializeApp(CFG); } ca
       </div>
     </div>
 
-    <div class="card edge">
+    <div class="card">
       <div class="bar" style="justify-content:space-between; margin-bottom:8px;">
         <strong>Результати</strong>
         <span class="muted" id="countInfo">Натисніть «Попередній перегляд»</span>
