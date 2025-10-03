@@ -218,6 +218,9 @@
   .header-actions{ justify-content:flex-start; }
 }
 
+/* Щоб короткі колонки не стискались зовсім */
+#resTable th, #resTable td { min-width: 90px; }
+
   </style>
   
   <!-- AUTH GUARD: /export — лише admin | logist -->
@@ -1218,6 +1221,57 @@ const DEFAULT_VISIBLE = new Set(['hub','fromName','toName','via','distance','typ
 const VCOL_KEY = 'export.visibleCols.v2';
 const EXCEL_EXCLUDE = new Set(['map','navigator','json']); // ці в Excel не додаємо
 
+// --- Розподіл ширини видимих колонок, щоб прибрати "пустелю" праворуч ---
+const COL_WEIGHTS = {
+  via: 2.2, comment: 2.0, fromName: 1.3, toName: 1.3,
+  hub: 1, fromCode: 1, toCode: 1, distance: 1, type: 1,
+  logist: 1, status: 1, updated: 1, routeKey: 1, id: 1,
+  map: 1, navigator: 1, json: 1
+};
+
+const COL_MIN_PX = {
+  via: 280, comment: 240, fromName: 160, toName: 160,
+  hub: 110, fromCode: 110, toCode: 110, distance: 120, type: 120,
+  logist: 140, status: 140, updated: 160, routeKey: 160, id: 160,
+  map: 120, navigator: 120, json: 120
+};
+
+// Якщо видимих колонок мало і вони влазять у вікно — розтягуємо їх на 100%.
+// Якщо не влазять — повертаємо авто-розкладку та даємо горизонтальний скрол.
+function fitTableToViewport() {
+  const card = document.querySelector('.results-card');
+  if (!card) return;
+  const wrap = card.querySelector('.table-wrap');
+  const table = document.getElementById('resTable');
+  if (!wrap || !table) return;
+
+  const cols = table.querySelectorAll('colgroup col');
+  const visibleKeys = COLS_ORDER.filter(k => visibleCols.has(k));
+
+  // Мінімально потрібна ширина для всіх видимих колонок
+  const needed = visibleKeys.reduce((s, k) => s + (COL_MIN_PX[k] || 140), 0) + 24;
+  const avail = wrap.clientWidth;
+
+  // Скидаємо ручні ширини, які могли бути збережені/перетягнуті
+  cols.forEach(c => (c.style.width = ''));
+
+  if (needed <= avail) {
+    // Вміщається — рівномірно (з вагами) розтягуємо на 100%
+    table.style.tableLayout = 'fixed';
+    const totalWeight = visibleKeys.reduce((s, k) => s + (COL_WEIGHTS[k] || 1), 0);
+    visibleKeys.forEach(k => {
+      const idx = COL_INDEX[k] - 1; // позиція у <colgroup>
+      if (!cols[idx]) return;
+      const pct = ((COL_WEIGHTS[k] || 1) / totalWeight) * 100;
+      cols[idx].style.width = pct.toFixed(4) + '%';
+    });
+  } else {
+    // Не вміщається — даємо природну ширину та горизонтальний скрол
+    table.style.tableLayout = 'auto';
+  }
+}
+
+
 let visibleCols = new Set();
 function loadVisibleCols(){
   try{
@@ -1238,7 +1292,10 @@ function setColVisible(key, show){
   const sel = `#resTable thead tr > *:nth-child(${idx}), #resTable tbody tr > *:nth-child(${idx})`;
   document.querySelectorAll(sel).forEach(el=>{ el.style.display = show ? '' : 'none'; });
 }
-function applyColumnVisibility(){ COLS_ORDER.forEach(k => setColVisible(k, visibleCols.has(k))); }
+function applyColumnVisibility(){
+  COLS_ORDER.forEach(k => setColVisible(k, visibleCols.has(k)));
+  fitTableToViewport();       // ← ключовий виклик
+}
 
 function buildColumnPickerUI(){
   loadVisibleCols();
@@ -1629,6 +1686,7 @@ btnAutosize.addEventListener('click', autosizeColumns);
   restoreColumnWidths();
   enableResizableColumns();
   buildColumnPickerUI();
+  fitTableToViewport();      // ← додали
 })();
 
 btnExportJson.addEventListener('click', async ()=>{
