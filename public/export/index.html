@@ -124,8 +124,20 @@
   .layout{ grid-template-columns: 1fr; }
   .colpicker{ position:static; }
 }
+/* критично для гріда, щоб контент не розтягував сторінку */
+.layout .main { 
+  min-width: 0;
+}
 
+/* і щоб «Результати» не робили фул-блід */
+.card.edge{
+  width: 100%;
+  margin-left: 0;
+  margin-right: 0;
+  border-radius: 12px;
+}
   </style>
+  
   <!-- AUTH GUARD: /export — лише admin | logist -->
 <script>
 (function () {
