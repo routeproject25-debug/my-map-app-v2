@@ -95,7 +95,7 @@
 
     /* === Ручки для зміни ширини колонок === */
     .col-resizer{
-  position:absolute; top:0; right:-2px; width:8px; height:100%;
+  position:absolute; top:0; right:0; width:10px; height:100%;
   cursor:col-resize; user-select:none;
 }
     .col-resizer:hover { background:rgba(37,99,235,.15); }
@@ -1660,6 +1660,26 @@ if (jsonOne){
 /* ---------- Розтягування та автоширина колонок ---------- */
 const WIDTHS_KEY = 'export.tableWidths.v1';
 
+function freezeTableWidths(){
+  const table = document.getElementById('resTable');
+  if (!table || !table.tHead || !table.tHead.rows.length) return;
+
+  const headerRow = table.tHead.rows[0];
+  const cols = Array.from(table.querySelector('colgroup').children);
+
+  // Вмикаємо фіксований лейаут — він стабільний під час drag
+  table.style.tableLayout = 'fixed';
+
+  // Зберігаємо поточні фактичні ширини у px
+  for (let i = 0; i < cols.length; i++){
+    const th = headerRow.cells[i];
+    const col = cols[i];
+    if (!th || !col) continue;
+    const w = Math.round(th.getBoundingClientRect().width);
+    if (w > 0) col.style.width = w + 'px';
+  }
+}
+
 function enableResizableColumns() {
   const table = document.getElementById('resTable');
   if (!table || !table.tHead || !table.tHead.rows.length) return;
@@ -1701,12 +1721,21 @@ function enableResizableColumns() {
     };
 
     h.addEventListener('mousedown', (e) => {
-      e.preventDefault();
-      startX = e.clientX;
-      startW = (colEl.getBoundingClientRect().width || th.getBoundingClientRect().width);
-      document.addEventListener('mousemove', onMove);
-      document.addEventListener('mouseup', onUp);
-    });
+  e.preventDefault();
+
+  // 1) заморозили поточні ширини — щоб нічого не стрибало
+  freezeTableWidths();
+
+  // 2) стартові координати після «заморозки»
+  startX = e.clientX;
+  startW = parseFloat(colEl.style.width) || th.getBoundingClientRect().width;
+
+  // 3) легкий візуальний стан під час drag (і синхрон скролера)
+  document.getElementById('resTable').classList.add('resizing');
+
+  document.addEventListener('mousemove', onMove);
+  document.addEventListener('mouseup', onUp);
+});
 
     // Подвійний клік — автопідібрати ширину саме цієї колонки
     h.addEventListener('dblclick', () => {
