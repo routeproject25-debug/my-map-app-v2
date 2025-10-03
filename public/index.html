@@ -4,6 +4,11 @@
   <meta charset="utf-8" />
   <title>🚚Маршрути Mapbox</title>
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+  <link rel="preconnect" href="https://api.mapbox.com" crossorigin>
+<link rel="preconnect" href="https://events.mapbox.com" crossorigin>
+<link rel="preconnect" href="https://www.gstatic.com" crossorigin>
+<link rel="dns-prefetch" href="https://firestore.googleapis.com">
+<link rel="dns-prefetch" href="https://firebasestorage.googleapis.com">
   <script src="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.js"></script>
   <link href="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.css" rel="stylesheet" />
 
@@ -125,6 +130,19 @@
   .mapboxgl-marker{z-index:2!important}
 
   #logistsMsg{display:none;font-size:12px;color:#b91c1c;margin-top:4px}
+  
+  #splash{
+  position:fixed; inset:0; display:grid; place-items:center;
+  background:#fff; z-index:9999; transition:opacity .25s ease;
+  font-size:14px; color:#111; gap:12px;
+}
+#splash.hide{ opacity:0; pointer-events:none }
+.spinner{
+  width:40px; height:40px; border:3px solid #e5e7eb;
+  border-top-color:#2563eb; border-radius:50%; animation:spin 1s linear infinite;
+}
+@keyframes spin { to { transform:rotate(360deg) } }
+
   </style>
 </head>
 <body>
@@ -154,6 +172,10 @@
 
   <button id="mobileAuthToggle" class="btn" title="Показати/сховати вхід">🔐 Вхід</button>
 </header>
+<div id="splash">
+  <div class="spinner"></div>
+  <div>Завантажуємо карту…</div>
+</div>
 
 <div id="controls">
   <div class="panel-head">
@@ -331,60 +353,72 @@
   </div>
 </div>
 
-<!-- AUTH GUARD -->
+<!-- AUTH GUARD (cache-first, без приховування сторінки) -->
 <script>
 (function(){
-  // ховаємо сторінку, поки не визначимо роль
-  document.documentElement.style.visibility = 'hidden';
-
   const CFG = window.APP_CONFIG?.firebase;
-if (!CFG) console.error('APP_CONFIG.firebase відсутній. Перевір /config/config.js та <script src="/config/config.js"> у <head>.');
-try { firebase.apps?.length ? firebase.app() : firebase.initializeApp(CFG); } catch(e) {}
+  if (!CFG) {
+    console.error('APP_CONFIG.firebase відсутній. Перевір /config/config.js');
+    return;
+  }
+  try { firebase.apps?.length ? firebase.app() : firebase.initializeApp(CFG); } catch(e) {}
 
   const auth = firebase.auth();
   const db   = firebase.firestore();
 
   const loginURL = '/login.html?next=' + encodeURIComponent(location.pathname + location.search);
-  const ALLOWED = new Set(['admin','logist','user']);
+  const ALLOWED  = new Set(['admin','logist','user']);
 
+  // НЕ ховаємо документ – показуємо одразу.
   auth.onAuthStateChanged(async (u) => {
     if (!u) { location.replace(loginURL); return; }
 
+    // 1) швидко беремо роль із кешу (якщо є) — щоб UI міг відмалюватися
+    let role = null;
     try {
-      // 1) спроба з users/{uid}
-      const usersDoc = await db.collection('users').doc(u.uid).get({ source: 'server' });
-      let role = usersDoc.exists ? (String(usersDoc.data().role || 'pending').toLowerCase()) : null;
-
-      // 2) fallback на roles/{uid}, якщо users/{uid} ще нема
+      let snap = await db.collection('users').doc(u.uid).get({ source: 'cache' });
+      role = snap.exists ? String(snap.data().role || 'pending').toLowerCase() : null;
       if (!role) {
-        const rolesDoc = await db.collection('roles').doc(u.uid).get({ source: 'server' });
-        role = rolesDoc.exists ? (String(rolesDoc.data().role || 'pending').toLowerCase()) : 'pending';
+        snap = await db.collection('roles').doc(u.uid).get({ source: 'cache' });
+        role = snap.exists ? String(snap.data().role || 'pending').toLowerCase() : null;
       }
+    } catch (_) {}
 
-      window.__userRole = role;
+    window.__userRole = role || 'guest';
 
-      // показ/приховання адмін-лінків
-      ['adminLink','adminLinkViewer','uploadRoutesLink'].forEach(id => {
-  const el = document.getElementById(id);
-  if (el) el.style.display = role === 'admin' ? '' : 'none';
-});
+    // Показ/приховання адмін-лінків «на зараз»
+    ['adminLink','adminLinkViewer','uploadRoutesLink'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.style.display = (window.__userRole === 'admin') ? '' : 'none';
+    });
 
-      // відкриваємо сторінку
-      document.documentElement.style.visibility = 'visible';
+    // 2) тихо оновлюємо роль з сервера і, якщо не ок — редіректимо
+    (async () => {
+      try {
+        let r = null;
+        let s = await db.collection('users').doc(u.uid).get({ source: 'server' });
+        r = s.exists ? String(s.data().role || 'pending').toLowerCase() : null;
+        if (!r) {
+          s = await db.collection('roles').doc(u.uid).get({ source: 'server' });
+          r = s.exists ? String(s.data().role || 'pending').toLowerCase() : 'pending';
+        }
+        window.__userRole = r;
 
-      if (role === 'pending') {
-        alert('Ваш акаунт очікує підтвердження адміністратором.');
-        location.replace(loginURL); return;
+        ['adminLink','adminLinkViewer','uploadRoutesLink'].forEach(id => {
+          const el = document.getElementById(id);
+          if (el) el.style.display = (r === 'admin') ? '' : 'none';
+        });
+
+        if (!ALLOWED.has(r)) {
+          alert(r === 'pending'
+            ? 'Ваш акаунт очікує підтвердження адміністратором.'
+            : 'Недостатньо прав для цієї сторінки.');
+          location.replace(loginURL);
+        }
+      } catch (e) {
+        console.error('Role check (server) failed:', e);
       }
-      if (!ALLOWED.has(role)) {
-        alert('Недостатньо прав для цієї сторінки.');
-        location.replace(loginURL); return;
-      }
-      // якщо роль дозволена — просто залишаємо користувача на сторінці
-    } catch (e) {
-      console.error('Role check failed:', e);
-      location.replace(loginURL);
-    }
+    })();
   });
 })();
 </script>
@@ -395,6 +429,12 @@ mapboxgl.accessToken = window.APP_CONFIG?.mapboxToken || '';
 if (!mapboxgl.accessToken) console.error('APP_CONFIG.mapboxToken порожній або відсутній.');
 let currentStyle = 'mapbox://styles/mapbox/streets-v12';
 const map = new mapboxgl.Map({ container: 'map', style: currentStyle, center: [28.468, 49.234], zoom: 12 });
+
+/* ⬇️ додай цю функцію */
+function hideSplash(){
+  const s = document.getElementById('splash');
+  if (s) { s.classList.add('hide'); setTimeout(() => s.remove(), 300); }
+}
 
 /* ==== MULTI TILESETS CONFIG (додавай тут нові геозони - key створювати самостійно, але щоб не повторювалося) ==== */
 const TILESETS = [
@@ -771,6 +811,7 @@ function fitToHighlights(){
 /* ========= ⬆️ Геозони з Mapbox Tilesets (multi) ========= */
 
 map.on('style.load', () => {
+hideSplash();            // ⬅️ сховати сплеш, коли стиль карти готовий
   applyUkrainianLabels();
   updateRoute();
   drawRulers();
@@ -2122,6 +2163,7 @@ logoutBtn.onclick = async () => {
 };
 auth?.onAuthStateChanged(async (user) => {
   if (user){
+  hideSplash();          // ⬅️ ось тут
     authHello.textContent = 'Увійшли як ' + (user.email || user.uid);
     loginBtn.style.display='none'; authEmail.style.display='none'; authPass.style.display='none';
     logoutBtn.style.display='inline-block';
@@ -2151,9 +2193,13 @@ roleUnsub = db.collection('users').doc(user.uid)
   });
 
     await loadLogists(true);
-    await loadGeozonesFromStorage(STORAGE_GEOJSON_PATH, true);
+    // Відкласти, щоб не блокувати перший рендер UI/карти
+(requestIdleCallback || setTimeout)(() => {
+  loadGeozonesFromStorage(STORAGE_GEOJSON_PATH, true);
+}, 0);
 
   } else {
+  hideSplash();          // ⬅️ і тут
     if (roleUnsub) try{ roleUnsub(); }catch{}
     authHello.textContent = 'Гість';
     loginBtn.style.display='inline-block'; authEmail.style.display='inline-block'; authPass.style.display='inline-block';
