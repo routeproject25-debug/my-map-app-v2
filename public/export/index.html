@@ -1080,7 +1080,77 @@ async function exportJsonFromRows(rows){
   const fname = `routes_${ts.getFullYear()}${pad(ts.getMonth()+1)}${pad(ts.getDate())}_${pad(ts.getHours())}${pad(ts.getMinutes())}.json`;
   downloadJson(data, fname);
 }
+/* ==== Керування видимістю колонок (чекбокси ліворуч) ==== */
+const COLS_ORDER = [
+  'hub','fromCode','toCode','fromName','toName','via','distance','type',
+  'logist','status','comment','updated','routeKey','id','map','navigator','json'
+];
+const COL_LABEL = {
+  hub:'ХАБ', fromCode:'Код Від', toCode:'Код До', fromName:'Від', toName:'До',
+  via:'Проміжні пункти', distance:'Відстань, км', type:'Тип', logist:'Логіст',
+  status:'Статус погодження', comment:'Причина відхилення', updated:'Оновлено',
+  routeKey:'Код маршруту', id:'ID', map:'Карта', navigator:'Навігатор', json:'JSON'
+};
+const COL_INDEX = Object.fromEntries(COLS_ORDER.map((k,i)=>[k,i+1]));
+const DEFAULT_VISIBLE = new Set(['hub','fromName','toName','via','distance','type','status','map']);
+const VCOL_KEY = 'export.visibleCols.v2';
+const EXCEL_EXCLUDE = new Set(['map','navigator','json']); // ці в Excel не додаємо
 
+let visibleCols = new Set();
+function loadVisibleCols(){
+  try{
+    const raw = localStorage.getItem(VCOL_KEY);
+    if (raw){
+      const arr = JSON.parse(raw);
+      const ok = (arr||[]).filter(k=>COLS_ORDER.includes(k));
+      if (ok.length){ visibleCols = new Set(ok); return; }
+    }
+  }catch{}
+  visibleCols = new Set(DEFAULT_VISIBLE);
+}
+function saveVisibleCols(){
+  try{ localStorage.setItem(VCOL_KEY, JSON.stringify([...visibleCols])); }catch{}
+}
+function setColVisible(key, show){
+  const idx = COL_INDEX[key]; if (!idx) return;
+  const sel = `#resTable thead tr > *:nth-child(${idx}), #resTable tbody tr > *:nth-child(${idx})`;
+  document.querySelectorAll(sel).forEach(el=>{ el.style.display = show ? '' : 'none'; });
+}
+function applyColumnVisibility(){ COLS_ORDER.forEach(k => setColVisible(k, visibleCols.has(k))); }
+
+function buildColumnPickerUI(){
+  loadVisibleCols();
+  const box = document.getElementById('columnPicker');
+  if (!box) return;
+  box.innerHTML = `
+    <h3>Поля таблиці</h3>
+    <div class="list">
+      ${COLS_ORDER.map(k=>`
+        <label><input type="checkbox" data-colkey="${k}" ${visibleCols.has(k)?'checked':''}> ${COL_LABEL[k]}</label>
+      `).join('')}
+    </div>
+    <div class="btns">
+      <button type="button" class="btn sm" id="colsDefault">За замовчуванням</button>
+      <button type="button" class="btn sm" id="colsAll">Усі</button>
+      <button type="button" class="btn sm" id="colsNone">Жодні</button>
+    </div>
+  `;
+  box.onchange = (e)=>{
+    const cb = e.target.closest('input[type="checkbox"][data-colkey]'); if (!cb) return;
+    const key = cb.getAttribute('data-colkey');
+    if (cb.checked) visibleCols.add(key); else visibleCols.delete(key);
+    saveVisibleCols(); applyColumnVisibility();
+  };
+  box.querySelector('#colsDefault')?.addEventListener('click', ()=>{
+    visibleCols = new Set(DEFAULT_VISIBLE); saveVisibleCols(); buildColumnPickerUI(); applyColumnVisibility();
+  });
+  box.querySelector('#colsAll')?.addEventListener('click', ()=>{
+    visibleCols = new Set(COLS_ORDER); saveVisibleCols(); buildColumnPickerUI(); applyColumnVisibility();
+  });
+  box.querySelector('#colsNone')?.addEventListener('click', ()=>{
+    visibleCols = new Set(); saveVisibleCols(); buildColumnPickerUI(); applyColumnVisibility();
+  });
+}
 
 /* ---------- Таблиця ---------- */
 function renderTable(rows){
