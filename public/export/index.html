@@ -94,6 +94,15 @@
     }
     .col-resizer:hover { background:rgba(37,99,235,.15); }
     .resizing .col-resizer { background:rgba(37,99,235,.25); }
+	
+	/* ==== Панель колонок ліворуч ==== */
+.grid2{ display:grid; grid-template-columns:260px 1fr; gap:12px; align-items:start; }
+.colpicker{ position:sticky; top:12px; align-self:start; background:#fff; border:1px solid #e5e7eb; border-radius:8px; padding:10px; }
+.colpicker h3{ margin:0 0 8px; font-size:14px; }
+.colpicker .list{ display:grid; gap:6px; }
+.colpicker label{ display:flex; align-items:center; gap:8px; font-size:13px; }
+.colpicker .btns{ display:flex; gap:6px; margin-top:8px; }
+
   </style>
   <!-- AUTH GUARD: /export — лише admin | logist -->
 <script>
@@ -190,6 +199,10 @@ try { firebase.apps?.length ? firebase.app() : firebase.initializeApp(CFG); } ca
     </div>
 
     <div class="card" style="margin-bottom:12px;">
+	<div class="grid2">
+    <aside id="columnPicker" class="colpicker"></aside>
+    <div id="filtersArea">
+	
       <div class="row cols-2">
         <div>
           <label>Фільтр: Від</label>
@@ -250,6 +263,8 @@ try { firebase.apps?.length ? firebase.app() : firebase.initializeApp(CFG); } ca
         <span class="muted">Порожні фільтри = не обмежувати. Якщо Firestore попросить індекс — створіть, за посиланням із консолі.</span>
       </div>
       <datalist id="directoryList"></datalist>
+	      </div> <!-- /filtersArea -->
+		</div> <!-- /grid2 -->
     </div>
 
     <div class="card edge">
@@ -276,6 +291,7 @@ try { firebase.apps?.length ? firebase.app() : firebase.initializeApp(CFG); } ca
         <table id="resTable">
           <colgroup>
             <!-- 16 колонок з урахуванням нових «Статус» і «Причина відхилення» -->
+			<col class="col-hub">
             <col class="col-code"><col class="col-code">
             <col><col><col class="col-via">  <!-- Від, До, Проміжні -->
             <col><col><col>                  <!-- Відстань, Тип, Логіст -->
@@ -289,6 +305,7 @@ try { firebase.apps?.length ? firebase.app() : firebase.initializeApp(CFG); } ca
           </colgroup>
           <thead>
             <tr>
+			  <th class="sortable" data-sort="hub">ХАБ <span class="s">↕</span></th>
               <th class="sortable" data-sort="fromCode">Код Від <span class="s">↕</span></th>
               <th class="sortable" data-sort="toCode">Код До <span class="s">↕</span></th>
               <th class="sortable" data-sort="fromName">Від <span class="s">↕</span></th>
@@ -308,6 +325,7 @@ try { firebase.apps?.length ? firebase.app() : firebase.initializeApp(CFG); } ca
             </tr>
             <!-- Рядок фільтрів -->
             <tr class="filters">
+			  <th><input id="f_hub" type="text" placeholder="пошук…"></th>
               <th><input id="f_fromCode" type="text" placeholder="пошук…"></th>
               <th><input id="f_toCode" type="text" placeholder="пошук…"></th>
               <th><input id="f_fromName" type="text" placeholder="пошук…" list="directoryList"></th>
@@ -815,6 +833,7 @@ function parseSnap(snap){
     rows.push({
       id: doc.id,
       routeKey: d.routeKey || '',
+	  hub: d.hub || '',
       fromCode: d.fromCode||'',
       toCode: d.toCode||'',
       fromName: nameByCode(d.fromCode)||'',
@@ -895,6 +914,7 @@ function applyTopFilters(rows){
 /* ---------- Фільтри (рядок у шапці таблиці) ---------- */
 function getTableFilterState(){
   return {
+    hub: document.getElementById('f_hub').value.trim(),
     fromCode:  document.getElementById('f_fromCode').value.trim(),
     toCode:    document.getElementById('f_toCode').value.trim(),
     fromName:  document.getElementById('f_fromName').value.trim(),
@@ -920,6 +940,7 @@ function applyTableFilters(rows){
   const dt = f.dt ? new Date(dayEndISO(f.dt))   : null;
 
   return rows.filter(r=>{
+    if (f.hub && !normInc(r.hub, f.hub)) return false;
     if (f.fromCode && !normInc(r.fromCode, f.fromCode)) return false;
     if (f.toCode   && !normInc(r.toCode,   f.toCode))   return false;
     if (f.fromName && !normInc(r.fromName, f.fromName)) return false;
@@ -1060,10 +1081,12 @@ async function exportJsonFromRows(rows){
   downloadJson(data, fname);
 }
 
+
 /* ---------- Таблиця ---------- */
 function renderTable(rows){
   const tb = document.querySelector('#resTable tbody');
   tb.innerHTML = rows.map(r=>`<tr data-id="${r.id}">
+    <td>${r.hub || ''}</td>
     <td class="cell-code" title="${r.fromCode}">${r.fromCode}</td>
     <td class="cell-code" title="${r.toCode}">${r.toCode}</td>
     <td>${r.fromName}</td>
@@ -1093,25 +1116,37 @@ function renderTable(rows){
 
 /* ---------- Експорт у Excel ---------- */
 function exportToExcel(rows){
-  const header = ['Код Від','Код До','Від','До','Проміжні пункти','Відстань, км','Тип','Логіст','Статус погодження','Причина відхилення','Оновлено','Код маршруту','ID','URL (Карта)'];
+  const keys = COLS_ORDER.filter(k => visibleCols.has(k) && !EXCEL_EXCLUDE.has(k));
+  if (!keys.length){ alert('Оберіть хоча б одну колонку для експорту.'); return; }
+  const header = keys.map(k => COL_LABEL[k]);
 
-  const body = rows.map(r => {
-    const mapUrl = `${location.origin}${MAP_URL}?rid=${encodeURIComponent(r.id)}`;
-    return [
-      r.fromCode, r.toCode, r.fromName, r.toName,
-      r.viaNames || '',
-      Number.isFinite(r.distance_km) ? Number(r.distance_km.toFixed(3)) : '',
-      r.type, r.logisticName || '',
-      r.statusLabel || '',
-      r.rejectComment || '',
-      r.updatedAt, r.routeKey || '', r.id,
-      { t: 's', v: '🗺️ Відкрити', l: { Target: mapUrl, Tooltip: 'Відкрити маршрут на карті' } }
-    ];
-  });
+  const body = rows.map(r => keys.map(k => {
+    switch(k){
+      case 'hub':        return r.hub || '';
+      case 'fromCode':   return r.fromCode || '';
+      case 'toCode':     return r.toCode || '';
+      case 'fromName':   return r.fromName || '';
+      case 'toName':     return r.toName || '';
+      case 'via':        return r.viaNames || '';
+      case 'distance':   return Number.isFinite(r.distance_km) ? Number(r.distance_km.toFixed(3)) : '';
+      case 'type':       return r.type || '';
+      case 'logist':     return r.logisticName || '';
+      case 'status':     return r.statusLabel || '';
+      case 'comment':    return r.rejectComment || '';
+      case 'updated':    return r.updatedAt || '';
+      case 'routeKey':   return r.routeKey || '';
+      case 'id':         return r.id || '';
+      case 'map': {
+        const mapUrl = `${location.origin}${MAP_URL}?rid=${encodeURIComponent(r.id)}`;
+        return { t:'s', v:'🗺️ Відкрити', l:{ Target: mapUrl, Tooltip: 'Відкрити маршрут на карті' } };
+      }
+      default:           return '';
+    }
+  }));
 
   const ws = XLSX.utils.aoa_to_sheet([header, ...body]);
-  ws['!cols'] = [12,12,28,28,32,12,16,22,18,40,22,18,36,18].map(w => ({ wch: w }));
-  ws['!autofilter'] = { ref: XLSX.utils.encode_range({ s:{c:0,r:0}, e:{c:13,r:body.length} }) };
+  ws['!cols'] = header.map(() => ({ wch: 18 }));
+  ws['!autofilter'] = { ref: XLSX.utils.encode_range({ s:{c:0,r:0}, e:{c:header.length-1,r:body.length} }) };
 
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Маршрути');
@@ -1156,6 +1191,7 @@ function reRender(){
   rows = applyTableFilters(rows);
   rows = sortRows(rows);
   renderTable(rows);
+  applyColumnVisibility();
   updatePagerUI();
   updateSortIcons();
 }
@@ -1400,6 +1436,7 @@ btnAutosize.addEventListener('click', autosizeColumns);
   // підготовка колонок: відновити ширини і увімкнути перетягування
   restoreColumnWidths();
   enableResizableColumns();
+  buildColumnPickerUI();
 })();
 
 btnExportJson.addEventListener('click', async ()=>{
