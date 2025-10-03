@@ -18,7 +18,7 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 
   <style>
-    :root { --w: 1080px; }
+    :root { --w: min(1400px, 96vw); }  /* ширше і адаптивно */
     * { box-sizing: border-box; }
     body { margin:0; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; background:#f6f7f9; }
     .wrap { max-width:var(--w); margin:24px auto; padding:0 16px; }
@@ -100,7 +100,13 @@
     .resizing .col-resizer { background:rgba(37,99,235,.25); }
 	
 	/* ==== Лівий сайдбар з чекбоксами ==== */
-.layout{ display:grid; grid-template-columns: 280px 1fr; gap:16px; align-items:start; }
+/* стало — сайдбар гнучкий і може згортатися */
+.layout{
+  display:grid;
+  grid-template-columns: clamp(200px, 18vw, 280px) 1fr; /* менше «з’їдає» ширини */
+  gap:16px;
+  align-items:start;
+}
 .colpicker{
   position:sticky; top:12px; align-self:start;
   background:#fff; border:1px solid #e5e7eb; border-radius:8px; padding:10px;
@@ -112,6 +118,21 @@
 .colpicker .list{ display:grid; gap:6px; }
 .colpicker label{ display:flex; align-items:center; gap:8px; font-size:13px; }
 .colpicker .btns{ display:flex; gap:6px; margin-top:8px; }
+/* стан «згорнуто»: не займає місця */
+.layout.is-collapsed{
+  grid-template-columns: 0 1fr;
+  gap: 8px;
+}
+.layout.is-collapsed .colpicker{
+  width:0; height:0; padding:0; margin:0; border:0;
+  overflow:hidden; visibility:hidden;
+}
+
+/* кнопка-тогл зверху праворуч */
+.coltoggle{ margin-left:8px; }
+
+/* дрібниця: хай основний стовпець стискається */
+.layout .main{ min-width:0; }
 
 /* таблиця: ширина колонки ХАБ */
 .col-hub { width: 120px; }
@@ -229,7 +250,10 @@ try { firebase.apps?.length ? firebase.app() : firebase.initializeApp(CFG); } ca
   <div class="wrap">
     <div class="topbar">
       <h1>Експорт маршрутів (Firestore → Excel)</h1>
-      <div class="bar"><a class="btn" href="/index.html">← До карти</a></div>
+      <div class="bar">
+  <a class="btn" href="/index.html">← До карти</a>
+  <button id="btnToggleSidebar" class="btn coltoggle">☰ Поля таблиці</button>
+</div>
     </div>
 
 <div class="layout">
@@ -1567,6 +1591,21 @@ btnExportJsonAll.addEventListener('click', async ()=>{
     await exportJsonZipFromRows(rows);        // <-- замість exportJsonFromRows
   }catch(e){ handleFirestoreError(e); }
   finally{ setBusy(false); }
+});
+/* ==== Тогл сайдбару «Поля таблиці» ==== */
+const LAYOUT = document.querySelector('.layout');
+const SIDEBAR_STATE_KEY = 'export.sidebarCollapsed.v1';
+
+function applySidebarState(){
+  const collapsed = localStorage.getItem(SIDEBAR_STATE_KEY) === '1';
+  LAYOUT.classList.toggle('is-collapsed', collapsed);
+}
+applySidebarState();
+
+document.getElementById('btnToggleSidebar')?.addEventListener('click', () => {
+  const now = !LAYOUT.classList.contains('is-collapsed');
+  LAYOUT.classList.toggle('is-collapsed', now);
+  localStorage.setItem(SIDEBAR_STATE_KEY, now ? '1' : '0');
 });
 
 </script>
