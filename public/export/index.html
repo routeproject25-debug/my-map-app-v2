@@ -125,25 +125,26 @@
 }
 
 .colpicker{
-  position:sticky; top:12px; align-self:start;
-  background:#fff; border:1px solid #e5e7eb; border-radius:8px; padding:10px;
+  grid-column: 1 / -1;           /* на всю ширину, як картка */
+  position: static;              /* більше не sticky */
+  background:#fff;
+  border:1px solid #e5e7eb;
+  border-radius:12px;
+  padding:12px;
+  max-height: none;
+  overflow: visible;
+}
 
-  max-height: calc(100vh - 24px);
-  overflow: auto;
-}
 .colpicker h3{ margin:0 0 8px; font-size:14px; }
-.colpicker .list{ display:grid; gap:6px; }
+.colpicker .list{
+  display:grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 8px 12px;
+}
 .colpicker label{ display:flex; align-items:center; gap:8px; font-size:13px; }
-.colpicker .btns{ display:flex; gap:6px; margin-top:8px; }
-/* стан «згорнуто»: не займає місця */
-.layout.is-collapsed{
-  grid-template-columns: 0 1fr;
-  gap: 8px;
-}
-.layout.is-collapsed .colpicker{
-  width:0; height:0; padding:0; margin:0; border:0;
-  overflow:hidden; visibility:hidden;
-}
+.colpicker .btns{ display:flex; flex-wrap:wrap; gap:8px; margin-top:10px; }
+/* ► Саме це додай */
+.colpicker.is-hidden{ display:none; }
 
 /* кнопка-тогл зверху праворуч */
 .coltoggle{ margin-left:8px; }
@@ -161,6 +162,7 @@
 @media (max-width: 980px){
   .layout{ grid-template-columns: 1fr; }
   .colpicker{ position:static; }
+  .filters-card{ grid-column: 1 / -1; }   /* щоб картка фільтрів не «тягнулася» в неіснуючу 2-гу колонку */
 }
 
 /* і щоб «Результати» не робили фул-блід */
@@ -1605,20 +1607,19 @@ btnExportJsonAll.addEventListener('click', async ()=>{
   }catch(e){ handleFirestoreError(e); }
   finally{ setBusy(false); }
 });
-/* ==== Тогл сайдбару «Поля таблиці» ==== */
-const LAYOUT = document.querySelector('.layout');
-const SIDEBAR_STATE_KEY = 'export.sidebarCollapsed.v1';
+/* ==== Тогл «Поля таблиці» як секції (показати/сховати) ==== */
+const COLPICKER = document.getElementById('columnPicker');
+const COLPICKER_STATE_KEY = 'export.colpickerHidden.v1';
 
-function applySidebarState(){
-  const collapsed = localStorage.getItem(SIDEBAR_STATE_KEY) === '1';
-  LAYOUT.classList.toggle('is-collapsed', collapsed);
+function applyColpickerState(){
+  const hidden = localStorage.getItem(COLPICKER_STATE_KEY) === '1';
+  COLPICKER.classList.toggle('is-hidden', hidden);
 }
-applySidebarState();
+applyColpickerState();
 
 document.getElementById('btnToggleSidebar')?.addEventListener('click', () => {
-  const now = !LAYOUT.classList.contains('is-collapsed');
-  LAYOUT.classList.toggle('is-collapsed', now);
-  localStorage.setItem(SIDEBAR_STATE_KEY, now ? '1' : '0');
+  const hidden = COLPICKER.classList.toggle('is-hidden');
+  localStorage.setItem(COLPICKER_STATE_KEY, hidden ? '1' : '0');
 });
 
 </script>
