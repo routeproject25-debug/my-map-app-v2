@@ -16,7 +16,7 @@
     if (!firebase.apps || !firebase.apps.length) firebase.initializeApp(cfg);
   })();
 
-  // 2) Приховуємо сторінку, поки не зрозуміло стан логіна (щоб не блимало)123
+  // 2) Приховуємо сторінку, поки не зрозуміло стан логіна (щоб не блимало)
   (function hideUntilAuthed(){
     if (!document.getElementById('authGate')) {
       const s = document.createElement('style');
