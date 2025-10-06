@@ -446,6 +446,7 @@ auth?.onAuthStateChanged(async (u) => {
       const code = (r[codeIdx]||'').toString().trim();
       const company = companyIdx!=null ? (r[companyIdx]||'').toString().trim() : '';
 	  const unit = unitIdx!=null ? (r[unitIdx]||'').toString().trim() : '';
+    const nameLower = name.toLocaleLowerCase('uk-UA');   // ⬅️ додали
 	  const hub = hubIdx!=null ? (r[hubIdx]||'').toString().trim() : '';
       if (!name && !code) { skippedBlankRow++; continue; }
       if (!name) { skippedEmptyName++; continue; }
@@ -457,6 +458,7 @@ auth?.onAuthStateChanged(async (u) => {
 	...(company ? { company } : {}),
 	...(unit ? { unit } : {}),
 	...(hub ? { hub } : {})   // ← нове поле "hub"
+  nameLower                                  // ⬅️ додали
 	}
 	});
     }
@@ -482,7 +484,7 @@ auth?.onAuthStateChanged(async (u) => {
   });
 
   // Порівняння тільки важливих полів
-  function normData(d){ return { name: d?.name || '', company: d?.company || '', unit: d?.unit || '', hub: d?.hub || '' }; }
+  function normData(d){ return { name: d?.name || '', company: d?.company || '', unit: d?.unit || '', hub: d?.hub || '', nameLower: nl }; }
   function equalData(a,b){
     const x = JSON.stringify(normData(a));
     const y = JSON.stringify(normData(b));
