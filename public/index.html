@@ -1173,6 +1173,8 @@ const logistIdByName = {};
 
 const DIR_CACHE_KEY = 'directoryCache.v2';
 const DIR_CACHE_TTL_MS = 12 * 60 * 60 * 1000;
+// 👇 ДОДАЙ ЦЕ ТУТ
+const DIR_NAME_FIELD = 'nameLower'; // якщо поля немає — тимчасово постав 'name'
 
 const LOGISTS_CACHE_KEY = 'logistsCache.v1';
 const LOGISTS_CACHE_TTL_MS = 12 * 60 * 60 * 1000;
@@ -1197,25 +1199,28 @@ function fillDirectoryUI(rows){
     list.appendChild(opt);
   }
 }
-async function loadDirectory(force=false){
+async function loadDirectory(force = false){
   try{
     if (!force){
       const raw = localStorage.getItem(DIR_CACHE_KEY);
       if (raw){
         const { ts, rows } = JSON.parse(raw);
         if (Array.isArray(rows) && Date.now() - ts < DIR_CACHE_TTL_MS){
-          fillDirectoryUI(rows); updateRouteName(); refreshRoutesList();
+          fillDirectoryUI(rows);
+          updateRouteName();
           console.log('📒 Directory from localStorage cache:', rows.length);
           return;
         }
       }
+      // ❗ Без force більше НЕ тягнемо всю колекцію.
+      // Підказки підтягуватимуться маленькими запитами через typeahead.
+      console.log('📒 Directory: cache miss — пропускаємо серверне завантаження (чекаємо typeahead/Refresh).');
+      return;
     }
   }catch{}
 
-  let snap = null;
-  try { snap = await db.collection('directory').get({ source: force ? 'default' : 'cache' }); } catch {}
-  if (!snap || snap.empty) snap = await db.collection('directory').get();
-
+  // force=true: тягнемо повністю з сервера (кнопка "Оновити довідник")
+  const snap = await db.collection('directory').get({ source:'default' });
   const rows = [];
   snap.forEach(doc => {
     const d = doc.data() || {};
@@ -1224,10 +1229,8 @@ async function loadDirectory(force=false){
 
   fillDirectoryUI(rows);
   updateRouteName();
-  refreshRoutesList();
-
   try{ localStorage.setItem(DIR_CACHE_KEY, JSON.stringify({ ts: Date.now(), rows })); }catch{}
-  console.log('📒 Directory loaded from Firestore:', rows.length, 'force=', force);
+  console.log('📒 Directory loaded from Firestore (force):', rows.length);
 }
 
 // === Typeahead: префіксний запит у Firestore і оновлення підказок ===
@@ -1741,6 +1744,12 @@ let isRefreshingRoutes = false;
 let routesPageLastDoc = null;   // останній документ попередньої сторінки
 let routesDone = false;         // чи все догрузили
 let routesLoadedCount = 0;      // скільки вже завантажено на клієнт
+let routesInitLoaded = false;
+async function ensureRoutesLoaded(){
+  if (routesInitLoaded) return;
+  routesInitLoaded = true;
+  await refreshRoutesList('reset');
+}
 
 function renderRoutesDocs(docs){
   const sel  = document.getElementById('remoteRoutes');
@@ -1787,7 +1796,7 @@ async function refreshRoutesList(mode='reset'){
   }
   if (routesDone){ isRefreshingRoutes = false; return; }
 
-  const pageSize = 500; // скільки підтягувати за раз
+  const pageSize = 100; // скільки підтягувати за раз
   let q = db.collection('routes').orderBy('updatedAt','desc').limit(pageSize);
   if (routesPageLastDoc) q = q.startAfter(routesPageLastDoc);
 
@@ -1955,6 +1964,7 @@ document.getElementById('refreshList').onclick = () => {
   const now = Date.now();
   if (now - lastRefreshClick < 500) return;
   lastRefreshClick = now;
+  routesInitLoaded = true;       // щоб не дублювати lazy-підвантаження
   refreshRoutesList('reset');
 };
 document.getElementById('loadMoreRoutes').onclick = () => refreshRoutesList('next');
@@ -1984,6 +1994,9 @@ document.getElementById('clearLogistsCache').onclick = () => {
 /* Search helper */
 const routeSearch = document.getElementById('routeSearch');
 const remoteRoutesSel = document.getElementById('remoteRoutes');
+// 👇 ДОДАЙ ЦІ ДВА РЯДКИ
+routeSearch.addEventListener('focus', ensureRoutesLoaded);
+remoteRoutesSel.addEventListener('focus', ensureRoutesLoaded);
 routeSearch.addEventListener('input', () => {
   const q = routeSearch.value.trim().toLowerCase();
   let matched = false;
@@ -2258,7 +2271,7 @@ applyRoleUI(['admin','logist','user'].includes(role) ? role : 'guest');
     const ALLOWED = new Set(['admin','logist','user']);
 
 roleUnsub = db.collection('users').doc(user.uid)
-  .onSnapshot({ includeMetadataChanges: true }, (doc) => {
+  .onSnapshot((doc) => {
     const r = doc.exists ? (String(doc.data().role || 'pending').toLowerCase()) : 'pending';
     window.__userRole = r;
     applyRoleUI(ALLOWED.has(r) ? r : 'guest'); // ✅ 'user' зберігається як read-only
@@ -2285,10 +2298,9 @@ roleUnsub = db.collection('users').doc(user.uid)
 /* ===== Start ===== */
 window.addEventListener('load', async () => {
   if (!db) return;
-  await loadDirectory(); // ⬅️ без "true": спочатку спробує localStorage, і ЛИШЕ якщо кеш протух — піде в Firestore
-  await refreshRoutesList('reset');
+  await loadDirectory(false); // тільки кеш, без повного fetch
   const rid = new URLSearchParams(location.search).get('rid');
-  if (rid) await loadRouteById(rid);
+  if (rid) { await ensureRoutesLoaded(); await loadRouteById(rid); }
   requestAnimationFrame(updateLayoutHeights);
 });
 
