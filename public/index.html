@@ -1260,18 +1260,32 @@ async function queryDirectoryPrefix(prefix, limit = 20){
     const p = String(prefix||'').trim();
     if (!p) { _resetDatalistOptions('directoryList'); return; }
 
-    // для нечутливого до регістру пошуку — зведемо префікс до нижнього регістру
     const pLower = p.toLowerCase();
 
-    // будуємо запит
-    // ВАРІАНТ 1 (рекомендовано): коли маєш поле nameLower у кожному документі
+    // 1) спроба по nameLower
     let q = db.collection('directory')
-      .orderBy(DIR_NAME_FIELD)                   // 'nameLower' або 'name'
-      .startAt(DIR_NAME_FIELD === 'nameLower' ? pLower : p)
-      .endBefore((DIR_NAME_FIELD === 'nameLower' ? pLower : p) + '\uf8ff')
+      .orderBy('nameLower')
+      .startAt(pLower)
+      .endBefore(pLower + '\uf8ff')
       .limit(limit);
 
-    const snap = await q.get({ source:'default' });
+    let snap;
+    try {
+      snap = await q.get({ source:'default' });
+    } catch (e) {
+      // якщо індекси/права заважають — теж підемо на fallback
+      snap = { empty: true, forEach: () => {} };
+    }
+
+    // 2) fallback по name, якщо порожньо
+    if (snap.empty) {
+      q = db.collection('directory')
+        .orderBy('name')
+        .startAt(p)
+        .endBefore(p + '\uf8ff')
+        .limit(limit);
+      snap = await q.get({ source:'default' });
+    }
 
     const rows = [];
     snap.forEach(doc=>{
@@ -1284,7 +1298,7 @@ async function queryDirectoryPrefix(prefix, limit = 20){
       });
     });
 
-    _resetDatalistOptions('directoryList');     // показуємо лише актуальні 20 підказок
+    _resetDatalistOptions('directoryList');
     _appendDatalistOptions(rows, 'directoryList');
   }catch(e){
     console.warn('queryDirectoryPrefix error:', e?.message || e);
