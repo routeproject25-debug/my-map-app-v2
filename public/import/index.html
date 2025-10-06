@@ -33,7 +33,7 @@
     .btn{padding:10px 14px; border-radius:10px; border:1px solid transparent; cursor:pointer; font-weight:600; min-height:40px}
     .btn.primary{background:var(--brand); color:#fff}
     .btn.primary:hover{background:var(--brand-2)}
-    .btn.ghost{background:#fff; border-color:#line}
+    .btn.ghost{background:#fff; border-color:var(--line)}
     .btn.ghost:hover{border-color:#cbd5e1}
     .btn.warn{background:#fff; border-color:#f59e0b; color:#b45309}
     .grid{display:grid; gap:12px}
@@ -439,29 +439,34 @@ auth?.onAuthStateChanged(async (u) => {
     const entries = [];
     let skippedEmptyName = 0, skippedEmptyCode = 0, skippedBlankRow = 0;
 
-    for (let i = startIdx; i < rows.length; i++){
-      const r = rows[i];
-      if (!r || !r.length || r.every(c => (c||'').toString().trim()==='')) { skippedBlankRow++; continue; }
-      const name = (r[nameIdx]||'').toString().trim();
-      const code = (r[codeIdx]||'').toString().trim();
-      const company = companyIdx!=null ? (r[companyIdx]||'').toString().trim() : '';
-	  const unit = unitIdx!=null ? (r[unitIdx]||'').toString().trim() : '';
-    const nameLower = name.toLocaleLowerCase('uk-UA');   // ⬅️ додали
-	  const hub = hubIdx!=null ? (r[hubIdx]||'').toString().trim() : '';
-      if (!name && !code) { skippedBlankRow++; continue; }
-      if (!name) { skippedEmptyName++; continue; }
-      if (!code) { skippedEmptyCode++; continue; }
-      entries.push({
-	id: sanitizeId(code),
-	data: {
-	name,
-	...(company ? { company } : {}),
-	...(unit ? { unit } : {}),
-	...(hub ? { hub } : {})   // ← нове поле "hub"
-  nameLower                                  // ⬅️ додали
-	}
-	});
+for (let i = startIdx; i < rows.length; i++) {
+  const r = rows[i];
+  if (!r || !r.length || r.every(c => (c || '').toString().trim() === '')) { skippedBlankRow++; continue; }
+
+  const name    = (r[nameIdx]   || '').toString().trim();
+  const code    = (r[codeIdx]   || '').toString().trim();
+  const company = companyIdx != null ? (r[companyIdx] || '').toString().trim() : '';
+  const unit    = unitIdx    != null ? (r[unitIdx]    || '').toString().trim() : '';
+  const hub     = hubIdx     != null ? (r[hubIdx]     || '').toString().trim() : '';
+
+  if (!name && !code) { skippedBlankRow++; continue; }
+  if (!name) { skippedEmptyName++; continue; }
+  if (!code) { skippedEmptyCode++; continue; }
+
+  entries.push({
+    id: sanitizeId(code),
+    data: {
+      name,
+      ...(company && { company }),
+      ...(unit    && { unit }),
+      ...(hub     && { hub }),
+      // 👇 ключ задаємо явно, помилитись складно
+      nameLower: name.toLocaleLowerCase('uk-UA')
+      // якщо раптом лається лінтер — можна спокійно замінити на:
+      // nameLower: name.toLowerCase()
     }
+  });
+}
 
     // Дедуп за id
     const map = new Map();
