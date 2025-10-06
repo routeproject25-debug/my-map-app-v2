@@ -489,12 +489,27 @@ for (let i = startIdx; i < rows.length; i++) {
   });
 
   // Порівняння тільки важливих полів
-  function normData(d){ return { name: d?.name || '', company: d?.company || '', unit: d?.unit || '', hub: d?.hub || '', nameLower: nl }; }
-  function equalData(a,b){
-    const x = JSON.stringify(normData(a));
-    const y = JSON.stringify(normData(b));
-    return x === y;
-  }
+// хелпер: нижній регістр з укр. локаллю + fallback
+const toUkLower = (s) => {
+  const t = (s ?? '').toString();
+  try { return t.toLocaleLowerCase('uk-UA'); } catch { return t.toLowerCase(); }
+};
+
+function normData(d){
+  const name = (d?.name ?? '').toString();
+  return {
+    name,
+    company: d?.company ?? '',
+    unit:    d?.unit ?? '',
+    hub:     d?.hub ?? '',
+    // якщо в документі вже є nameLower — беремо його; інакше рахуємо з name
+    nameLower: toUkLower(d?.nameLower ?? name)
+  };
+}
+
+function equalData(a, b){
+  return JSON.stringify(normData(a)) === JSON.stringify(normData(b));
+}
 
   // Імпорт
   $('importBtn').addEventListener('click', async () => {
