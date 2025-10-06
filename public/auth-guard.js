@@ -1,46 +1,48 @@
-<!-- auth-guard.js -->
-<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
-<script>
-  // 1) Firebase init (без дубляжу)
-  (function initFirebase(){
-    const cfg = {
-      apiKey: "AIzaSyDjDBZkmy-skuDEQF8-AkRma7yw6TugoQc",
-      authDomain: "my-map-app-58312.firebaseapp.com",
-      projectId: "my-map-app-58312",
-      storageBucket: "my-map-app-58312.firebasestorage.app",
-      messagingSenderId: "53260611353",
-      appId: "1:53260611353:web:f25e120996ad8305405f88",
-      measurementId: "G-9LRX1FLTKL"
-    };
-    if (!firebase.apps || !firebase.apps.length) firebase.initializeApp(cfg);
-  })();
+// /js/auth-guard.js
+(function () {
+  // 1) Ховаємо сторінку, поки не зрозуміло стан логіна (без «блимання»)
+  if (!document.getElementById('authGate')) {
+    const s = document.createElement('style');
+    s.id = 'authGate';
+    s.textContent = 'body{visibility:hidden}';
+    document.head.appendChild(s);
+  }
 
-  // 2) Приховуємо сторінку, поки не зрозуміло стан логіна (щоб не блимало)
-  (function hideUntilAuthed(){
-    if (!document.getElementById('authGate')) {
-      const s = document.createElement('style');
-      s.id = 'authGate';
-      s.textContent = 'body{visibility:hidden}';
-      document.head.appendChild(s);
+  // 2) Ініціалізація Firebase з /config/config.js (без дублювань і без хардкоду)
+  const tryInit = () => {
+    const cfg = window.APP_CONFIG && window.APP_CONFIG.firebase;
+    if (!cfg) {
+      console.error('[auth-guard] APP_CONFIG.firebase не знайдено. Підключіть /config/config.js перед /js/auth-guard.js');
+      return false;
     }
-  })();
+    try {
+      if (!firebase.apps || !firebase.apps.length) firebase.initializeApp(cfg);
+      return true;
+    } catch (e) {
+      // якщо вже ініціалізовано — ок
+      if (firebase.apps && firebase.apps.length) return true;
+      console.error('[auth-guard] init error:', e);
+      return false;
+    }
+  };
+
+  if (!tryInit()) return;
 
   // 3) Перевірка аутентифікації + редирект на /login.html
-  (function guard(){
-    const auth = firebase.auth();
-    auth.onAuthStateChanged(u => {
-      const gate = document.getElementById('authGate');
-      if (!u) {
-        const here = location.pathname + location.search + location.hash;
-        location.replace('/login.html?next=' + encodeURIComponent(here));
-      } else {
-        if (gate) gate.remove();
-        // Експортуємо глобальний logout для кнопок "Вийти"
-        window.appLogout = async () => {
-          try { await auth.signOut(); } finally { location.replace('/login.html'); }
-        };
-      }
-    });
-  })();
-</script>
+  const auth = firebase.auth();
+  auth.onAuthStateChanged(u => {
+    const gate = document.getElementById('authGate');
+    if (!u) {
+      const here = location.pathname + location.search + location.hash;
+      location.replace('/login.html?next=' + encodeURIComponent(here));
+      return;
+    }
+    if (gate) gate.remove();
+
+    // Глобальний logout для кнопок «Вийти»
+    window.appLogout = async () => {
+      try { await auth.signOut(); }
+      finally { location.replace('/login.html'); }
+    };
+  });
+})();
