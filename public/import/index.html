@@ -404,6 +404,23 @@ auth?.onAuthStateChanged(async (u) => {
     return (s||'').toString().trim().replace(/[\/\\#?[\]]/g, '_').slice(0, 500);
   }
 
+  // ↓↓↓ додати вище за prepareEntries
+function toUkLower(s){
+  const t = (s ?? '').toString().trim();
+  try { return t.toLocaleLowerCase('uk-UA'); } catch { return t.toLowerCase(); }
+}
+// унікальні триґрами (для пошуку "всередині" рядка)
+function makeNGrams(s, n = 3){
+  const src = toUkLower(s)
+    .replace(/\s+/g, ' ')
+    .replace(/[^\p{L}\p{N}\s]/gu, ''); // лише літери/цифри/пробіли
+  const grams = new Set();
+  for (let i = 0; i <= src.length - n; i++){
+    grams.add(src.slice(i, i + n));
+  }
+  return Array.from(grams);
+}
+
   // Підготовка entries
   function prepareEntries(){
     const raw = $('raw').value;
@@ -454,18 +471,16 @@ for (let i = startIdx; i < rows.length; i++) {
   if (!code) { skippedEmptyCode++; continue; }
 
   entries.push({
-    id: sanitizeId(code),
-    data: {
-      name,
-      ...(company && { company }),
-      ...(unit    && { unit }),
-      ...(hub     && { hub }),
-      // 👇 ключ задаємо явно, помилитись складно
-      nameLower: name.toLocaleLowerCase('uk-UA')
-      // якщо раптом лається лінтер — можна спокійно замінити на:
-      // nameLower: name.toLowerCase()
-    }
-  });
+  id: sanitizeId(code),
+  data: {
+    name,
+    ...(company && { company }),
+    ...(unit    && { unit }),
+    ...(hub     && { hub }),
+    nameLower: toUkLower(name),           // ← нормалізований lower
+    nameNgrams: makeNGrams(name)          // ← триґрами для пошуку "всередині"
+  }
+});
 }
 
     // Дедуп за id

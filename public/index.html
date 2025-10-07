@@ -1180,6 +1180,15 @@ const LOGISTS_CACHE_KEY = 'logistsCache.v1';
 const LOGISTS_CACHE_TTL_MS = 12 * 60 * 60 * 1000;
 
 function _norm(s){ return String(s||'').trim().toLowerCase(); }
+// ↓↓↓ додати поряд із _norm
+function trigrams(s){
+  const t = (s || '').toString().toLowerCase().replace(/\s+/g,' ');
+  const out = new Set();
+  if (t.length < 3) return [];
+  for (let i = 0; i <= t.length - 3; i++) out.add(t.slice(i, i+3));
+  // Firestore: array-contains-any підтримує максимум 10 значень
+  return Array.from(out).slice(0, 10);
+}
 
 /* ---- Directory ---- */
 function fillDirectoryUI(rows){
@@ -1261,45 +1270,66 @@ async function queryDirectoryPrefix(prefix, limit = 20){
     if (!p) { _resetDatalistOptions('directoryList'); return; }
 
     const pLower = p.toLowerCase();
+    const accRows = [];
+    const seen = new Set();
 
-    // 1) спроба по nameLower
-    let q = db.collection('directory')
-      .orderBy('nameLower')
-      .startAt(pLower)
-      .endBefore(pLower + '\uf8ff')
-      .limit(limit);
-
-    let snap;
-    try {
-      snap = await q.get({ source:'default' });
-    } catch (e) {
-      // якщо індекси/права заважають — теж підемо на fallback
-      snap = { empty: true, forEach: () => {} };
-    }
-
-    // 2) fallback по name, якщо порожньо
-    if (snap.empty) {
-      q = db.collection('directory')
-        .orderBy('name')
-        .startAt(p)
-        .endBefore(p + '\uf8ff')
+    // 1) звичний префікс по nameLower (швидко й дешево)
+    try{
+      const q1 = db.collection('directory')
+        .orderBy('nameLower')
+        .startAt(pLower)
+        .endBefore(pLower + '\uf8ff')
         .limit(limit);
-      snap = await q.get({ source:'default' });
-    }
 
-    const rows = [];
-    snap.forEach(doc=>{
-      const d = doc.data() || {};
-      rows.push({
-        code: doc.id,
-        name: d.name || doc.id,
-        company: d.company || '',
-        unit: d.unit || ''
+      const s1 = await q1.get({ source:'default' });
+      s1.forEach(doc => {
+        if (accRows.length >= limit) return;
+        if (seen.has(doc.id)) return;
+        const d = doc.data() || {};
+        accRows.push({
+          code: doc.id,
+          name: d.name || doc.id,
+          company: d.company || '',
+          unit: d.unit || ''
+        });
+        seen.add(doc.id);
       });
-    });
+    } catch(_) { /* ігноруємо, підемо на fallback */ }
+
+    // 2) якщо мало результатів — fallback: "містить" через nameNgrams
+    if (accRows.length < limit && pLower.length >= 3){
+      const grams = trigrams(pLower);
+      if (grams.length){
+        const q2 = db.collection('directory')
+          .where('nameNgrams', 'array-contains-any', grams)
+          .limit(limit);
+
+        const s2 = await q2.get({ source:'default' });
+        s2.forEach(doc => {
+          if (accRows.length >= limit) return;
+          if (seen.has(doc.id)) return;
+          const d = doc.data() || {};
+          accRows.push({
+            code: doc.id,
+            name: d.name || doc.id,
+            company: d.company || '',
+            unit: d.unit || ''
+          });
+          seen.add(doc.id);
+        });
+
+        // 2.1) підсортуємо знайдене: де входження ближче до початку — вище
+        const score = (row) => {
+          const n = (row.name || '').toLowerCase();
+          const pos = n.indexOf(pLower);
+          return (pos === -1 ? 1e6 : pos) * 1000 + n.length; // менше — краще
+        };
+        accRows.sort((a,b) => score(a) - score(b));
+      }
+    }
 
     _resetDatalistOptions('directoryList');
-    _appendDatalistOptions(rows, 'directoryList');
+    _appendDatalistOptions(accRows.slice(0, limit), 'directoryList');
   }catch(e){
     console.warn('queryDirectoryPrefix error:', e?.message || e);
   }
