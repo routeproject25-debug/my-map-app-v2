@@ -467,6 +467,7 @@ try { firebase.apps?.length ? firebase.app() : firebase.initializeApp(CFG); } ca
     <th                                            data-colkey="map">Карта</th>
     <th                                            data-colkey="navigator">Навігатор</th>
     <th                                            data-colkey="json">JSON</th>
+    <th                                            data-colkey="review">Погодження</th>
   </tr>
 
   <!-- Рядок фільтрів (без змін по суті) -->
@@ -512,6 +513,7 @@ try { firebase.apps?.length ? firebase.app() : firebase.initializeApp(CFG); } ca
     <th></th>
     <th></th>
     <th></th>
+    <th></th>
   </tr>
 </thead>
           <tbody></tbody>
@@ -525,6 +527,7 @@ try { firebase.apps?.length ? firebase.app() : firebase.initializeApp(CFG); } ca
 const MAP_URL = '/index.html';
 const NAVIGATE_PAGE = '/navigate.html';
 const DEFAULT_PROFILE = 'driving';
+const REVIEW_PAGE = '/review.html';
 
 /* --- глобальний логер --- */
 window.addEventListener('error', (e) => {
@@ -1285,18 +1288,18 @@ async function exportJsonFromRows(rows){
 /* ==== Керування видимістю колонок (чекбокси ліворуч) ==== */
 const COLS_ORDER = [
   'hub','fromCode','toCode','fromName','toName','via','distance','type',
-  'logist','status','comment','updated','routeKey','id','map','navigator','json'
+  'logist','status','comment','updated','routeKey','id','map','navigator','json', 'review'
 ];
 const COL_LABEL = {
   hub:'ХАБ', fromCode:'Код Від', toCode:'Код До', fromName:'Від', toName:'До',
   via:'Проміжні пункти', distance:'Відстань, км', type:'Тип', logist:'Логіст',
   status:'Статус погодження', comment:'Причина відхилення', updated:'Оновлено',
-  routeKey:'Код маршруту', id:'ID', map:'Карта', navigator:'Навігатор', json:'JSON'
+  routeKey:'Код маршруту', id:'ID', map:'Карта', navigator:'Навігатор', json:'JSON', review:'Погодження'
 };
 const COL_INDEX = Object.fromEntries(COLS_ORDER.map((k,i)=>[k,i+1]));
-const DEFAULT_VISIBLE = new Set(['hub','fromName','toName','via','distance','type','status','map']);
+const DEFAULT_VISIBLE = new Set(['hub','fromName','toName','via','distance','type','status','map', 'review']);
 const VCOL_KEY = 'export.visibleCols.v2';
-const EXCEL_EXCLUDE = new Set(['map','navigator','json']); // ці в Excel не додаємо
+const EXCEL_EXCLUDE = new Set(['map','navigator','json', 'review']); // ці в Excel не додаємо
 
 // --- Розподіл ширини видимих колонок, щоб прибрати "пустелю" праворуч ---
 const COL_WEIGHTS = {
@@ -1428,6 +1431,7 @@ function buildColumnPickerUI(){
 /* ---------- Таблиця ---------- */
 function renderTable(rows){
   const tb = document.querySelector('#resTable tbody');
+  const canReview = ['admin','security'].includes(String(currentRole || '').toLowerCase());
   tb.innerHTML = rows.map(r=>`<tr data-id="${r.id}">
     <td>${r.hub || ''}</td>
     <td class="cell-code" title="${r.fromCode}">${r.fromCode}</td>
@@ -1451,7 +1455,13 @@ function renderTable(rows){
     </td>
     <td><a href="${MAP_URL}?rid=${encodeURIComponent(r.id)}" target="_blank" rel="noopener">Відкрити</a></td>
     <td><button class="btn sm share-btn" data-id="${r.id}" data-name="${(r.fromName||'') + ' → ' + (r.toName||'')}">🔗 Поділитися</button></td>
-	<td><button class="btn sm json-one" data-id="${r.id}">JSON</button></td>
+    <td><button class="btn sm json-one" data-id="${r.id}">JSON</button></td>
+    <!-- ДОДАТИ ОСТАННЮ КОМІРКУ: -->
+    <td>${
+      canReview
+        ? `<a href="${REVIEW_PAGE}?rid=${encodeURIComponent(r.id)}" target="_blank" rel="noopener">Погодити</a>`
+        : '<span class="muted">—</span>'
+    }</td>
   </tr>`).join('');
   document.getElementById('countInfo').textContent = `Записів (після фільтру): ${rows.length}`;
   updateStats(rows);
