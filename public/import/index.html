@@ -504,12 +504,7 @@ for (let i = startIdx; i < rows.length; i++) {
   });
 
   // Порівняння тільки важливих полів
-// хелпер: нижній регістр з укр. локаллю + fallback
-const toUkLower = (s) => {
-  const t = (s ?? '').toString();
-  try { return t.toLocaleLowerCase('uk-UA'); } catch { return t.toLowerCase(); }
-};
-
+// Порівняння тільки важливих полів
 function normData(d){
   const name = (d?.name ?? '').toString();
   return {
@@ -517,8 +512,7 @@ function normData(d){
     company: d?.company ?? '',
     unit:    d?.unit ?? '',
     hub:     d?.hub ?? '',
-    // якщо в документі вже є nameLower — беремо його; інакше рахуємо з name
-    nameLower: toUkLower(d?.nameLower ?? name)
+    nameLower: toUkLower(d?.nameLower ?? name) // використовуємо функцію, що оголошена ВИЩЕ
   };
 }
 
