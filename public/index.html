@@ -887,6 +887,26 @@ function bindTilesetHoverHandlers(){
 }
 
 /* ===== Buttons state ===== */
+// ⬇️ додати тут
+function flyToRouteEdge(which){
+  let target = null;
+
+  // 1) головний кейс — намальований маршрут (points)
+  if (Array.isArray(points) && points.length){
+    target = (which === 'start') ? points[0] : points[points.length - 1];
+  }
+
+  // 2) fallback — якщо points ще немає, беремо лінійки
+  if (!target){
+    if (which === 'start' && startRuler.length) target = startRuler[0];
+    if (which === 'end'   && endRuler.length)   target = endRuler[endRuler.length - 1];
+  }
+
+  if (!target) return;
+  try {
+    map.flyTo({ center: target, zoom: Math.max(map.getZoom() || 0, 12), essential: true });
+  } catch(_) {}
+}
 function toggleButton(id, flag) {
   const btn = document.getElementById(id);
   btn.textContent = btn.textContent.split(':')[0] + `: ${flag ? 'УВІМКНЕНО.' : 'ВИМКНЕНО.'}`;
@@ -904,12 +924,16 @@ document.getElementById('startLineMode').onclick = () => {
   startLineMode = !startLineMode; endLineMode = false; addMode = false; insertAfterMode = false;
   setActiveRuler(startLineMode ? 'start' : null);
   toggleButton('startLineMode', startLineMode); toggleButton('endLineMode', false); toggleButton('toggleAdd', false);
+  // ⬇️ додати
+  if (startLineMode) flyToRouteEdge('start');
 };
 document.getElementById('endLineMode').onclick = () => {
   if (readOnly) return;
   endLineMode = !endLineMode; startLineMode = false; addMode = false; insertAfterMode = false;
   setActiveRuler(endLineMode ? 'end' : null);
   toggleButton('endLineMode', endLineMode); toggleButton('startLineMode', false); toggleButton('toggleAdd', false);
+  // ⬇️ додати
+  if (endLineMode) flyToRouteEdge('end');
 };
 
 document.getElementById('popRulerPoint').onclick = () => {
