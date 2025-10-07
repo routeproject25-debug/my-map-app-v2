@@ -465,9 +465,10 @@ try { firebase.apps?.length ? firebase.app() : firebase.initializeApp(CFG); } ca
     <th class="sortable" data-sort="routeKey"      data-colkey="routeKey">Код маршруту <span class="s">↕</span></th>
     <th class="sortable" data-sort="id"            data-colkey="id">ID <span class="s">↕</span></th>
     <th                                            data-colkey="map">Карта</th>
+    <th                                            >Погодження</th>
     <th                                            data-colkey="navigator">Навігатор</th>
     <th                                            data-colkey="json">JSON</th>
-    <th                                            data-colkey="review">Погодження</th>
+
   </tr>
 
   <!-- Рядок фільтрів (без змін по суті) -->
@@ -510,10 +511,11 @@ try { firebase.apps?.length ? firebase.app() : firebase.initializeApp(CFG); } ca
     </th>
     <th><input id="f_routeKey" type="text" placeholder="пошук…"></th>
     <th><input id="f_id" type="text" placeholder="пошук…"></th>
-    <th></th>
-    <th></th>
-    <th></th>
-    <th></th>
+    <th></th>  <!-- для "Карта" -->
+    <th></th>  <!-- для "Погодження" -->
+    <th></th>  <!-- для "Навігатор" -->
+    <th></th>  <!-- для "JSON" -->
+
   </tr>
 </thead>
           <tbody></tbody>
@@ -601,6 +603,19 @@ auth?.onAuthStateChanged(async (u) => {
   authRoleBadge.textContent = `Роль: ${currentRole}`;
   authRoleBadge.style.display = '';
   setBusy(false);
+  
+  // ⬇⬇⬇ ВСТАВ СЮДИ ⬇⬇⬇
+  const syncRoleAndRerender = () => {
+    const r = String(window.__userRole || '').toLowerCase();
+    if (r && r !== currentRole) {
+      currentRole = r;
+      // оновлюємо бейдж і перемальовуємо таблицю (щоб з’явився лінк “Погодити”)
+      try { authRoleBadge.textContent = `Роль: ${currentRole}`; reRender(); } catch(_) {}
+    }
+  };
+  syncRoleAndRerender();
+  setTimeout(syncRoleAndRerender, 100); // якщо guard допише роль із затримкою
+  // ⬆⬆⬆ ВСТАВ СЮДИ ⬆⬆⬆
 
   try { await Promise.all([loadDirectory(), loadLogists(true)]); }
   catch (e) { console.warn(e); }
@@ -1430,8 +1445,12 @@ function buildColumnPickerUI(){
 
 /* ---------- Таблиця ---------- */
 function renderTable(rows){
+  // хто може бачити лінк на review
+  const roleNow   = String(window.__userRole ?? currentRole ?? '').toLowerCase();
+  const canReview = (roleNow === 'admin' || roleNow === 'security');
+
   const tb = document.querySelector('#resTable tbody');
-  const canReview = ['admin','security'].includes(String(currentRole || '').toLowerCase());
+  
   tb.innerHTML = rows.map(r=>`<tr data-id="${r.id}">
     <td>${r.hub || ''}</td>
     <td class="cell-code" title="${r.fromCode}">${r.fromCode}</td>
@@ -1454,8 +1473,11 @@ function renderTable(rows){
       <button class="copy-btn copy-id" data-val="${r.id}" title="Скопіювати ID">📋</button>
     </td>
     <td><a href="${MAP_URL}?rid=${encodeURIComponent(r.id)}" target="_blank" rel="noopener">Відкрити</a></td>
-    <td><button class="btn sm share-btn" data-id="${r.id}" data-name="${(r.fromName||'') + ' → ' + (r.toName||'')}">🔗 Поділитися</button></td>
-    <td><button class="btn sm json-one" data-id="${r.id}">JSON</button></td>
+<td>${canReview
+      ? `<a href="/review.html?rid=${encodeURIComponent(r.id)}" target="_blank" rel="noopener">Відкрити</a>`
+      : '—'}</td>
+<td><button class="btn sm share-btn" data-id="${r.id}" data-name="${(r.fromName||'') + ' → ' + (r.toName||'')}">🔗 Поділитися</button></td>
+<td><button class="btn sm json-one" data-id="${r.id}">JSON</button></td>
     <!-- ДОДАТИ ОСТАННЮ КОМІРКУ: -->
     <td>${
       canReview
