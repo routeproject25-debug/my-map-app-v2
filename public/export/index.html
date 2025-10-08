@@ -443,9 +443,11 @@ try { firebase.apps?.length ? firebase.app() : firebase.initializeApp(CFG); } ca
             <col>             <!-- Оновлено -->
             <col class="col-key"> <!-- Код маршруту -->
             <col class="col-id">  <!-- ID -->
-            <col><col>        <!-- Карта, Навігатор -->
-			<!-- додай ще один col наприкінці -->
-			<col>
+            <col>                 <!-- Карта -->
+            <col>                 <!-- Погодження -->
+            <col>                 <!-- Навігатор -->
+            <col>                 <!-- JSON -->
+
           </colgroup>
 <thead>
   <!-- Рядок заголовків -->
@@ -464,11 +466,10 @@ try { firebase.apps?.length ? firebase.app() : firebase.initializeApp(CFG); } ca
     <th class="sortable" data-sort="updatedAtRaw"  data-colkey="updated">Оновлено <span class="s">↕</span></th>
     <th class="sortable" data-sort="routeKey"      data-colkey="routeKey">Код маршруту <span class="s">↕</span></th>
     <th class="sortable" data-sort="id"            data-colkey="id">ID <span class="s">↕</span></th>
-    <th                                            data-colkey="map">Карта</th>
-    <th                                            >Погодження</th>
-    <th                                            data-colkey="navigator">Навігатор</th>
-    <th                                            data-colkey="json">JSON</th>
-
+    <th data-colkey="map">Карта</th>
+    <th data-colkey="review">Погодження</th>
+    <th data-colkey="navigator">Навігатор</th>
+    <th data-colkey="json">JSON</th>
   </tr>
 
   <!-- Рядок фільтрів (без змін по суті) -->
@@ -1002,11 +1003,23 @@ const sortState = { key: 'updatedAtRaw', dir: -1 };
 
 /* ---------- Мапінг статусів ---------- */
 function toStatusLabel(v){
-  const s = String(v || '').trim().toLowerCase();
-  if (['approved','ok','allow','allowed','accept','accepted','true','yes','y'].includes(s)) return 'Погоджено';
-  if (['rejected','reject','denied','deny','declined','no','false','not_approved'].includes(s)) return 'Відхилено';
-  if (['pending','in_review','inreview','review','waiting','wait','on_approval','submitted'].includes(s)) return 'Очікує';
-  return v ? String(v) : '';
+  const norm = (x) => (typeof x === 'string') ? x.trim().toLowerCase() : x;
+
+  const s = norm(v);
+
+  if (s === true || s === 1 || s === 'approved' || s === 'ok' || s === 'allow' ||
+      s === 'allowed' || s === 'accept' || s === 'accepted' || s === 'yes' || s === 'y' || s === 'true') {
+    return 'Погоджено';
+  }
+  if (s === false || s === 0 || s === 'rejected' || s === 'reject' || s === 'denied' ||
+      s === 'deny' || s === 'declined' || s === 'no' || s === 'not_approved' || s === 'false') {
+    return 'Відхилено';
+  }
+  if (s === 'pending' || s === 'in_review' || s === 'inreview' || s === 'review' ||
+      s === 'waiting' || s === 'wait' || s === 'on_approval' || s === 'submitted'){
+    return 'Очікує';
+  }
+  return (typeof v === 'string') ? v : '';
 }
 
 /* ---------- Побудова запиту ---------- */
@@ -1039,12 +1052,14 @@ function parseSnap(snap){
     const d=doc.data()||{};
     const viaArr = extractViaList(d);
 
-    const statusRaw =
-      (typeof d?.approval?.status === 'string' ? d.approval.status : '') ||
-      (typeof d.status === 'string' ? d.status : '') ||
-      (typeof d.approvalStatus === 'string' ? d.approvalStatus : '') ||
-      (typeof d.state === 'string' ? d.state : '');
-    const statusLabel = toStatusLabel(statusRaw);
+    const statusValue =
+  (d?.approval && (
+    ('status'   in d.approval) ? d.approval.status :
+    ('approved' in d.approval) ? d.approval.approved : undefined
+  )) ??
+  d?.approvalStatus ?? d?.status ?? d?.state ?? null;
+
+const statusLabel = toStatusLabel(statusValue);
 
     const rejectComment =
       (d?.approval && 'comment' in d.approval ? (d.approval.comment || '') : '') ||
@@ -1065,7 +1080,7 @@ function parseSnap(snap){
       type: d.routeType||'',
       logisticName: d.logisticName || '',
       logisticId: d.logisticId || '',
-      statusRaw, statusLabel, rejectComment,
+      statusRaw: statusValue, statusLabel, rejectComment,
       updatedAtRaw: d.updatedAt || null,
 	  updatedAt: formatDate(d.updatedAt),
 	  raw: d
@@ -1303,7 +1318,7 @@ async function exportJsonFromRows(rows){
 /* ==== Керування видимістю колонок (чекбокси ліворуч) ==== */
 const COLS_ORDER = [
   'hub','fromCode','toCode','fromName','toName','via','distance','type',
-  'logist','status','comment','updated','routeKey','id','map','navigator','json', 'review'
+  'logist','status','comment','updated','routeKey','id','map','review','navigator','json'
 ];
 const COL_LABEL = {
   hub:'ХАБ', fromCode:'Код Від', toCode:'Код До', fromName:'Від', toName:'До',
@@ -1473,11 +1488,16 @@ function renderTable(rows){
       <button class="copy-btn copy-id" data-val="${r.id}" title="Скопіювати ID">📋</button>
     </td>
     <td><a href="${MAP_URL}?rid=${encodeURIComponent(r.id)}" target="_blank" rel="noopener">Відкрити</a></td>
-<td>${canReview
-      ? `<a href="/review.html?rid=${encodeURIComponent(r.id)}" target="_blank" rel="noopener">Відкрити</a>`
-      : '—'}</td>
+<td>${
+  (r.statusLabel === 'Погоджено')
+    ? '—'
+    : (canReview
+        ? `<a href="${REVIEW_PAGE}?rid=${encodeURIComponent(r.id)}" target="_blank" rel="noopener">Погодити</a>`
+        : '—')
+}</td>
 <td><button class="btn sm share-btn" data-id="${r.id}" data-name="${(r.fromName||'') + ' → ' + (r.toName||'')}">🔗 Поділитися</button></td>
 <td><button class="btn sm json-one" data-id="${r.id}">JSON</button></td>
+
     <!-- ДОДАТИ ОСТАННЮ КОМІРКУ: -->
     <td>${
       canReview
