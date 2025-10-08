@@ -1025,17 +1025,20 @@ function setLayerVisibility(id, visible){
 }
 
 function setGeozonesVisibility(visible){
-  // GeoJSON зі Storage
-  ['geozones-fill','geozones-outline','geozones-point','geozones-label','geozones-labels']
-    .forEach(id => setLayerVisibility(id, visible));
+  // є вибір у полях Від/До?
+  const hasFromSel = !!(getCodeByInput('fromName') || (document.getElementById('fromName').value || '').trim());
+  const hasToSel   = !!(getCodeByInput('toName')   || (document.getElementById('toName').value   || '').trim());
 
-  // Tilesets (векторні)
-  TS_FILL_IDS.forEach(id => setLayerVisibility(id, visible));
+  // Базові шари геозон (всі полігони/контури/лейбли)
+  const baseLayerIds = ['geozones-fill','geozones-outline','geozones-point','geozones-label','geozones-labels'];
+  baseLayerIds.forEach(id => setLayerVisibility(id, visible));
+  TS_FILL_IDS.forEach(id    => setLayerVisibility(id, visible));
   TS_OUTLINE_IDS.forEach(id => setLayerVisibility(id, visible));
 
-  // Підсвітки FROM/TO
-  HL_IDS_FROM.forEach(id => setLayerVisibility(id, visible));
-  HL_IDS_TO.forEach(id   => setLayerVisibility(id, visible));
+  // Підсвітки FROM/TO: показуємо або коли тумблер УВІМК., або коли є вибрані «Від/До»
+  const showHL = visible || hasFromSel || hasToSel;
+  HL_IDS_FROM.forEach(id => setLayerVisibility(id, showHL));
+  HL_IDS_TO.forEach(id   => setLayerVisibility(id, showHL));
 }
 
 function updateGeozonesToggleLabel(){
@@ -2379,7 +2382,11 @@ document.getElementById('logistInput').addEventListener('focus', function(){
 });
 
 // одне місце, яке оновлює назву маршруту + підсвітку
-const onFromToChange = () => { updateRouteName(); updateHighlights(); };
+const onFromToChange = () => {
+  updateRouteName();
+  updateHighlights();                 // оновлюємо фільтри підсвітки
+  setGeozonesVisibility(geozonesVisible); // і одразу застосовуємо "розумну" видимість
+};
 
 // реагуємо і на input (коли ти стираєш текст), і на change (коли поле втратило фокус)
 ['input','change'].forEach(ev => {
