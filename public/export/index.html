@@ -1003,23 +1003,51 @@ const sortState = { key: 'updatedAtRaw', dir: -1 };
 
 /* ---------- Мапінг статусів ---------- */
 function toStatusLabel(v){
-  const norm = (x) => (typeof x === 'string') ? x.trim().toLowerCase() : x;
+  const s = (typeof v === 'string') ? v.trim().toLowerCase() : v;
 
-  const s = norm(v);
+  const YES = new Set([
+    'approved','approve','ok','okay','okey','allow','allowed',
+    'accept','accepted','yes','true','y','done','success','passed'
+  ]);
+  const NO = new Set([
+    'rejected','reject','denied','deny','declined','no','false',
+    'not_approved','disallow','blocked','failed'
+  ]);
 
-  if (s === true || s === 1 || s === 'approved' || s === 'ok' || s === 'allow' ||
-      s === 'allowed' || s === 'accept' || s === 'accepted' || s === 'yes' || s === 'y' || s === 'true') {
-    return 'Погоджено';
-  }
-  if (s === false || s === 0 || s === 'rejected' || s === 'reject' || s === 'denied' ||
-      s === 'deny' || s === 'declined' || s === 'no' || s === 'not_approved' || s === 'false') {
-    return 'Відхилено';
-  }
-  if (s === 'pending' || s === 'in_review' || s === 'inreview' || s === 'review' ||
-      s === 'waiting' || s === 'wait' || s === 'on_approval' || s === 'submitted'){
-    return 'Очікує';
-  }
+  if (s === true || s === 1 || YES.has(s)) return 'Погоджено';
+  if (s === false || s === 0 || NO.has(s))  return 'Відхилено';
+
+  if (typeof s === 'string' && [
+    'pending','in_review','inreview','review','waiting','wait','on_approval','submitted'
+  ].includes(s)) return 'Очікує';
+
+  // Якщо прилетіло вже готове україномовне значення — повертаємо як є
   return (typeof v === 'string') ? v : '';
+}
+
+function computeApprovalStatus(d){
+  if (!d || typeof d !== 'object') return null;
+
+  // 1) Найтиповіше: всередині d.approval
+  const A = (d.approval && typeof d.approval === 'object') ? d.approval : null;
+  if (A){
+    if (A.status     !== undefined && A.status     !== null) return A.status;     // 'approved' | 'rejected' | 'pending' | ...
+    if (A.approved   !== undefined && A.approved   !== null) return A.approved;   // true/false
+    if (A.result     !== undefined && A.result     !== null) return A.result;     // 'approved' | 'rejected'
+    if (A.decision   !== undefined && A.decision   !== null) return A.decision;   // 'approve' | 'reject'
+    if (A.approvedAt) return true;                                                // сам факт наявності мітки часу
+    if (A.updatedAt && (A.approvedBy || A.approver)) return true;                 // евристика
+  }
+
+  // 2) Поширені поля на верхньому рівні
+  if (d.approvalStatus !== undefined && d.approvalStatus !== null) return d.approvalStatus;
+  if (d.status         !== undefined && d.status         !== null) return d.status;
+  if (d.state          !== undefined && d.state          !== null) return d.state;
+  if (d.approved       !== undefined && d.approved       !== null) return d.approved;  // true/false
+  if (d.approvedAt) return true;                                                       // топ-рівень
+  if (d.decision)  return d.decision;
+
+  return null;
 }
 
 /* ---------- Побудова запиту ---------- */
@@ -1052,14 +1080,7 @@ function parseSnap(snap){
     const d=doc.data()||{};
     const viaArr = extractViaList(d);
 
-   const statusValue =
-  (d?.approval && (
-    ('status'     in d.approval) ? d.approval.status :
-    ('approved'   in d.approval) ? d.approval.approved :
-    ('approvedAt' in d.approval) ? true : undefined
-  )) ??
-  d?.approvalStatus ?? d?.status ?? d?.state ?? null;
-
+   const statusValue = computeApprovalStatus(d);
 const statusLabel = toStatusLabel(statusValue);
 
     const rejectComment =
