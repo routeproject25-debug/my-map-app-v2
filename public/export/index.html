@@ -1052,10 +1052,11 @@ function parseSnap(snap){
     const d=doc.data()||{};
     const viaArr = extractViaList(d);
 
-    const statusValue =
+   const statusValue =
   (d?.approval && (
-    ('status'   in d.approval) ? d.approval.status :
-    ('approved' in d.approval) ? d.approval.approved : undefined
+    ('status'     in d.approval) ? d.approval.status :
+    ('approved'   in d.approval) ? d.approval.approved :
+    ('approvedAt' in d.approval) ? true : undefined
   )) ??
   d?.approvalStatus ?? d?.status ?? d?.state ?? null;
 
@@ -1497,13 +1498,6 @@ function renderTable(rows){
 }</td>
 <td><button class="btn sm share-btn" data-id="${r.id}" data-name="${(r.fromName||'') + ' → ' + (r.toName||'')}">🔗 Поділитися</button></td>
 <td><button class="btn sm json-one" data-id="${r.id}">JSON</button></td>
-
-    <!-- ДОДАТИ ОСТАННЮ КОМІРКУ: -->
-    <td>${
-      canReview
-        ? `<a href="${REVIEW_PAGE}?rid=${encodeURIComponent(r.id)}" target="_blank" rel="noopener">Погодити</a>`
-        : '<span class="muted">—</span>'
-    }</td>
   </tr>`).join('');
   document.getElementById('countInfo').textContent = `Записів (після фільтру): ${rows.length}`;
   updateStats(rows);
@@ -1596,7 +1590,7 @@ function reRender(){
 btnPreview.addEventListener('click', async ()=>{
   try{
     setBusy(true);
-    await loadFirstPage(false);
+    await loadFirstPage(true);   // ← було false
     reRender();
   }catch(e){ handleFirestoreError(e); }
   finally{ setBusy(false); }
