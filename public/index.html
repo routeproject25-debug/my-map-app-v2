@@ -1023,20 +1023,53 @@ function setLayerVisibility(id, visible){
     }
   } catch(_) {}
 }
+// 🔧 Базові непрозорості для геозон
+const GZ_DEFAULTS = { fill: 0.18, line: 1, circle: 1, symbol: 1 };
+
+// Встановити opacity для шару залежно від його типу
+function setLayerOpacity(id, opacity){
+  if (!map.getLayer(id)) return;
+  const type = map.getLayer(id).type;
+  const prop = type === 'fill'   ? 'fill-opacity'
+            : type === 'line'   ? 'line-opacity'
+            : type === 'circle' ? 'circle-opacity'
+            : type === 'symbol' ? 'text-opacity'
+            : null;
+  if (!prop) return;
+  try { map.setPaintProperty(id, prop, opacity); } catch(_) {}
+}
+
+// Масово застосувати opacity до переліку шарів
+function setManyOpacity(ids, opacity){
+  ids.forEach(id => setLayerOpacity(id, opacity));
+}
 
 function setGeozonesVisibility(visible){
-  // є вибір у полях Від/До?
+  // Чи вибрані «Від/До»?
   const hasFromSel = !!(getCodeByInput('fromName') || (document.getElementById('fromName').value || '').trim());
   const hasToSel   = !!(getCodeByInput('toName')   || (document.getElementById('toName').value   || '').trim());
-
-  // Базові шари геозон (всі полігони/контури/лейбли)
-  const baseLayerIds = ['geozones-fill','geozones-outline','geozones-point','geozones-label','geozones-labels'];
-  baseLayerIds.forEach(id => setLayerVisibility(id, visible));
-  TS_FILL_IDS.forEach(id    => setLayerVisibility(id, visible));
-  TS_OUTLINE_IDS.forEach(id => setLayerVisibility(id, visible));
-
-  // Підсвітки FROM/TO: показуємо або коли тумблер УВІМК., або коли є вибрані «Від/До»
   const showHL = visible || hasFromSel || hasToSel;
+
+  // 1) Підписи геозон — ЗАВЖДИ видимі
+  ['geozones-label','geozones-labels'].forEach(id => {
+    if (map.getLayer(id)) setLayerVisibility(id, true);
+  });
+
+  // 2) GeoJSON (Storage) — тримаємо видимими для подій, керуємо прозорістю
+  //    base fill/line/point робимо прозорими, коли вимкнено
+  [['geozones-fill','fill'], ['geozones-outline','line'], ['geozones-point','circle']]
+    .forEach(([id, kind]) => {
+      if (!map.getLayer(id)) return;
+      setLayerVisibility(id, true); // не вимикаємо зовсім — інакше втратимо hover/click
+      setLayerOpacity(id, visible ? GZ_DEFAULTS[kind] : 0);
+    });
+
+  // 3) Tilesets (векторні) — так само керуємо прозорістю
+  TS_FILL_IDS.forEach(id => { setLayerVisibility(id, true);  setLayerOpacity(id, visible ? GZ_DEFAULTS.fill : 0); });
+  TS_OUTLINE_IDS.forEach(id => { setLayerVisibility(id, true); setLayerOpacity(id, visible ? GZ_DEFAULTS.line : 0); });
+
+  // 4) Highlight «Від/До» — видимі, якщо:
+  //    тумблер УВІМК. або хоча б одне поле обрано
   HL_IDS_FROM.forEach(id => setLayerVisibility(id, showHL));
   HL_IDS_TO.forEach(id   => setLayerVisibility(id, showHL));
 }
@@ -2191,11 +2224,13 @@ function geozoneCardHTML(props){
   </div>`;
 }
 function attachGeozoneHandlers(){
-  const layers = ['geozones-fill','geozones-outline','geozones-point','geozones-label'];
+  const clickLayers = ['geozones-fill','geozones-outline','geozones-point','geozones-label'];
+
+  // Клік — показує картку (паспорт поля)
   if (geoClickHandler){
-    layers.forEach(id=>{ try{ map.off('click', id, geoClickHandler); }catch{} });
+    clickLayers.forEach(id => { try { map.off('click', id, geoClickHandler); } catch{} });
   }
-  geoClickHandler = (e)=>{
+  geoClickHandler = (e) => {
     const feat = e.features && e.features[0];
     if (!feat) return;
     new mapboxgl.Popup({ closeButton:true, closeOnClick:true, maxWidth:'480px' })
@@ -2203,7 +2238,16 @@ function attachGeozoneHandlers(){
       .setHTML(geozoneCardHTML(feat.properties || {}))
       .addTo(map);
   };
-  layers.forEach(id=>{ if (map.getLayer(id)) map.on('click', id, geoClickHandler); });
+  clickLayers.forEach(id => { if (map.getLayer(id)) map.on('click', id, geoClickHandler); });
+
+  // 🔎 Hover (mousemove) — як у tilesets: працюватиме навіть коли базові шари "прозорі"
+  ['geozones-fill','geozones-outline','geozones-point'].forEach(id => {
+    if (BOUND_HOVER_LAYERS.has(id)) return;
+    if (!map.getLayer(id)) return;
+    map.on('mousemove',  id, onHover);
+    map.on('mouseleave', id, onLeave);
+    BOUND_HOVER_LAYERS.add(id);
+  });
 }
 
 function addGeozones(obj){
