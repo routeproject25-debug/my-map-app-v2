@@ -142,6 +142,76 @@
   border-top-color:#2563eb; border-radius:50%; animation:spin 1s linear infinite;
 }
 @keyframes spin { to { transform:rotate(360deg) } }
+/* ==== Панелі керування ==== */
+#controls .panel{ display:none; }
+#controls .panel.active{ display:block; }
+
+/* ==== Док у правому верхньому куті для статусу та км ==== */
+#statusDock{
+  position:fixed;
+  top:calc(var(--nav-real) + 8px);
+  right:8px;
+  z-index:3500;
+  display:flex;
+  flex-direction:column;
+  gap:6px;
+}
+
+.status-chip{
+  background:#f3f4f6;
+  color:#111;
+  border:1px solid var(--line);
+  border-radius:999px;
+  padding:6px 12px;
+  font-size:12.5px;
+  box-shadow:0 1px 8px rgba(0,0,0,.08);
+  width:max-content;
+  max-width:46vw;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+
+/* кольори статусів */
+#statusChip.status-chip[data-status="pending"]{ background:#fff7ed; border-color:#f59e0b; }
+#statusChip.status-chip[data-status="approved"]{ background:#e6f4ea; border-color:#22c55e; }
+#statusChip.status-chip[data-status="rejected"]{ background:#fee2e2; border-color:#ef4444; }
+#statusChip.status-chip[data-status="draft"]{ background:#eef2ff; border-color:#c7d2fe; }
+
+@media (max-width:640px){
+  #statusDock{ right:8px; top:calc(var(--nav-real) + 8px); }
+}
+/* Жирний шрифт тільки для значення км у верхньому чіпі */
+#distanceChip #distanceTop{
+  font-weight: 700;
+  font-variant-numeric: tabular-nums; /* опційно: рівні ширини цифр */
+}
+
+/* Док-перемикач панелей (праворуч внизу) */
+#panelDock{
+  position:fixed;
+  right:8px; bottom:8px;
+  z-index:3500;
+  display:flex; gap:6px; flex-wrap:wrap;
+  background:var(--card);
+  border:1px solid var(--line);
+  border-radius:12px;
+  padding:6px;
+  box-shadow:0 2px 12px rgba(0,0,0,.12);
+}
+#panelDock .dock-btn{
+  cursor:pointer; border:1px solid var(--line); background:#fff;
+  border-radius:10px; padding:8px 10px; font-size:13px;
+}
+#panelDock .dock-btn.active{
+  background:#e6f4ea; border-color:#22c55e;
+}
+
+/* дрібні адаптивні правки */
+@media (max-width:640px){
+  #statusChip{ right:8px; top:calc(var(--nav-real) + 8px); }
+  #panelDock{ right:8px; bottom:8px; }
+}
 
   </style>
 </head>
@@ -178,156 +248,196 @@
 </div>
 
 <div id="controls">
-  <div class="panel-head">
-    <div class="segment">
-      <button id="toggleAdd" class="btn xs">Маршрут</button>
-      <button id="startLineMode" class="btn xs" title="Додавати точки початкової лінійки">Лінійка(поч.)</button>
-      <button id="endLineMode" class="btn xs" title="Додавати точки кінцевої лінійки">Лінійка(кін.)</button>
+  <!-- === ПАНЕЛЬ 1: СТВОРЕННЯ МАРШРУТУ (основна) === -->
+  <div id="panel-create" class="panel active">
+    <div class="panel-head">
+      <div class="segment">
+        <button id="toggleAdd" class="btn xs">Маршрут</button>
+        <button id="startLineMode" class="btn xs" title="Додавати точки початкової лінійки">Лінійка(поч.)</button>
+        <button id="endLineMode" class="btn xs" title="Додавати точки кінцевої лінійки">Лінійка(кін.)</button>
+      </div>
+
+      <div class="btn-row">
+        <button id="clearRoute" class="btn xs">Очист. марш.</button>
+        <button id="popRulerPoint" class="btn xs" title="Видалити останню точку активної лінійки">← Остання точка (лін.)</button>
+        <button id="clearRulers" class="btn xs" title="Очистити активну лінійку, або обидві якщо режим лінійки вимкнено">Очист. лін.</button>
+        <button id="toggleMarkers" class="btn xs">📍 Точки</button>
+        <button id="toggleGeozones" class="btn xs">🗺 Приховати геозони</button>
+      </div>
+
+      <div class="btn-row">
+        <button id="saveRoute" class="btn xs">💾 Route JSON</button>
+        <button id="loadRoute" class="btn xs">📂 Завантажити</button>
+        <input type="file" id="fileInput" accept=".json" style="display:none;">
+      </div>
+
+      <div class="km-chip">
+        точки: <span id="countRoute">0</span> •
+        лін(поч): <span id="countStart">0</span> •
+        лін(кін): <span id="countEnd">0</span> •
+        всього: <span id="countTotal">0</span>
+      </div>
     </div>
 
-    <div class="btn-row">
-      <button id="clearRoute" class="btn xs">Очист. марш.</button>
-      <button id="popRulerPoint" class="btn xs" title="Видалити останню точку активної лінійки">← Остання точка (лін.)</button>
-      <button id="clearRulers" class="btn xs" title="Очистити активну лінійку, або обидві якщо режим лінійки вимкнено">Очист. лін.</button>
-      <button id="toggleMarkers" class="btn xs">📍 Точки</button>
-	  <button id="toggleGeozones" class="btn xs">🗺 Приховати геозони</button>
+    <hr/>
+    <!-- Від/До -->
+    <div class="row">
+      <div>
+        <label>Від</label>
+        <input id="fromName" type="text" placeholder="Почни вводити назву..." list="directoryList" autocomplete="off">
+      </div>
+      <div>
+        <label>До</label>
+        <input id="toName" type="text" placeholder="Почни вводити назву..." list="directoryList" autocomplete="off">
+      </div>
+    </div>
+    <datalist id="directoryList"></datalist>
+
+    <!-- Тип/Призначення/Хаб/Проміжні -->
+    <div class="row" style="margin-top:6px;">
+      <div>
+        <label>Тип маршруту</label>
+        <select id="routeType">
+          <option value="Основний">Основний</option>
+          <option value="Альтернативний1">Альтернативний1</option>
+          <option value="Альтернативний2">Альтернативний2</option>
+        </select>
+      </div>
+      <div>
+        <label>Призначення</label>
+        <select id="routePurpose">
+          <option value="Зерно" selected>Зерно</option>
+          <option value="ОД">ОД</option>
+          <option value="ТМЦ">ТМЦ</option>
+        </select>
+      </div>
+      <div>
+        <label>Хаб</label>
+        <select id="hubSelect">
+          <option value="">— не вказано —</option>
+          <option value="Вінницький">Вінницький</option>
+          <option value="Західний">Західний</option>
+          <option value="Центральний">Центральний</option>
+          <option value="Урожайна Країна">Урожайна Країна</option>
+        </select>
+      </div>
+      <div style="grid-column:1 / -1">
+        <label>Проміжні пункти</label>
+        <input id="intermediateText" type="text" placeholder="Напр.: Немирів; Гайсин; Тульчин">
+      </div>
     </div>
 
-    <div class="btn-row">
-      <button id="saveRoute" class="btn xs">💾 Route JSON</button>
-      <button id="loadRoute" class="btn xs">📂 Завантажити</button>
-      <input type="file" id="fileInput" accept=".json" style="display:none;">
+    <!-- Логіст -->
+    <div class="row" style="margin-top:6px;">
+      <div style="grid-column:1 / -1">
+        <label>Логіст (хто створює)</label>
+        <input id="logistInput" type="text" placeholder="Почни вводити прізвище..." list="logistsList" autocomplete="off">
+        <datalist id="logistsList"></datalist>
+        <small class="muted">Список береться з колекції <b>logists</b> (активні). Обери себе зі списку.</small>
+        <div id="logistsMsg"></div>
+      </div>
     </div>
 
-    <div class="km-chip">км: <span id="distance">0</span></div>
-    <div class="km-chip">
-      точки: <span id="countRoute">0</span> •
-      лін(поч): <span id="countStart">0</span> •
-      лін(кін): <span id="countEnd">0</span> •
-      всього: <span id="countTotal">0</span>
+    <small class="muted">У БД зберігаються <b>коди</b> “Від/До” + підписи. Назва маршруту генерується з актуальних назв довідника.</small>
+
+    <!-- Стиль карти (залишив у створенні) -->
+    <details>
+      <summary><b>Стиль карти</b></summary>
+      <div id="styleSelector" style="margin-top:10px;">
+        <label for="mapStyle">Стиль карти:</label>
+        <select id="mapStyle">
+          <option value="mapbox://styles/mapbox/streets-v12">Streets</option>
+          <option value="mapbox://styles/mapbox/satellite-v9">Satellite</option>
+          <option value="mapbox://styles/mapbox/satellite-streets-v12">Satellite Streets</option>
+          <option value="mapbox://styles/mapbox/outdoors-v12">Outdoors</option>
+          <option value="mapbox://styles/mapbox/light-v11">Light</option>
+          <option value="mapbox://styles/mapbox/dark-v11">Dark</option>
+          <option value="mapbox://styles/mapbox/navigation-day-v1">Navigation Day</option>
+          <option value="mapbox://styles/mapbox/navigation-night-v1">Navigation Night</option>
+        </select>
+      </div>
+    </details>
+
+    <!-- База (лише назва + зберегти + очистити форму) -->
+    <div id="dbCreate" class="section">
+      <div><strong>База (Firestore)</strong></div>
+      <input id="routeName" type="text" placeholder="Назва маршруту (згенерується автоматично, можна змінити)" />
+      <div class="btn-row" style="margin-top:6px;">
+        <button id="saveToDB" class="btn">💾 Зберегти в БД</button>
+        <button id="clearForm" class="btn">🧹 Очистити форму</button>
+      </div>
     </div>
   </div>
 
-  <hr/>
-  <div class="row">
-    <div>
-      <label>Від</label>
-      <input id="fromName" type="text" placeholder="Почни вводити назву..." list="directoryList" autocomplete="off">
+  <!-- === ПАНЕЛЬ 2: ЗАВАНТАЖЕННЯ ІЗ БАЗИ / СЕРВІСНІ КНПКИ === -->
+  <div id="panel-load" class="panel">
+    <!-- Довідники/кеші -->
+    <div id="dirControls">
+      <div><strong>Довідники</strong></div>
+      <div class="btn-row" style="margin-top:4px;">
+        <button id="refreshDirectory" class="btn xs">🔄 Оновити довідник</button>
+        <button id="clearDirCache" class="btn xs">🧹 Очистити кеш</button>
+      </div>
+      <div class="btn-row" style="margin-top:6px;">
+        <button id="refreshLogists" class="btn xs">🔄 Оновити логістів</button>
+        <button id="clearLogistsCache" class="btn xs">🧹 Кеш логістів</button>
+      </div>
+      <small class="muted">Дані логістів оновлюються з Firestore. Адмін змінює їх у колекції <b>logists</b>.</small>
     </div>
-    <div>
-      <label>До</label>
-      <input id="toName" type="text" placeholder="Почни вводити назву..." list="directoryList" autocomplete="off">
-    </div>
-  </div>
-  <datalist id="directoryList"></datalist>
 
-  <div class="row" style="margin-top:6px;">
-    <div>
-      <label>Тип маршруту</label>
-      <select id="routeType">
-        <option value="Основний">Основний</option>
-        <option value="Альтернативний1">Альтернативний1</option>
-        <option value="Альтернативний2">Альтернативний2</option>
+    <!-- Робота з переліком маршрутів -->
+    <div id="dbLoad" class="section">
+      <div><strong>Маршрути (БД)</strong></div>
+
+      <input id="routeSearch" type="text" placeholder="🔎 Пошук маршруту..." list="routesList" autocomplete="off" />
+      <datalist id="routesList"></datalist>
+
+      <select id="remoteRoutes" style="min-width:260px; margin-top:6px;">
+        <option value="">— вибери маршрут з БД —</option>
       </select>
-    </div>
-    <div>
-      <label>Призначення</label>
-      <select id="routePurpose">
-        <option value="Зерно" selected>Зерно</option>
-        <option value="ОД">ОД</option>
-        <option value="ТМЦ">ТМЦ</option>
-      </select>
-    </div>
-	  <div>
-    <label>Хаб</label>
-    <select id="hubSelect">
-      <option value="">— не вказано —</option>
-      <option value="Вінницький">Вінницький</option>
-      <option value="Західний">Західний</option>
-      <option value="Центральний">Центральний</option>
-      <option value="Урожайна Країна">Урожайна Країна</option>
-    </select>
-  </div>
-    <div style="grid-column:1 / -1">
-      <label>Проміжні пункти</label>
-      <input id="intermediateText" type="text" placeholder="Напр.: Немирів; Гайсин; Тульчин">
+
+      <div class="btn-row" style="margin-top:6px;">
+        <button id="refreshList" class="btn">🔄 Оновити список</button>
+        <button id="loadMoreRoutes" class="btn">⬇️ Ще</button>
+        <button id="loadAllRoutes" class="btn">📥 Всі</button>
+        <button id="loadFromDB" class="btn">⬇️ Завантажити з БД</button>
+        <button id="deleteFromDB" class="btn">🗑 Видалити з БД</button>
+      </div>
     </div>
   </div>
 
-  <div class="row" style="margin-top:6px;">
-    <div style="grid-column:1 / -1">
-      <label>Логіст (хто створює)</label>
-      <input id="logistInput" type="text" placeholder="Почни вводити прізвище..." list="logistsList" autocomplete="off">
-      <datalist id="logistsList"></datalist>
-      <small class="muted">Список береться з колекції <b>logists</b> (активні). Обери себе зі списку.</small>
-      <div id="logistsMsg"></div>
-    </div>
-  </div>
+  <!-- === ПАНЕЛЬ 3: ПОГОДЖЕННЯ === -->
+  <div id="panel-approve" class="panel">
+    <div id="approvalPanel">
+      <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+        <span class="km-chip">Статус: <b id="approvalStatus">—</b></span>
+        <button id="sendForApproval" class="btn xs" title="Подати маршрут на погодження СБ">📨 На погодження</button>
+        <button id="copyReviewLink" class="btn xs" title="Скопіювати посилання для СБ">🔗 Посилання</button>
+        <a id="openReviewLink" class="btn xs" target="_blank" style="display:none">👁‍🗨 Перегляд</a>
+      </div>
 
-  <small class="muted">У БД зберігаються <b>коди</b> “Від/До” + підписи. Назва маршруту генерується з актуальних назв довідника.</small>
-
-  <details>
-    <summary><b>Стиль карти</b></summary>
-    <div id="styleSelector" style="margin-top:10px;">
-      <label for="mapStyle">Стиль карти:</label>
-      <select id="mapStyle">
-        <option value="mapbox://styles/mapbox/streets-v12">Streets</option>
-        <option value="mapbox://styles/mapbox/satellite-streets-v12">Satellite Streets</option>
-        <option value="mapbox://styles/mapbox/outdoors-v12">Outdoors</option>
-      </select>
-    </div>
-  </details>
-
-  <div id="dirControls" class="section">
-    <div class="btn-row">
-      <button id="refreshDirectory" class="btn xs">🔄 Оновити довідник</button>
-      <button id="clearDirCache" class="btn xs">🧹 Очистити кеш</button>
-    </div>
-
-    <div class="btn-row" style="margin-top:6px;">
-      <button id="refreshLogists" class="btn xs">🔄 Оновити логістів</button>
-      <button id="clearLogistsCache" class="btn xs">🧹 Кеш логістів</button>
-    </div>
-    <small class="muted">Дані логістів оновлюються з Firestore. Адмін змінює їх у колекції <b>logists</b>.</small>
-  </div>
-
-  <div id="dbControls">
-    <div><strong>База (Firestore)</strong></div>
-    <input id="routeName" type="text" placeholder="Назва маршруту (згенерується автоматично, можна змінити)" />
-    <button id="saveToDB" class="btn">💾 Зберегти в БД</button>
-    <br/>
-    <input id="routeSearch" type="text" placeholder="🔎 Пошук маршруту..." list="routesList" autocomplete="off" />
-    <datalist id="routesList"></datalist>
-    <select id="remoteRoutes" style="min-width:260px">
-      <option value="">— вибери маршрут з БД —</option>
-    </select>
-    <div class="btn-row" style="margin-top:6%;">
-      <button id="refreshList" class="btn">🔄 Оновити список</button>
-	  <button id="loadMoreRoutes" class="btn">⬇️ Ще</button>
-	  <button id="loadAllRoutes" class="btn">📥 Всі</button>
-      <button id="loadFromDB" class="btn">⬇️ Завантажити з БД</button>
-      <button id="deleteFromDB" class="btn">🗑 Видалити з БД</button>
-      <button id="clearForm" class="btn">🧹 Очистити форму</button>
-	  <!-- ⬇️ Погодження (Security) -->
-<div id="approvalPanel" class="section">
-  <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
-    <span class="km-chip">Статус: <b id="approvalStatus">—</b></span>
-    <button id="sendForApproval" class="btn xs" title="Подати маршрут на погодження СБ">📨 На погодження</button>
-    <button id="copyReviewLink" class="btn xs" title="Скопіювати посилання для СБ">🔗 Посилання</button>
-    <a id="openReviewLink" class="btn xs" target="_blank" style="display:none">👁‍🗨 Перегляд</a>
-  </div>
-
-  <div id="approvalCommentWrap" style="margin-top:6px; display:none;">
-    <label>Коментар СБ (якщо відхилено)</label>
-    <textarea id="approvalComment" readonly></textarea>
-  </div>
-</div>
-<!-- ⬆️ Погодження -->
+      <div id="approvalCommentWrap" style="margin-top:6px; display:none;">
+        <label>Коментар СБ (якщо відхилено)</label>
+        <textarea id="approvalComment" readonly></textarea>
+      </div>
     </div>
   </div>
 </div>
 
 <div id="map"></div>
+<!-- Завжди видимий статус маршруту -->
+<!-- Док для статусу та дистанції (праворуч угорі) -->
+<div id="statusDock">
+  <div id="statusChip" class="status-chip" data-status="draft">📝 Статус: Чернетка</div>
+  <div id="distanceChip" class="status-chip">📏 Відстань, км: <span id="distanceTop">0</span></div>
+</div>
+
+<!-- Перемикач панелей (праворуч внизу) -->
+<div id="panelDock">
+  <button class="dock-btn active" data-panel="panel-create">✏️ Створення</button>
+  <button class="dock-btn" data-panel="panel-load">📚 База</button>
+  <button class="dock-btn" data-panel="panel-approve">✅ Погодження</button>
+</div>
 
 <div id="contextMenu">
   <div id="insertAfter">➕Вставити після</div>
@@ -446,6 +556,28 @@ const TILESETS = [
 let TS_FILL_IDS = [];
 let TS_OUTLINE_IDS = [];
 let BOUND_HOVER_LAYERS = new Set(); // щоб не дублювати підписки на події
+
+/* ==== Перемикання панелей (dock у правому нижньому куті) ==== */
+function showPanel(id){
+  document.querySelectorAll('#controls .panel').forEach(p=>{
+    p.classList.toggle('active', p.id === id);
+  });
+  // підсвітка кнопок у dock
+  document.querySelectorAll('#panelDock .dock-btn').forEach(b=>{
+    b.classList.toggle('active', b.dataset.panel === id);
+  });
+  // дрібний ресайз карти після анімації
+  requestAnimationFrame(()=>{ try{ map.resize(); }catch(_){ } });
+}
+
+document.getElementById('panelDock').addEventListener('click', (e)=>{
+  const btn = e.target.closest('.dock-btn');
+  if (!btn) return;
+  showPanel(btn.dataset.panel);
+});
+
+// стартово показуємо панель створення
+showPanel('panel-create');
 
 /* ==== HIGHLIGHT (FROM/TO) CONFIG ==== */
 const NAME_KEYS = ['Name','name','Назва','Назва поля'];
@@ -1225,6 +1357,14 @@ function updateCounters(){
   byId('countTotal').textContent = total;
 }
 
+function setKmUI(km){
+  const v = (km != null && isFinite(km)) ? Number(km).toFixed(2) : '0.00';
+  const elSide = document.getElementById('distance');     // (може вже не існувати — ок)
+  if (elSide) elSide.textContent = v;
+  const elTop  = document.getElementById('distanceTop');  // новий чіп зверху
+  if (elTop) elTop.textContent = v;
+}
+
 /* ===== Route rendering ===== */
 function splitIntoChunks(array, chunkSize) {
   const chunks = [];
@@ -1243,8 +1383,7 @@ function clearRouteLayers() {
 }
 async function updateRoute() {
   if (points.length < 2) {
-    document.getElementById('distance').textContent =
-      (calculateRulerDistance(startRuler) + calculateRulerDistance(endRuler)).toFixed(2);
+    setKmUI(calculateRulerDistance(startRuler) + calculateRulerDistance(endRuler));
     updateCounters(); clearRouteLayers(); return;
   }
   const chunks = splitIntoChunks(points, 20);
@@ -1274,7 +1413,7 @@ async function updateRoute() {
   }
 
   totalDistance = (totalDistance / 1000) + calculateRulerDistance(startRuler) + calculateRulerDistance(endRuler);
-  document.getElementById('distance').textContent = totalDistance.toFixed(2);
+  setKmUI(totalDistance);
   updateCounters();
 }
 
@@ -2074,9 +2213,14 @@ function reviewLinkForId(id){
 
 // оновлення видимої частини панелі
 function setApprovalUI(approval){
-  const map = { draft:'Чернетка', pending:'Очікує', approved:'Погоджено', rejected:'Відхилено' };
+  const mapNames = { draft:'Чернетка', pending:'Очікує', approved:'Погоджено', rejected:'Відхилено' };
+  // ⬇️ додано іконку для draft
+  const icons    = { draft:'📝', pending:'⏳', approved:'✅', rejected:'⛔' };
   const st = (approval && approval.status) || 'draft';
-  document.getElementById('approvalStatus').textContent = map[st] || st;
+
+  // —— панель погодження (як було)
+  const statusEl = document.getElementById('approvalStatus');
+  if (statusEl) statusEl.textContent = mapNames[st] || st;
 
   const wrap = document.getElementById('approvalCommentWrap');
   const ta   = document.getElementById('approvalComment');
@@ -2088,11 +2232,22 @@ function setApprovalUI(approval){
 
   const sel = document.getElementById('remoteRoutes');
   const open = document.getElementById('openReviewLink');
-  if (sel.value){
-    open.style.display = 'inline-block';
-    open.href = reviewLinkForId(sel.value);
-  } else {
-    open.style.display = 'none';
+  if (open){
+    if (sel && sel.value){
+      open.style.display = 'inline-block';
+      open.href = reviewLinkForId(sel.value);
+    } else {
+      open.style.display = 'none';
+    }
+  }
+
+  // —— статус-чіп (праворуч зверху) з іконками
+  const chip = document.getElementById('statusChip');
+  if (chip){
+    const label = mapNames[st] || '—';
+    const icon  = icons[st] || '';      // для draft іконки немає (за побажанням)
+    chip.textContent = (icon ? (icon + ' ') : '') + 'Статус: ' + label;
+    chip.dataset.status = st;           // тригер для стилів (pending/approved/rejected)
   }
 }
 
@@ -2240,7 +2395,7 @@ function clearForm() {
   document.getElementById('hubSelect').value = '';
   document.getElementById('routeName').value = '';
   document.getElementById('logistInput').value = '';
-  document.getElementById('distance').textContent = '0';
+  setKmUI(0);
   points = []; startRuler = []; endRuler = [];
   rebuildMarkers(); drawRulers(); updateRoute();
   document.getElementById('remoteRoutes').value = '';
