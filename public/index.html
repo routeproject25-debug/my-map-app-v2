@@ -1356,6 +1356,13 @@ function updateCounters(){
   byId('countEnd').textContent   = endCount;
   byId('countTotal').textContent = total;
 }
+// Повертає кілометраж із видимого чіпа зверху
+function getUIKm(){
+  const t = document.getElementById('distanceTop');
+  const s = (t?.textContent || '0').replace(',', '.');
+  const n = parseFloat(s);
+  return Number.isFinite(n) ? n : 0;
+}
 
 function setKmUI(km){
   const v = (km != null && isFinite(km)) ? Number(km).toFixed(2) : '0.00';
@@ -1488,6 +1495,24 @@ function fillDirectoryUI(rows){
     list.appendChild(opt);
   }
 }
+// Гарантовано заносить пару (code, name) у локальні мапи і datalist —
+// потрібно, коли завантажили маршрут з БД/файлу і хочемо ЗБЕРЕГТИ без ручного вибору зі списку
+function registerDirEntry(code, labelOrName){
+  const name = parseNameFromLabel(labelOrName) || labelOrName || getNameByCode(code) || '';
+  if (!code || !name) return;
+
+  if (!dirByCode[code]) dirByCode[code] = { name, company:'', unit:'' };
+  codeByName[name] = code;
+
+  const list = document.getElementById('directoryList');
+  if (list && ![...list.options].some(o => o.value === name)){
+    const opt = document.createElement('option');
+    opt.value = name;
+    opt.label = name;
+    list.appendChild(opt);
+  }
+}
+
 async function loadDirectory(force = false){
   try{
     if (!force){
@@ -1812,7 +1837,7 @@ document.getElementById('saveRoute').onclick = () => {
     endRuler: toObjPoints(endRuler),
     logisticId: logistId || null,
     logisticName: logistName || '',
-    distance_km: parseFloat(document.getElementById('distance').textContent) || 0,
+    distance_km: getUIKm(),
     date: new Date().toISOString(),
 	hub: hub || '' // 👈 додано
   };
@@ -1872,6 +1897,8 @@ const arrFrom = (pts) => {
       const tCode = routeData.toCode   || null;
       if (fCode) document.getElementById('fromName').value = getNameByCode(fCode) || parseNameFromLabel(routeData.fromLabel);
       if (tCode) document.getElementById('toName').value   = getNameByCode(tCode) || parseNameFromLabel(routeData.toLabel);
+      registerDirEntry(fCode, routeData.fromLabel || document.getElementById('fromName').value);
+      registerDirEntry(tCode, routeData.toLabel   || document.getElementById('toName').value);
       if (routeData.routeType) document.getElementById('routeType').value = routeData.routeType;
       if (routeData.purpose)   document.getElementById('routePurpose').value = routeData.purpose;
       document.getElementById('intermediateText').value = routeData.intermediateText || '';
@@ -1883,6 +1910,7 @@ const arrFrom = (pts) => {
 
       document.getElementById('logistInput').value =
         routeData.logisticName || (routeData.logisticId ? getLogistNameById(routeData.logisticId) : '');
+
 
       rebuildMarkers(); drawRulers(); updateRoute();
       if (points.length > 0) map.flyTo({ center: points[0], zoom: 12 });
@@ -1965,7 +1993,7 @@ async function saveToDB() {
       logisticName: getLogistNameById(logistId),
       createdByUid: user?.uid || null,
       createdByEmail: user?.email || null,
-      distance_km: parseFloat(document.getElementById('distance').textContent) || 0,
+      distance_km: getUIKm(),
       updatedAt: new Date().toISOString(),
 	  hub: hub || null // 👈 додано
     };
@@ -2176,6 +2204,9 @@ async function loadFromDB() {
     points = fromObjPoints(data.points || []);
     startRuler = fromObjPoints(data.startRuler || []);
     endRuler = fromObjPoints(data.endRuler || []);
+    // гарантуємо відповідності назва ↔ код у локальному кеші
+registerDirEntry(data.fromCode, data.fromLabel || document.getElementById('fromName').value);
+registerDirEntry(data.toCode,   data.toLabel   || document.getElementById('toName').value);
 
     rebuildMarkers(); drawRulers(); updateRoute();
 	updateHighlights();
@@ -2374,6 +2405,8 @@ async function loadRouteById(rid) {
     points     = fromObjPoints(data.points || []);
     startRuler = fromObjPoints(data.startRuler || []);
     endRuler   = fromObjPoints(data.endRuler || []);
+    registerDirEntry(data.fromCode, data.fromLabel || document.getElementById('fromName').value);
+    registerDirEntry(data.toCode,   data.toLabel   || document.getElementById('toName').value);
     rebuildMarkers(); drawRulers(); updateRoute();
     if (points.length) {
       const b = new mapboxgl.LngLatBounds(points[0], points[0]);
