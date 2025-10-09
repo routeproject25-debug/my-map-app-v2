@@ -458,6 +458,9 @@ const CODE_KEYS = ['Code','code','Код'];
 
 let HL_IDS_FROM = [];
 let HL_IDS_TO   = [];
+// ⬇️ нове — id символ-шарів (підписи) для обраних Від/До
+let HL_LABEL_IDS_FROM = [];
+let HL_LABEL_IDS_TO   = [];
 
 // OR-фільтр по кількох назвах властивостей
 function buildAnyMatch(keys, value){
@@ -772,6 +775,84 @@ function ensureHighlightLayers(){
       HL_IDS_TO.push('geozones-hl-to');
     }
   }
+  // ⬇️ ДОДАЙ ЦЕ СЮДИ (перед закривною дужкою функції)
+  ensureHighlightLabelLayers();   // створюємо label-шари для FROM/TO
+  bindHighlightHoverHandlers();   // вмикаємо hover-підказки лише для FROM/TO
+}
+function ensureHighlightLabelLayers(){
+  // GeoJSON (storage)
+  if (map.getSource('geozones')){
+    if (!map.getLayer('geozones-hl-from-label')){
+      map.addLayer({
+        id: 'geozones-hl-from-label',
+        type: 'symbol',
+        source: 'geozones',
+        filter: ['==', ['get','__never__'], 1], // заповнимо фільтром далі
+        layout: {
+          'text-field': ['coalesce', ['get','_label'], ['get','Name'], ['get','name'], ['get','Назва'], ['get','Назва поля'], ['get','Code'], ['get','code'], 'Поле'],
+          'text-size': 12, 'text-anchor':'center', 'text-allow-overlap': false
+        },
+        paint: { 'text-color':'#111', 'text-halo-color':'#fff', 'text-halo-width':1.2 }
+      });
+      HL_LABEL_IDS_FROM.push('geozones-hl-from-label');
+    }
+    if (!map.getLayer('geozones-hl-to-label')){
+      map.addLayer({
+        id: 'geozones-hl-to-label',
+        type: 'symbol',
+        source: 'geozones',
+        filter: ['==', ['get','__never__'], 1],
+        layout: {
+          'text-field': ['coalesce', ['get','_label'], ['get','Name'], ['get','name'], ['get','Назва'], ['get','Назва поля'], ['get','Code'], ['get','code'], 'Поле'],
+          'text-size': 12, 'text-anchor':'center', 'text-allow-overlap': false
+        },
+        paint: { 'text-color':'#111', 'text-halo-color':'#fff', 'text-halo-width':1.2 }
+      });
+      HL_LABEL_IDS_TO.push('geozones-hl-to-label');
+    }
+  }
+
+  // Tilesets (vector) — робимо підписи прямо з векторного джерела
+  TILESETS.forEach(ts => {
+    const srcId = `geozones-tileset-${ts.key}`;
+    if (!map.getSource(srcId)) return;
+
+    const mk = type => `tileset-hl-${type}-label-${ts.key}`;
+    const textExpr = ['coalesce', ['get','Name'], ['get','name'], ['get','Назва'], ['get','Назва поля'], ['get','Code'], ['get','code']];
+
+    if (!map.getLayer(mk('from'))){
+      map.addLayer({
+        id: mk('from'),
+        type: 'symbol',
+        source: srcId,
+        'source-layer': ts.layer,
+        filter: ['==', ['get','__never__'], 1],
+        layout: { 'text-field': textExpr, 'text-size': 12, 'text-anchor': 'center', 'text-allow-overlap': false },
+        paint:  { 'text-color':'#111', 'text-halo-color':'#fff', 'text-halo-width':1.2 }
+      });
+      HL_LABEL_IDS_FROM.push(mk('from'));
+    }
+    if (!map.getLayer(mk('to'))){
+      map.addLayer({
+        id: mk('to'),
+        type: 'symbol',
+        source: srcId,
+        'source-layer': ts.layer,
+        filter: ['==', ['get','__never__'], 1],
+        layout: { 'text-field': textExpr, 'text-size': 12, 'text-anchor': 'center', 'text-allow-overlap': false },
+        paint:  { 'text-color':'#111', 'text-halo-color':'#fff', 'text-halo-width':1.2 }
+      });
+      HL_LABEL_IDS_TO.push(mk('to'));
+    }
+  });
+}
+function bindHighlightHoverHandlers(){
+  [...HL_IDS_FROM, ...HL_IDS_TO].forEach(id => {
+    if (BOUND_HOVER_LAYERS.has(id)) return;
+    map.on('mousemove',  id, onHover);
+    map.on('mouseleave', id, onLeave);
+    BOUND_HOVER_LAYERS.add(id);
+  });
 }
 
 function updateHighlights(){
@@ -785,6 +866,9 @@ function updateHighlights(){
 
   HL_IDS_FROM.forEach(id => { if (map.getLayer(id)) map.setFilter(id, fromFilter); });
   HL_IDS_TO.forEach(id   => { if (map.getLayer(id)) map.setFilter(id, toFilter); });
+  // ⬇️ підписи вибраних
+HL_LABEL_IDS_FROM.forEach(id => { if (map.getLayer(id)) map.setFilter(id, fromFilter); });
+HL_LABEL_IDS_TO.forEach(id   => { if (map.getLayer(id)) map.setFilter(id, toFilter); });
 
   fitToHighlights();
 }
@@ -822,6 +906,8 @@ hideSplash();            // ⬅️ сховати сплеш, коли стил�
 
   // 🔦 Підсвітка FROM/TO
   ensureHighlightLayers();
+  ensureHighlightLabelLayers();
+  bindHighlightHoverHandlers();
   updateHighlights();
   setGeozonesVisibility(geozonesVisible);
 });
@@ -1045,33 +1131,33 @@ function setManyOpacity(ids, opacity){
 }
 
 function setGeozonesVisibility(visible){
-  // Чи вибрані «Від/До»?
   const hasFromSel = !!(getCodeByInput('fromName') || (document.getElementById('fromName').value || '').trim());
   const hasToSel   = !!(getCodeByInput('toName')   || (document.getElementById('toName').value   || '').trim());
+
+  // показувати хайлайти (Від/До), якщо увімкнено геозони АБО є вибір полів
   const showHL = visible || hasFromSel || hasToSel;
 
-  // 1) Підписи геозон — ЗАВЖДИ видимі
+  // 1) Базові підписи усіх геозон:
+  //    — видно ТІЛЬКИ коли тумблер увімкнено
   ['geozones-label','geozones-labels'].forEach(id => {
-    if (map.getLayer(id)) setLayerVisibility(id, true);
+    if (map.getLayer(id)) setLayerVisibility(id, !!visible);
   });
 
-  // 2) GeoJSON (Storage) — тримаємо видимими для подій, керуємо прозорістю
-  //    base fill/line/point робимо прозорими, коли вимкнено
-  [['geozones-fill','fill'], ['geozones-outline','line'], ['geozones-point','circle']]
-    .forEach(([id, kind]) => {
-      if (!map.getLayer(id)) return;
-      setLayerVisibility(id, true); // не вимикаємо зовсім — інакше втратимо hover/click
-      setLayerOpacity(id, visible ? GZ_DEFAULTS[kind] : 0);
-    });
+  // 2) Базові геозони (усі поля):
+  //    — коли тумблер вимкнено, повністю ховаємо (visibility:none), щоб не було hover по всіх
+  [['geozones-fill','fill'], ['geozones-outline','line'], ['geozones-point','circle']].forEach(([id, kind]) => {
+    if (!map.getLayer(id)) return;
+    setLayerVisibility(id, !!visible);
+    setLayerOpacity(id, visible ? GZ_DEFAULTS[kind] : 0);
+  });
+  TS_FILL_IDS.forEach(id    => { setLayerVisibility(id, !!visible); setLayerOpacity(id, visible ? GZ_DEFAULTS.fill : 0); });
+  TS_OUTLINE_IDS.forEach(id => { setLayerVisibility(id, !!visible); setLayerOpacity(id, visible ? GZ_DEFAULTS.line : 0); });
 
-  // 3) Tilesets (векторні) — так само керуємо прозорістю
-  TS_FILL_IDS.forEach(id => { setLayerVisibility(id, true);  setLayerOpacity(id, visible ? GZ_DEFAULTS.fill : 0); });
-  TS_OUTLINE_IDS.forEach(id => { setLayerVisibility(id, true); setLayerOpacity(id, visible ? GZ_DEFAULTS.line : 0); });
+  // 3) Хайлайт-заливки та їх підписи (тільки Від/До)
+  [...HL_IDS_FROM, ...HL_IDS_TO, ...HL_LABEL_IDS_FROM, ...HL_LABEL_IDS_TO]
+    .forEach(id => setLayerVisibility(id, showHL));
 
-  // 4) Highlight «Від/До» — видимі, якщо:
-  //    тумблер УВІМК. або хоча б одне поле обрано
-  HL_IDS_FROM.forEach(id => setLayerVisibility(id, showHL));
-  HL_IDS_TO.forEach(id   => setLayerVisibility(id, showHL));
+  // Все: коли геозони «вимкнено», видно й реагують тільки вибрані (через хайлайти).
 }
 
 function updateGeozonesToggleLabel(){
@@ -2301,6 +2387,8 @@ function addGeozones(obj){
     attachGeozoneHandlers();
   // 🔦 Після додавання джерела GeoJSON підстрахуємось і оновимо підсвітку
   ensureHighlightLayers();
+  ensureHighlightLabelLayers();
+  bindHighlightHoverHandlers();
   updateHighlights();
   setGeozonesVisibility(geozonesVisible);
 }
