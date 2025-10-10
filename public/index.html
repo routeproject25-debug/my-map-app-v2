@@ -2377,14 +2377,18 @@ async function copyReviewLink(){
 }
 
 // виставляємо статус pending та підвищуємо revision
-if (readOnly) { alert('⛔ Недостатньо прав'); return; }
-if (!db || !auth?.currentUser){ alert('Увійдіть у систему.'); return; }
-const sel = document.getElementById('remoteRoutes');
-const id  = (sel && sel.value) || (LAST_SAVED_ROUTE.id || '');
-if (!id){
-  alert('Спочатку збережіть маршрут у БД — після збереження його можна відразу подати на погодження.');
-  return;
-}
+// виставляємо статус pending та підвищуємо revision
+async function sendForApproval(){
+  if (readOnly) { alert('⛔ Недостатньо прав'); return; }
+  if (!db || !auth?.currentUser){ alert('Увійдіть у систему.'); return; }
+
+  const sel = document.getElementById('remoteRoutes');
+  const id  = (sel && sel.value) || (LAST_SAVED_ROUTE.id || '');
+  if (!id){
+    alert('Спочатку збережіть маршрут у БД — після збереження його можна відразу подати на погодження.');
+    return;
+  }
+
   const user = auth.currentUser;
   const ref  = db.collection('routes').doc(id);
 
