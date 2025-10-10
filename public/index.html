@@ -212,6 +212,20 @@
   #statusChip{ right:8px; top:calc(var(--nav-real) + 8px); }
   #panelDock{ right:8px; bottom:8px; }
 }
+/* верхній сегмент з трьома кнопками */
+#panel-create .segment{
+  display:flex;
+  gap:6px;
+  flex-wrap:nowrap;        /* не переносити */
+}
+#panel-create .segment .btn{
+  white-space:nowrap;      /* не ламати текст всередині */
+  flex: 1 1 auto;          /* рівні ширини, якщо хочеш */
+}
+#panel-create .segment .btn.active::after{
+  content:"•";
+  margin-left:.4rem;
+}
 
   </style>
 </head>
@@ -1122,9 +1136,17 @@ function flyToRouteEdge(which){
 }
 function toggleButton(id, flag) {
   const btn = document.getElementById(id);
-  btn.textContent = btn.textContent.split(':')[0] + `: ${flag ? 'УВІМКНЕНО.' : 'ВИМКНЕНО.'}`;
-  if (flag) btn.classList.add('active'); else btn.classList.remove('active');
+  // запам'ятати оригінальний лейбл один раз
+  if (!btn.dataset.label) btn.dataset.label = btn.textContent.split(':')[0].trim();
+
+  // НЕ міняємо текст — лишаємо короткий лейбл
+  btn.textContent = btn.dataset.label;
+
+  // візуальний стан
+  btn.classList.toggle('active', !!flag);
+  btn.setAttribute('aria-pressed', !!flag);
 }
+
 
 document.getElementById('toggleAdd').onclick = () => {
   if (readOnly) return;
