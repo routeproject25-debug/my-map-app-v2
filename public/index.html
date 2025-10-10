@@ -2055,11 +2055,12 @@ try{
     }
 
     const updateObj = {
-      ...payload,
-      routeKey,
-      nameLower: (payload.name || '').toLowerCase(),
-      updatedAt: new Date().toISOString()
-    };
+  ...payload,
+  routeKey,
+  nameLower: (payload.name || '').toLowerCase(),
+  nameNgrams: trigrams(payload.name), // 👈 додали
+  updatedAt: new Date().toISOString()
+};
     if (approvalUpdate){
       updateObj.approval = approvalUpdate;
       savedApproval = approvalUpdate;
@@ -2168,10 +2169,18 @@ async function refreshRoutesList(mode='reset'){
 
 // догрузити все (по сторінках)
 async function loadAllRoutes(){
-  while(!routesDone){
+  const HARD_CAP = 1000; // максимум, щоб не збанкрутити рідами
+  if (!confirm('Завантажити повний список? Це може зробити багато рідів до БД.')){
+    return;
+  }
+  while(!routesDone && routesLoadedCount < HARD_CAP){
     await refreshRoutesList('next');
   }
-  alert(`Завантажено маршрутів: ${routesLoadedCount}`);
+  if (!routesDone) {
+    alert(`Досягнуто ліміт ${HARD_CAP}. Уточніть пошук замість повного завантаження.`);
+  } else {
+    alert(`Завантажено маршрутів: ${routesLoadedCount}`);
+  }
 }
 
 async function loadFromDB() {
@@ -2362,27 +2371,117 @@ document.getElementById('clearLogistsCache').onclick = () => {
   loadLogists(isLogged);
 };
 
-/* Search helper */
-const routeSearch = document.getElementById('routeSearch');
-const remoteRoutesSel = document.getElementById('remoteRoutes');
-// 👇 ДОДАЙ ЦІ ДВА РЯДКИ
-routeSearch.addEventListener('focus', ensureRoutesLoaded);
-remoteRoutesSel.addEventListener('focus', ensureRoutesLoaded);
-routeSearch.addEventListener('input', () => {
-  const q = routeSearch.value.trim().toLowerCase();
-  let matched = false;
-  for (const opt of remoteRoutesSel.options) {
-    const text = (opt.textContent || '').toLowerCase();
-    if (text.includes(q) && opt.value) { remoteRoutesSel.value = opt.value; matched = true; break; }
+/* ===================== Search helper (оновлено) ===================== */
+const routeSearch       = document.getElementById('routeSearch');
+const remoteRoutesSel   = document.getElementById('remoteRoutes');
+
+let routesSearchQ       = '';
+let routesSearchLastDoc = null;   // пагінація саме для префіксного пошуку
+let routesSearchDone    = true;
+
+function resetRoutesUI(){
+  routesPageLastDoc = null;       // не чіпає базову пагінацію «за датою», але ми її тут не юзаємо
+  routesDone = false;
+  for (const k in routesLookup) delete routesLookup[k];
+  remoteRoutesSel.innerHTML = '<option value="">— вибери маршрут з БД —</option>';
+  document.getElementById('routesList').innerHTML = '';
+  routesLoadedCount = 0;
+}
+
+function scoreByPosition(rowNameLower, qLower){
+  const pos = (rowNameLower || '').indexOf(qLower);
+  return (pos === -1 ? 1e6 : pos) * 1000 + (rowNameLower || '').length;
+}
+
+/** Пошук: префікс по nameLower + (fallback) тріграмний contains.
+ *  mode: 'reset' | 'next'
+ */
+async function searchRoutes(q, mode='reset'){
+  const qLower = String(q||'').trim().toLowerCase();
+
+  // якщо запит короткий — не робимо жодних запитів
+  if (mode === 'reset'){
+    routesSearchQ = qLower;
+    routesSearchLastDoc = null;
+    routesSearchDone = true;
+    resetRoutesUI();
+    if (qLower.length < 3){
+      // Нічого не шукаємо, просто чекаємо, поки користувач додрукує
+      return;
+    }
   }
-  if (!matched) remoteRoutesSel.value = '';
+
+  if (!routesSearchQ) return;
+
+  const limit = 50;
+  const acc = [];
+  const seen = new Set();
+
+  // 1) Префікс (із пагінацією)
+  let qRef = db.collection('routes')
+    .orderBy('nameLower')
+    .startAt(routesSearchQ)
+    .endBefore(routesSearchQ + '\uf8ff')
+    .limit(limit);
+
+  if (mode === 'next' && routesSearchLastDoc) qRef = qRef.startAfter(routesSearchLastDoc);
+
+  const s1 = await qRef.get({ source:'default' });
+  s1.forEach(d => { acc.push(d); seen.add(d.id); });
+  routesSearchLastDoc = s1.docs.length ? s1.docs[s1.docs.length - 1] : routesSearchLastDoc;
+  routesSearchDone = s1.size < limit;
+
+  // 2) Якщо перша сторінка «бідна» і це перший запит — спробуємо contains по тріграмам
+  if (mode === 'reset' && acc.length < limit){
+    const grams = trigrams(routesSearchQ); // до 10 штук
+    if (grams.length){
+      const s2 = await db.collection('routes')
+        .where('nameNgrams', 'array-contains-any', grams)
+        .limit(limit)
+        .get({ source:'default' });
+
+      s2.forEach(d => { if (!seen.has(d.id)) acc.push(d); });
+    }
+
+    // трохи підсортуємо за «ближчістю» входження
+    acc.sort((a, b) =>
+      scoreByPosition((a.data().nameLower||''), routesSearchQ) -
+      scoreByPosition((b.data().nameLower||''), routesSearchQ)
+    );
+  }
+
+  renderRoutesDocs(acc);
+}
+
+/* ——— ЗВ’ЯЗУВАННЯ UI ——— */
+
+// ВАЖЛИВО: Щоб не робити зайвий запит при фокусі на полі пошуку — НЕ тягнемо "ensureRoutesLoaded" тут.
+// Якщо хочеш залишити початкову підвантажку «останніх» — прив’яжи ensureRoutesLoaded лише до фокуса на <select>.
+remoteRoutesSel.addEventListener('focus', ensureRoutesLoaded);
+
+// debounce, щоб не спамити Firestore під час друку
+let _rsTimer = null;
+routeSearch.addEventListener('input', () => {
+  if (_rsTimer) clearTimeout(_rsTimer);
+  _rsTimer = setTimeout(() => searchRoutes(routeSearch.value, 'reset'), 300);
 });
+
+// Enter = якщо щось знайшли — завантажуємо
 routeSearch.addEventListener('keydown', (e) => {
   if (e.key === 'Enter') {
-    if (!remoteRoutesSel.value) routeSearch.dispatchEvent(new Event('input'));
+    // якщо в списку уже є якісь варіанти — ставимо перший і вантажимо
+    for (const opt of remoteRoutesSel.options) {
+      if (opt.value) { remoteRoutesSel.value = opt.value; break; }
+    }
     if (remoteRoutesSel.value) document.getElementById('loadFromDB').click();
   }
 });
+
+// Кнопка «Ще» тепер працює і для пошуку (тільки для префіксного сценарію)
+document.getElementById('loadMoreRoutes').onclick = () => {
+  if (routesSearchQ) return searchRoutes(routesSearchQ, 'next');
+  return refreshRoutesList('next'); // назад сумісність, якщо пошук не активний
+};
 
 /* Load by ?rid= */
 async function loadRouteById(rid) {
