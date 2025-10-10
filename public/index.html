@@ -1455,6 +1455,8 @@ document.head.appendChild(turfScript);
 /* ===================== Firebase ===================== */
 let db = null, auth = null;
 let storage = null;
+// 👇 Тримаємо останній збережений маршрут для швидкої роботи з лінком/погодженням
+let LAST_SAVED_ROUTE = { id: null, label: '', data: null };
 
 try {
   const CFG = window.APP_CONFIG?.firebase;
@@ -2108,7 +2110,12 @@ try{
 // після транзакції — оновити панель погодження в UI
 setApprovalUI(savedApproval);
 
-    await refreshRoutesList('reset');
+// ✅ одразу підставляємо щойно збережений маршрут у селект
+ensureRouteOptionSelected(docId, { ...payload, approval: savedApproval });
+
+// Після оновлення списку — знову виділяємо потрібний елемент (на випадок, якщо refresh очистив селект)
+await refreshRoutesList('reset');
+ensureRouteOptionSelected(docId, { ...payload, approval: savedApproval });
   } catch (err) {
     console.error('❌ Помилка збереження в Firestore:', err);
     alert('❌ Не вдалося зберегти в БД: ' + (err?.message || err));
@@ -2153,6 +2160,48 @@ function renderRoutesDocs(docs){
   });
 
   routesLoadedCount = Object.keys(routesLookup).length;
+}
+// Додає/оновлює опцію у <select id="remoteRoutes"> і одразу її обирає.
+// Також запам'ятовуємо маршрут у LAST_SAVED_ROUTE та підготовлюємо лінк "Перегляд".
+function ensureRouteOptionSelected(id, data){
+  if (!id) return;
+  const sel  = document.getElementById('remoteRoutes');
+  const list = document.getElementById('routesList');
+
+  // Підпис для опції
+  const label = formatRouteTitle(data) + (typeof data.distance_km === 'number' ? ` (${data.distance_km.toFixed(2)} км)` : '');
+
+  // Якщо такої опції немає — додаємо; якщо є — оновлюємо текст
+  let opt = [...sel.options].find(o => o.value === id);
+  if (!opt) {
+    opt = document.createElement('option');
+    opt.value = id;
+    opt.textContent = label;
+    sel.appendChild(opt);
+  } else {
+    opt.textContent = label;
+  }
+
+  // Додамо запис у datalist пошуку (не критично, але зручно)
+  const existsInDatalist = [...list.options].some(o => o.value === label);
+  if (!existsInDatalist) {
+    const sOpt = document.createElement('option');
+    sOpt.value = label;
+    list.appendChild(sOpt);
+  }
+
+  // Обрати щойно збережений
+  sel.value = id;
+
+  // Запам'ятати останній збережений
+  LAST_SAVED_ROUTE = { id, label, data };
+
+  // Оновити кнопку "Перегляд" у панелі погодження
+  const open = document.getElementById('openReviewLink');
+  if (open) {
+    open.style.display = 'inline-block';
+    open.href = reviewLinkForId(id);
+  }
 }
 
 async function refreshRoutesList(mode='reset'){
@@ -2292,16 +2341,17 @@ function setApprovalUI(approval){
     wrap.style.display = 'none';  ta.value = '';
   }
 
-  const sel = document.getElementById('remoteRoutes');
-  const open = document.getElementById('openReviewLink');
-  if (open){
-    if (sel && sel.value){
-      open.style.display = 'inline-block';
-      open.href = reviewLinkForId(sel.value);
-    } else {
-      open.style.display = 'none';
-    }
+  const sel  = document.getElementById('remoteRoutes');
+const open = document.getElementById('openReviewLink');
+if (open){
+  const rid = (sel && sel.value) || (LAST_SAVED_ROUTE.id || '');
+  if (rid){
+    open.style.display = 'inline-block';
+    open.href = reviewLinkForId(rid);
+  } else {
+    open.style.display = 'none';
   }
+}
 
   // —— статус-чіп (праворуч зверху) з іконками
   const chip = document.getElementById('statusChip');
@@ -2316,23 +2366,25 @@ function setApprovalUI(approval){
 // копіюємо лінк на перегляд/погодження
 async function copyReviewLink(){
   const sel = document.getElementById('remoteRoutes');
-  const id = sel.value;
-  if (!id){ alert('Спочатку збережіть маршрут у БД і виберіть його у списку.'); return; }
+  const id  = (sel && sel.value) || (LAST_SAVED_ROUTE.id || '');
+  if (!id){
+    alert('Спочатку збережіть маршрут у БД — після збереження лінк з’явиться автоматично.');
+    return;
+  }
   const url = reviewLinkForId(id);
   try { await navigator.clipboard.writeText(url); alert('Посилання скопійовано в буфер обміну.'); }
   catch { prompt('Скопіюйте посилання:', url); }
 }
 
 // виставляємо статус pending та підвищуємо revision
-async function sendForApproval(){
-  if (readOnly) { alert('⛔ Недостатньо прав'); return; }   // ⬅️ додай тут
-  if (!db || !auth?.currentUser){ alert('Увійдіть у систему.'); return; }
-  const sel = document.getElementById('remoteRoutes');
-  const id  = sel.value;
-  if (!id){
-    alert('Спочатку збережіть маршрут у БД, оновіть список і виберіть його.');
-    return;
-  }
+if (readOnly) { alert('⛔ Недостатньо прав'); return; }
+if (!db || !auth?.currentUser){ alert('Увійдіть у систему.'); return; }
+const sel = document.getElementById('remoteRoutes');
+const id  = (sel && sel.value) || (LAST_SAVED_ROUTE.id || '');
+if (!id){
+  alert('Спочатку збережіть маршрут у БД — після збереження його можна відразу подати на погодження.');
+  return;
+}
   const user = auth.currentUser;
   const ref  = db.collection('routes').doc(id);
 
