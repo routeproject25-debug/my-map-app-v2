@@ -2058,7 +2058,7 @@ try{
   ...payload,
   routeKey,
   nameLower: (payload.name || '').toLowerCase(),
-  nameNgrams: trigrams(payload.name), // 👈 додали
+  nameNgrams: trigrams(payload.name), // 👈 додай це
   updatedAt: new Date().toISOString()
 };
     if (approvalUpdate){
