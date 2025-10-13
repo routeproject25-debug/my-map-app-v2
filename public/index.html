@@ -491,7 +491,21 @@
     console.error('APP_CONFIG.firebase відсутній. Перевір /config/config.js');
     return;
   }
-  try { firebase.apps?.length ? firebase.app() : firebase.initializeApp(CFG); } catch(e) {}
+    try { firebase.apps?.length ? firebase.app() : firebase.initializeApp(CFG); } catch(e) {}
+
+  // (РЕКОМЕНДОВАНО) форсувати long-polling у «вузьких» мережах
+  try {
+    firebase.firestore().settings({
+      experimentalForceLongPolling: true,
+      useFetchStreams: false
+    });
+  } catch(_) {}
+
+  // Увімкнути persistence ДО перших читань і зберегти проміс глобально
+  window.__PERSISTENCE_PROMISE = (async () => {
+    try { await firebase.firestore().enablePersistence({ synchronizeTabs: true }); }
+    catch(_) {} // ок, якщо вже увімкнено або інша вкладка
+  })();
 
   const auth = firebase.auth();
   const db   = firebase.firestore();
@@ -502,6 +516,10 @@
   // НЕ ховаємо документ – показуємо одразу.
   auth.onAuthStateChanged(async (u) => {
     if (!u) { location.replace(loginURL); return; }
+        // дочекатися, щоб кеш реально підготувався
+    if (window.__PERSISTENCE_PROMISE) {
+      try { await window.__PERSISTENCE_PROMISE; } catch(_) {}
+    }
 
     // 1) швидко беремо роль із кешу (якщо є) — щоб UI міг відмалюватися
     let role = null;
@@ -699,6 +717,21 @@ function setActiveRuler(which){ activeRuler = which; if (which) lastActiveRuler 
 /* ====== Roles ====== */
 let currentRole = 'guest';
 let readOnly    = true;
+// Миттєво підняти роль/хаби з попередньої сторінки (якщо вони є в sessionStorage)
+(function(){
+  try{
+    const raw = sessionStorage.getItem('role.cache.v1');
+    if (!raw) return;
+    const { role, hubs, all, ts } = JSON.parse(raw) || {};
+    // 2 хв — достатньо, щоб «дожити» до справжнього фетчу з Firestore
+    if (!ts || (Date.now() - ts) > 2*60*1000) return;
+
+    // просто прогріваємо змінні; applyRoleUI викличеться нижче в onAuthStateChanged
+    window.__userRole = role || 'guest';
+    if (all === true)        window.ALLOWED_HUBS = []; // [] = всі хаби
+    else if (Array.isArray(hubs)) window.ALLOWED_HUBS = hubs;
+  }catch(_){}
+})();
 
 function applyRoleUI(role){
   // нормалізуємо
@@ -1479,9 +1512,11 @@ try {
   storage = firebase.storage();
 
   console.log('✅ Firebase:', firebase.app().options.projectId);
-  firebase.firestore().enablePersistence({ synchronizeTabs: true }).catch((e) => {
-    console.warn('Firestore persistence is off:', e.code || e.message);
-  });
+  if (!window.__PERSISTENCE_PROMISE) {
+  window.__PERSISTENCE_PROMISE =
+    firebase.firestore().enablePersistence({ synchronizeTabs: true })
+      .catch((e) => console.warn('Firestore persistence is off:', e.code || e.message));
+}
 } catch (e) {
   console.error('❌ Firebase не ініціалізовано:', e);
 }
@@ -2937,10 +2972,6 @@ applyHubSelectVisibility();
 
 // Перечитати довідник під доступи (без force — спробує кеш)
 await loadDirectory(false);
-
-// Перезібрати список маршрутів під доступи
-routesInitLoaded = false;
-await refreshRoutesList('reset');
 
     // live-оновлення ролі (підписка на users/{uid})
     if (roleUnsub) try{ roleUnsub(); }catch{}

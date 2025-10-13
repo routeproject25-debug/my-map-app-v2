@@ -580,6 +580,37 @@ let currentUser = null;
 let currentRole = null;
 let allowedHubs = [];     // ← масив дозволених хабів
 let allowAllHubs = false; // ← прапор «всі хаби»
+/* === 2.2 Кеш ролі/хабів перед переходом на головну (index.html) === */
+function cacheRoleAndHubs(){
+  try{
+    sessionStorage.setItem('role.cache.v1', JSON.stringify({
+      role: String(window.__userRole ?? currentRole ?? ''),
+      hubs: Array.isArray(window.__userHubs) ? window.__userHubs : (allowedHubs || []),
+      all:  !!(window.__userAllHubs ?? allowAllHubs),
+      ts:   Date.now()
+    }));
+  }catch(_){}
+}
+
+/* Перехоплюємо будь-які кліки по посиланнях на головну,
+   щоб спочатку закешувати роль/хаби, а вже потім переходити. */
+document.addEventListener('click', (e) => {
+  const a = e.target.closest('a[href]');
+  if (!a) return;
+
+  const href = a.getAttribute('href') || '';
+  const isMain = href === '/' || href === '/index.html' || href.startsWith('/index.html?');
+  if (!isMain) return;
+
+  e.preventDefault();
+  cacheRoleAndHubs();
+
+  if (a.target === '_blank') {
+    window.open(a.href, '_blank');
+  } else {
+    location.href = a.href;
+  }
+}, true);
 
 try {
   // Додаток уже ініціалізовано guard-скриптом вище
