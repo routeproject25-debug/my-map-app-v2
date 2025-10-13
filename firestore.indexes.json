@@ -1,0 +1,45 @@
+{
+  "indexes": [
+    {
+      "collectionGroup": "routes",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "hub", "order": "ASCENDING" },
+        { "fieldPath": "updatedAt", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "routes",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "hub", "order": "ASCENDING" },
+        { "fieldPath": "nameLower", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "routes",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "nameNgrams", "arrayConfig": "CONTAINS" },
+        { "fieldPath": "hub", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "directory",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "hub", "order": "ASCENDING" },
+        { "fieldPath": "nameLower", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "directory",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "nameNgrams", "arrayConfig": "CONTAINS" },
+        { "fieldPath": "hub", "order": "ASCENDING" }
+      ]
+    }
+  ],
+  "fieldOverrides": []
+}
