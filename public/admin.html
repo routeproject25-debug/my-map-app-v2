@@ -9,9 +9,9 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
-  <!-- ⬇️ додай це -->
-<script src="/config/config.js"></script>
 
+  <!-- Конфіг застосунку -->
+  <script src="/config/config.js"></script>
 
   <style>
     /* Ховаємо DOM, доки не перевіримо роль */
@@ -30,6 +30,12 @@
     select { margin-left:10px; padding:6px 8px; border:1px solid #cbd5e1; border-radius:6px; }
     #user-list { margin-top:12px; }
     #status { margin: 6px 0 10px; }
+
+    .hubs-wrap label{
+      display:inline-flex; align-items:center; gap:6px;
+      margin:2px 12px 8px 0;
+      user-select:none;
+    }
   </style>
 </head>
 <body>
@@ -39,7 +45,7 @@
       <div class="muted" id="hello">Перевірка…</div>
     </div>
     <div>
-	  <a href="/index.html" class="btn" id="backToMap" title="Перейти на головну сторінку (карту)">🏠 На карту</a>
+      <a href="/index.html" class="btn" id="backToMap" title="Перейти на головну сторінку (карту)">🏠 На карту</a>
       <button id="btnLogout" class="btn" style="display:none;">Вийти</button>
     </div>
   </header>
@@ -48,50 +54,49 @@
   <div id="user-list"></div>
 
   <script>
-    // 🔧 Firebase init
-    // 🔧 Firebase init (через /config/config.js)
+/* ================= Firebase init ================= */
 const CFG = window.APP_CONFIG?.firebase;
 if (!CFG) {
-  // щоб сторінка не «висіла» прихованою, якщо конфіг не підвантажився
-  document.getElementById('status').textContent = 'Не знайдено APP_CONFIG.firebase. Перевір /config/config.js та шлях у <script src="/config/config.js">';
+  document.getElementById('status').textContent =
+    'Не знайдено APP_CONFIG.firebase. Перевір /config/config.js та шлях у <script src="/config/config.js">';
   console.error('APP_CONFIG.firebase is missing');
   document.documentElement.style.visibility = 'visible';
 } else {
   try { firebase.apps?.length ? firebase.app() : firebase.initializeApp(CFG); } catch(e) { console.error(e); }
 }
-
 const db   = firebase.firestore();
 const auth = firebase.auth();
 
-    const loginURL = '/login.html?next=' + encodeURIComponent(location.pathname + location.search);
-    const helloEl  = document.getElementById('hello');
-    const statusEl = document.getElementById('status');
-    const listEl   = document.getElementById('user-list');
-    const btnLogout = document.getElementById('btnLogout');
+/* ================= DOM посилання ================= */
+const loginURL  = '/login.html?next=' + encodeURIComponent(location.pathname + location.search);
+const helloEl   = document.getElementById('hello');
+const statusEl  = document.getElementById('status');
+const listEl    = document.getElementById('user-list');
+const btnLogout = document.getElementById('btnLogout');
 
-    let currentUser = null;
-    let unsubscribeUsers = null;
+/* ====== ДОВІДНИК ХАБІВ (редагуй за потреби) ====== */
+const HUBS = ['Вінницький','Західний','Центральний','Урожайна країна','МХП'];
 
-    btnLogout.addEventListener('click', async () => {
-      try { await auth.signOut(); } catch(e) { console.warn(e); }
-    });
+let currentUser = null;
+let unsubscribeUsers = null;
 
-    // Отримати роль поточного користувача (users/{uid}.role, fallback roles/{uid}.role)
-    async function resolveUserRole(uid){
+btnLogout.addEventListener('click', async () => {
+  try { await auth.signOut(); } catch(e) { console.warn(e); }
+});
+
+/* ===== Визначення ролі поточного користувача ===== */
+async function resolveUserRole(uid){
   try {
-    // ПЕРШЕ — сервер (свіжі дані)
     const udoc = await db.collection('users').doc(uid).get({ source: 'server' });
     if (udoc.exists && udoc.data()?.role) return String(udoc.data().role);
   } catch(e){ console.warn('users role read (server) failed', e); }
 
   try {
-    // Фолбек — кеш/дефолт
     const udoc2 = await db.collection('users').doc(uid).get();
     if (udoc2.exists && udoc2.data()?.role) return String(udoc2.data().role);
   } catch(e){ console.warn('users role read (cache) failed', e); }
 
   try {
-    // Додатковий фолбек у roles/{uid}
     const rdoc = await db.collection('roles').doc(uid).get({ source: 'server' });
     if (rdoc.exists && rdoc.data()?.role) return String(rdoc.data().role);
   } catch(e){ console.warn('roles fallback read failed', e); }
@@ -99,153 +104,270 @@ const auth = firebase.auth();
   return 'pending';
 }
 
-    // ===== Guard на вхід + роль admin
-    auth.onAuthStateChanged(async (u) => {
-      currentUser = u || null;
+/* ================= Guard + завантаження ================= */
+auth.onAuthStateChanged(async (u) => {
+  currentUser = u || null;
 
-      if (!u) {
-        statusEl.textContent = 'Необхідно увійти.';
-        // Після повідомлення робимо редірект на логін
-        location.replace(loginURL);
+  if (!u) {
+    statusEl.textContent = 'Необхідно увійти.';
+    location.replace(loginURL);
+    return;
+  }
+
+  helloEl.textContent = 'Увійшли як ' + (u.email || u.uid);
+  btnLogout.style.display = '';
+
+  let role = 'pending';
+  try { role = (await resolveUserRole(u.uid)).trim().toLowerCase(); } catch(e){ console.error(e); }
+  if (role !== 'admin') {
+    statusEl.textContent = '⛔ Доступ заборонено (потрібна роль admin)';
+    document.documentElement.style.visibility = 'visible';
+    setTimeout(()=>location.replace('/'), 1200);
+    return;
+  }
+
+  statusEl.textContent = '✅ Ви увійшли як адмін';
+  document.documentElement.style.visibility = 'visible';
+  loadUsers();
+});
+
+/* ================= Рендер одного юзера (з роллю та хабами) ================= */
+function userRowHTML(id, user){
+  const name    = user.displayName || user.email || id;
+  const email   = user.email ? ` • ${user.email}` : '';
+  const role    = (user.role || 'pending').toLowerCase();
+  const created = user.createdAt || user.created_at || '';
+
+  const allowedHubs = Array.isArray(user.allowedHubs)
+    ? user.allowedHubs
+    : ((role === 'admin' || role === 'security') ? ['*'] : []);
+
+  const seeAll = allowedHubs.includes('*') || role === 'admin' || role === 'security';
+
+  const hubsHTML = `
+    <label>
+      <input type="checkbox" class="hub-all" ${seeAll ? 'checked' : ''}>
+      <b>Всі хаби</b>
+    </label>
+    ${HUBS.map(h => `
+      <label>
+        <input type="checkbox" class="hub-chk" data-hub="${escapeHtml(h)}"
+               ${(seeAll || allowedHubs.includes(h)) ? 'checked' : ''} ${(seeAll ? 'disabled' : '')}>
+        <span>${escapeHtml(h)}</span>
+      </label>
+    `).join('')}
+  `;
+
+  return `
+    <div class="user-row" data-uid="${id}">
+      <div>
+        <b>${escapeHtml(name)}</b>
+        <span class="user-meta">(${escapeHtml(role)})${email ? ' • ' + escapeHtml(email) : ''}${created ? ' • створено: ' + escapeHtml(created) : ''}</span>
+      </div>
+
+      <div class="row-actions">
+        <label>Роль:
+          <select data-id="${id}" data-prev="${role}" class="role-select">
+            <option value="pending"  ${role==="pending" ?"selected":""}>Очікує</option>
+            <option value="user"     ${role==="user"    ?"selected":""}>User</option>
+            <option value="logist"   ${role==="logist"  ?"selected":""}>Logist</option>
+            <option value="security" ${role==="security"?"selected":""}>Security</option>
+            <option value="admin"    ${role==="admin"   ?"selected":""}>Admin</option>
+          </select>
+        </label>
+
+        <button class="btn save-hubs" data-id="${id}">💾 Зберегти доступ до хабів</button>
+      </div>
+
+      <div class="hubs-wrap" style="margin-top:6px;">
+        <div class="muted" style="margin-bottom:4px;">Доступ до хабів:</div>
+        ${hubsHTML}
+      </div>
+    </div>
+  `;
+}
+
+function escapeHtml(s){
+  return String(s ?? '')
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+
+/* ================= Live-завантаження списку users ================= */
+function loadUsers(){
+  try { if (unsubscribeUsers) { unsubscribeUsers(); unsubscribeUsers = null; } } catch {}
+  unsubscribeUsers = db.collection('users')
+    .orderBy('role')
+    .onSnapshot((snap) => {
+      listEl.innerHTML = '';
+      snap.forEach((doc) => {
+        const user = doc.data() || {};
+        listEl.insertAdjacentHTML('beforeend', userRowHTML(doc.id, user));
+      });
+      bindRoleChangeHandlers();
+      bindHubHandlers();            // ⬅️ прив’язуємо обробники хабів після рендеру
+    }, (err) => {
+      console.error('onSnapshot(users) error:', err);
+      statusEl.textContent = 'Помилка завантаження користувачів: ' + (err.message || err);
+    });
+}
+
+/* ================= Обробка зміни ролей ================= */
+function bindRoleChangeHandlers(){
+  document.querySelectorAll('#user-list .user-row .role-select').forEach((sel) => {
+    sel.addEventListener('change', async (e) => {
+      const row      = e.target.closest('.user-row');
+      const uid      = e.target.dataset.id;
+      const newRole  = e.target.value;
+      const prevRole = e.target.getAttribute('data-prev') || '';
+
+      // захист: не демотимо себе
+      if (currentUser && uid === currentUser.uid && newRole !== 'admin') {
+        alert('Не можна знімати з себе роль admin.');
+        e.target.value = 'admin';
         return;
       }
 
-      helloEl.textContent = 'Увійшли як ' + (u.email || u.uid);
-      btnLogout.style.display = '';
+      // Візуально заблокуємо/розблокуємо чекбокси хабів під нову роль
+      applyRoleHubLock(row, newRole);
 
-      let role = 'pending';
-	  try { role = (await resolveUserRole(u.uid)).trim().toLowerCase(); } catch(e){ console.error(e); }
-	  if (role !== 'admin') {
-	  statusEl.textContent = '⛔ Доступ заборонено (потрібна роль admin)';
-	  document.documentElement.style.visibility = 'visible';
-	  setTimeout(()=>location.replace('/'), 1200);   // м’який редірект на головну
-	  return;
-	  }
+      e.target.disabled = true;
+      statusEl.textContent = `Оновлення ролі користувача ${uid} → ${newRole}…`;
 
-      statusEl.textContent = '✅ Ви увійшли як адмін';
-      document.documentElement.style.visibility = 'visible';
-
-      // Завантаження користувачів (live)
-      loadUsers();
-    });
-
-    // ===== Рендер одного юзера
-    function userRowHTML(id, user){
-      const name = user.displayName || user.email || id;
-      const email = user.email ? ` • ${user.email}` : '';
-      const role = user.role || 'pending';
-      const created = user.createdAt || user.created_at || '';
-
-      return `
-        <div class="user-row" data-uid="${id}">
-          <div>
-            <b>${escapeHtml(name)}</b>
-            <span class="user-meta">(${escapeHtml(role)})${email ? ' • ' + escapeHtml(email) : ''}${created ? ' • створено: ' + escapeHtml(created) : ''}</span>
-          </div>
-          <div class="row-actions">
-            <label>Роль:
-              <select data-id="${id}" data-prev="${role}">
-                <option value="pending" ${role==="pending"?"selected":""}>Очікує</option>
-                <option value="user" ${role==="user"?"selected":""}>User</option>
-                <option value="logist" ${role==="logist"?"selected":""}>Logist</option>
-                <option value="security" ${role==="security"?"selected":""}>Security</option>
-                <option value="admin" ${role==="admin"?"selected":""}>Admin</option>
-              </select>
-            </label>
-          </div>
-        </div>
-      `;
-    }
-
-    function escapeHtml(s){
-      return String(s ?? '')
-        .replace(/&/g,'&amp;').replace(/</g,'&lt;')
-        .replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
-    }
-
-    // ===== Підписка на колекцію users
-    function loadUsers(){
-      try { if (unsubscribeUsers) { unsubscribeUsers(); unsubscribeUsers = null; } } catch {}
-      unsubscribeUsers = db.collection('users')
-        .orderBy('role')  // просте впорядкування; за потреби зміни
-        .onSnapshot((snap) => {
-          listEl.innerHTML = '';
-          snap.forEach((doc) => {
-            const user = doc.data() || {};
-            listEl.insertAdjacentHTML('beforeend', userRowHTML(doc.id, user));
-          });
-
-          // навішуємо обробники
-          bindRoleChangeHandlers();
-        }, (err) => {
-          console.error('onSnapshot(users) error:', err);
-          statusEl.textContent = 'Помилка завантаження користувачів: ' + (err.message || err);
-        });
-    }
-
-    // ===== Обробка зміни ролі (захист від самодемотування, аудит)
-    function bindRoleChangeHandlers(){
-      document.querySelectorAll('#user-list select').forEach((sel) => {
-        sel.addEventListener('change', async (e) => {
-          const uid = e.target.dataset.id;
-          const newRole = e.target.value;
-          const prevRole = e.target.getAttribute('data-prev') || '';
-
-          // захист: не дозволяємо собі знімати admin
-          if (currentUser && uid === currentUser.uid && newRole !== 'admin') {
-            alert('Не можна знімати з себе роль admin.');
-            e.target.value = 'admin';
-            return;
-          }
-
-          e.target.disabled = true;
-          statusEl.textContent = `Оновлення ролі користувача ${uid} → ${newRole}…`;
-
-          try {
-            // батч: оновити users/{uid} і додати запис в audit
-            const batch = db.batch();
-            const uref = db.collection('users').doc(uid);
-            batch.set(uref, {
-              role: newRole,
-              roleUpdatedAt: new Date().toISOString(),
-              roleUpdatedBy: currentUser ? currentUser.uid : null
-            }, { merge: true });
-
-            const auditRef = db.collection('audit').doc();
-            batch.set(auditRef, {
-              type: 'role_change',
-              targetUid: uid,
-              newRole,
-              prevRole,
-              by: currentUser ? currentUser.uid : null,
-              at: new Date().toISOString()
-            });
-
-            await batch.commit();
-
-            // зберігаємо як попереднє значення
-            e.target.setAttribute('data-prev', newRole);
-            statusEl.textContent = `✅ Роль оновлено: ${uid} → ${newRole}`;
-          } catch (err) {
-            console.error(err);
-            alert('Помилка збереження ролі: ' + (err.message || err));
-            // відкотити візуально
-            e.target.value = prevRole || 'pending';
-            statusEl.textContent = '❌ Не вдалося оновити роль.';
-          } finally {
-            e.target.disabled = false;
-          }
-        });
-      });
-    }
-
-    // Безпека: якщо раптом сталася глобальна помилка — покажемо її замість порожньої сторінки
-    window.addEventListener('error', (e) => {
       try {
-        document.documentElement.style.visibility = 'visible';
-        statusEl.textContent = 'Помилка скрипта: ' + (e.message || '');
-      } catch {}
+        const batch = db.batch();
+        const uref  = db.collection('users').doc(uid);
+
+        // 1) оновлюємо роль
+        batch.set(uref, {
+          role: newRole,
+          roleUpdatedAt: new Date().toISOString(),
+          roleUpdatedBy: currentUser ? currentUser.uid : null
+        }, { merge: true });
+
+        // 2) якщо admin/security — одразу ставимо allowedHubs=['*']
+        if (newRole === 'admin' || newRole === 'security') {
+          batch.set(uref, { allowedHubs: ['*'] }, { merge: true });
+        }
+
+        // аудит
+        const auditRef = db.collection('audit').doc();
+        batch.set(auditRef, {
+          type: 'role_change',
+          targetUid: uid,
+          newRole,
+          prevRole,
+          by: currentUser ? currentUser.uid : null,
+          at: new Date().toISOString()
+        });
+
+        await batch.commit();
+
+        e.target.setAttribute('data-prev', newRole);
+        statusEl.textContent = `✅ Роль оновлено: ${uid} → ${newRole}`;
+      } catch (err) {
+        console.error(err);
+        alert('Помилка збереження ролі: ' + (err.message || err));
+        // відкотити візуально
+        e.target.value = prevRole || 'pending';
+        applyRoleHubLock(row, e.target.value);
+        statusEl.textContent = '❌ Не вдалося оновити роль.';
+      } finally {
+        e.target.disabled = false;
+      }
     });
+  });
+}
+
+/* ================= Доступи до хабів ================= */
+// блокуємо/розблокуємо чекбокси хабів залежно від ролі або перемикача "всі хаби"
+function applyRoleHubLock(row, roleNow){
+  const star     = row.querySelector('.hub-all');
+  const hubBoxes = row.querySelectorAll('.hub-chk');
+
+  const forceAll = (roleNow === 'admin' || roleNow === 'security');
+  if (forceAll && star) star.checked = true;
+
+  const all = (star?.checked) || forceAll;
+
+  hubBoxes.forEach(chk => {
+    chk.disabled = all;
+    if (all) chk.checked = true; // для ясності інтерфейсу
+  });
+}
+
+// збір allowedHubs із рядка користувача
+function buildAllowedHubsFromRow(row){
+  const role = row.querySelector('.role-select')?.value || 'pending';
+  const star = row.querySelector('.hub-all')?.checked;
+
+  if (role === 'admin' || role === 'security' || star) return ['*'];
+
+  const hubs = Array.from(row.querySelectorAll('.hub-chk'))
+    .filter(ch => ch.checked)
+    .map(ch => ch.getAttribute('data-hub'));
+
+  return hubs;
+}
+
+// прив'язка логіки до чекбоксів/кнопки збереження
+function bindHubHandlers(){
+  document.querySelectorAll('#user-list .user-row').forEach(row => {
+    const roleSel   = row.querySelector('.role-select');
+    const star      = row.querySelector('.hub-all');
+    const saveBtn   = row.querySelector('.save-hubs');
+
+    // первинне блокування за поточною роллю
+    applyRoleHubLock(row, roleSel.value);
+
+    // клік по "всі хаби" — лише блокує/розблокує
+    star?.addEventListener('change', () => applyRoleHubLock(row, roleSel.value));
+
+    // збереження allowedHubs
+    saveBtn?.addEventListener('click', async () => {
+      const uid  = row.dataset.uid;
+      const hubs = buildAllowedHubsFromRow(row);
+
+      try{
+        saveBtn.disabled = true;
+        saveBtn.textContent = 'Збереження…';
+
+        const batch = db.batch();
+        const uref  = db.collection('users').doc(uid);
+        batch.set(uref, { allowedHubs: hubs }, { merge: true });
+
+        // невеликий аудит (необов’язково, але корисно)
+        const auditRef = db.collection('audit').doc();
+        batch.set(auditRef, {
+          type: 'hubs_change',
+          targetUid: uid,
+          allowedHubs: hubs,
+          by: currentUser ? currentUser.uid : null,
+          at: new Date().toISOString()
+        });
+
+        await batch.commit();
+
+        saveBtn.textContent = '✅ Збережено';
+        setTimeout(()=> saveBtn.textContent = '💾 Зберегти доступ до хабів', 1200);
+      }catch(e){
+        console.error(e);
+        alert('Не вдалося зберегти доступи: ' + (e?.message || e));
+        saveBtn.textContent = '💾 Зберегти доступ до хабів';
+      }finally{
+        saveBtn.disabled = false;
+      }
+    });
+  });
+}
+
+/* ================= Глобальна помилка ================= */
+window.addEventListener('error', (e) => {
+  try {
+    document.documentElement.style.visibility = 'visible';
+    statusEl.textContent = 'Помилка скрипта: ' + (e.message || '');
+  } catch {}
+});
   </script>
 </body>
 </html>
