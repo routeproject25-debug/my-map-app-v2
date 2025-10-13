@@ -264,26 +264,34 @@
 
   // 👉 Уніфікатор доступу до хабів з users/{uid}
   function readHubsFromUserDoc(d){
-    if (!d || typeof d !== 'object') return { hubs: [], all: false };
+  if (!d || typeof d !== 'object') return { hubs: [], all: false };
 
-    let hubs = [];
+  let hubs = [];
 
-    // Поширені варіанти збереження
-    if (Array.isArray(d.hubs)) hubs = d.hubs;
-    else if (Array.isArray(d.hubIds)) hubs = d.hubIds;
-    else if (Array.isArray(d.hubCodes)) hubs = d.hubCodes;
-    else if (d.hubs && typeof d.hubs === 'object') hubs = Object.keys(d.hubs).filter(k => !!d.hubs[k]);
-    else if (d.access && Array.isArray(d.access.hubs)) hubs = d.access.hubs;
-    else if (typeof d.hub === 'string') hubs = [d.hub];
-    else if (d.hub && typeof d.hub === 'object') hubs = [d.hub.code || d.hub.id || d.hub.name || d.hub.title || ''];
+  // масиви/рядки/мапи з хабами
+  if (Array.isArray(d.hubs)) hubs = d.hubs;
+  else if (Array.isArray(d.hubIds)) hubs = d.hubIds;
+  else if (Array.isArray(d.hubCodes)) hubs = d.hubCodes;
+  else if (Array.isArray(d.allowedHubs)) hubs = d.allowedHubs;            // ✅ ваше поле
+  else if (d.hubs && typeof d.hubs === 'object') hubs = Object.keys(d.hubs).filter(k => !!d.hubs[k]);
+  else if (d.access && Array.isArray(d.access.hubs)) hubs = d.access.hubs;
+  else if (d.access && Array.isArray(d.access.allowedHubs)) hubs = d.access.allowedHubs; // ✅ теж підхопимо
+  else if (typeof d.hub === 'string') hubs = [d.hub];
+  else if (d.hub && typeof d.hub === 'object') hubs = [d.hub.code || d.hub.id || d.hub.name || d.hub.title || ''];
 
-    hubs = Array.from(new Set(hubs.map(x => String(x || '').trim()).filter(Boolean)));
+  hubs = (hubs || []).map(x => String(x || '').trim()).filter(Boolean);
 
-    const all =
-      !!(d.allHubs || d.allowAllHubs || d.hubsAll || (d.access && d.access.allHubs));
+  // підтримка «всі хаби» через зірочку
+  const hasStar = hubs.includes('*');
+  hubs = Array.from(new Set(hubs.filter(v => v !== '*')));
 
-    return { hubs, all };
-  }
+  const all = hasStar || !!(
+    d.allHubs || d.allowAllHubs || d.hubsAll ||
+    (d.access && (d.access.allHubs || d.access.allowAllHubs))
+  );
+
+  return { hubs, all };
+}
 
   window.addEventListener('beforeunload', () => { try { window.__roleUnsub?.(); } catch(_) {} });
 
