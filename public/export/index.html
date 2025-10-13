@@ -658,14 +658,6 @@ auth?.onAuthStateChanged(async (u) => {
   catch (e) { console.warn(e); }
 });
 
-  syncRoleAndRerender();
-  setTimeout(syncRoleAndRerender, 100); // якщо guard допише роль із затримкою
-  // ⬆⬆⬆ ВСТАВ СЮДИ ⬆⬆⬆
-
-  try { await Promise.all([loadDirectory(), loadLogists(true)]); }
-  catch (e) { console.warn(e); }
-});
-
 /* ---------- Довідник ---------- */
 const dirByCode = {}, codeByName = {}; const unitsSet = new Set();
 const DIR_CACHE_KEY = 'export.directoryCache.v1';
