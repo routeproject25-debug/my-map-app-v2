@@ -223,8 +223,15 @@
   flex: 1 1 auto;          /* рівні ширини, якщо хочеш */
 }
 #panel-create .segment .btn.active::after{
-  content:"•";
-  margin-left:.4rem;
+  content: "";                 /* прибираємо текстову крапку */
+  display: inline-block;       /* зробимо елементом, щоб задати розміри */
+  width: 8px;                  /* маленький кружечок */
+  height: 8px;
+  margin-left: .35rem;         /* відступ від тексту кнопки */
+  border-radius: 50%;          /* коло */
+  background: #22c55e;         /* зелений */
+  border: 1px solid rgba(0,0,0,.25); /* тонка обводка, щоб було чітко видно */
+  vertical-align: middle;
 }
 
   </style>
