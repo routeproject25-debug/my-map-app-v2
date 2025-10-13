@@ -1485,6 +1485,66 @@ try {
 } catch (e) {
   console.error('❌ Firebase не ініціалізовано:', e);
 }
+// ===== HUB ACCESS (глобально) =====
+
+let ALLOWED_HUBS = null;   // null або [] => ВСІ хаби
+
+function isAllHubs(){
+  // null або порожній масив означає "всі хаби дозволені"
+  return !Array.isArray(ALLOWED_HUBS) || ALLOWED_HUBS.length === 0;
+}
+
+function userAllowsHub(h){
+  if (!h) return isAllHubs();
+  return isAllHubs() || ALLOWED_HUBS.includes(h);
+}
+
+async function getAllowedHubsForUser(uid, role){
+  try{
+    // адміни/СБ — бачать всі
+    if (String(role).toLowerCase() === 'admin' || String(role).toLowerCase() === 'security') return [];
+    const snap = await db.collection('users').doc(uid).get({ source: 'server' });
+    const d = snap.exists ? (snap.data() || {}) : {};
+    if (Array.isArray(d.allowedHubs) && d.allowedHubs.length) return d.allowedHubs.slice(0, 10);
+    if (Array.isArray(d.hubs) && d.hubs.length)               return d.hubs.slice(0, 10);
+    if (typeof d.hub === 'string' && d.hub.trim())            return [d.hub.trim()];
+    if (typeof d.hubAccess === 'string' && d.hubAccess.trim())return [d.hubAccess.trim()];
+    return []; // дефолт — всі
+  }catch(e){
+    console.warn('getAllowedHubsForUser:', e?.message||e);
+    return [];
+  }
+}
+
+// Сховати опції в селекті "Хаб", які не входять у доступ
+function applyHubSelectVisibility(){
+  const sel = document.getElementById('hubSelect');
+  if (!sel) return;
+
+  [...sel.options].forEach(opt => {
+    if (!opt.value) return; // “— не вказано —”
+    const ok = userAllowsHub(opt.value);
+    opt.hidden   = !ok;
+    opt.disabled = !ok;
+  });
+
+  if (!userAllowsHub(sel.value)){
+    const firstAllowed = [...sel.options].find(o => o.value && userAllowsHub(o.value));
+    sel.value = firstAllowed ? firstAllowed.value : '';
+  }
+
+  const exactlyOne = Array.isArray(ALLOWED_HUBS) && ALLOWED_HUBS.length === 1;
+  const roleNow = (window.__userRole || currentRole || '').toLowerCase();
+  const canLock = !(roleNow === 'admin' || roleNow === 'security');
+  sel.disabled = exactlyOne && canLock;
+}
+
+// Обгортач Firestore-запиту фільтром по хабу
+function withHubFilter(q, field = 'hub'){
+  if (isAllHubs()) return q;
+  if (ALLOWED_HUBS.length === 1) return q.where(field, '==', ALLOWED_HUBS[0]);
+  return q.where(field, 'in', ALLOWED_HUBS.slice(0, 10)); // Firestore in: до 10 значень
+}
 
 /* ===================== Directory / helpers / UI ===================== */
 const dirByCode = {};
@@ -1493,7 +1553,11 @@ const routesLookup = {};
 const logistById = {};
 const logistIdByName = {};
 
-const DIR_CACHE_KEY = 'directoryCache.v2';
+const DIR_CACHE_KEY_BASE = 'directoryCache.v2';
+function dirCacheKey(){
+  return isAllHubs() ? (DIR_CACHE_KEY_BASE + ':ALL')
+                     : (DIR_CACHE_KEY_BASE + ':' + ALLOWED_HUBS.slice().sort().join('|'));
+}
 const DIR_CACHE_TTL_MS = 12 * 60 * 60 * 1000;
 // 👇 ДОДАЙ ЦЕ ТУТ
 const DIR_NAME_FIELD = 'nameLower'; // якщо поля немає — тимчасово постав 'name'
@@ -1551,7 +1615,7 @@ function registerDirEntry(code, labelOrName){
 async function loadDirectory(force = false){
   try{
     if (!force){
-      const raw = localStorage.getItem(DIR_CACHE_KEY);
+      const raw = localStorage.getItem(dirCacheKey());
       if (raw){
         const { ts, rows } = JSON.parse(raw);
         if (Array.isArray(rows) && Date.now() - ts < DIR_CACHE_TTL_MS){
@@ -1569,7 +1633,9 @@ async function loadDirectory(force = false){
   }catch{}
 
   // force=true: тягнемо повністю з сервера (кнопка "Оновити довідник")
-  const snap = await db.collection('directory').get({ source:'default' });
+  let q = db.collection('directory');
+q = withHubFilter(q, 'hub');
+const snap = await q.get({ source:'default' });
   const rows = [];
   snap.forEach(doc => {
     const d = doc.data() || {};
@@ -1578,7 +1644,7 @@ async function loadDirectory(force = false){
 
   fillDirectoryUI(rows);
   updateRouteName();
-  try{ localStorage.setItem(DIR_CACHE_KEY, JSON.stringify({ ts: Date.now(), rows })); }catch{}
+  try{ localStorage.setItem(dirCacheKey(), JSON.stringify({ ts: Date.now(), rows })); }catch{}
   console.log('📒 Directory loaded from Firestore (force):', rows.length);
 }
 
@@ -1615,11 +1681,12 @@ async function queryDirectoryPrefix(prefix, limit = 20){
 
     // 1) звичний префікс по nameLower (швидко й дешево)
     try{
-      const q1 = db.collection('directory')
+      let q1 = db.collection('directory')
         .orderBy('nameLower')
         .startAt(pLower)
         .endBefore(pLower + '\uf8ff')
         .limit(limit);
+        q1 = withHubFilter(q1, 'hub');  // 👈 додали
 
       const s1 = await q1.get({ source:'default' });
       s1.forEach(doc => {
@@ -1637,36 +1704,37 @@ async function queryDirectoryPrefix(prefix, limit = 20){
     } catch(_) { /* ігноруємо, підемо на fallback */ }
 
     // 2) якщо мало результатів — fallback: "містить" через nameNgrams
-    if (accRows.length < limit && pLower.length >= 3){
-      const grams = trigrams(pLower);
-      if (grams.length){
-        const q2 = db.collection('directory')
-          .where('nameNgrams', 'array-contains-any', grams)
-          .limit(limit);
-
-        const s2 = await q2.get({ source:'default' });
-        s2.forEach(doc => {
-          if (accRows.length >= limit) return;
-          if (seen.has(doc.id)) return;
-          const d = doc.data() || {};
-          accRows.push({
-            code: doc.id,
-            name: d.name || doc.id,
-            company: d.company || '',
-            unit: d.unit || ''
-          });
-          seen.add(doc.id);
+if (accRows.length < limit && pLower.length >= 3){
+  const grams = trigrams(pLower);
+  if (grams.length){
+    const hubsForLoop = isAllHubs() ? [null] : ALLOWED_HUBS.slice(0, 10);
+    for (const h of hubsForLoop){
+      let q2 = db.collection('directory')
+        .where('nameNgrams', 'array-contains-any', grams)
+        .limit(limit);
+      if (h) q2 = q2.where('hub','==', h);  // 👈 уникаємо IN + array-contains-any
+      const s2 = await q2.get({ source:'default' });
+      s2.forEach(doc => {
+        if (accRows.length >= limit) return;
+        if (seen.has(doc.id)) return;
+        const d = doc.data() || {};
+        accRows.push({
+          code: doc.id,
+          name: d.name || doc.id,
+          company: d.company || '',
+          unit: d.unit || ''
         });
-
-        // 2.1) підсортуємо знайдене: де входження ближче до початку — вище
-        const score = (row) => {
-          const n = (row.name || '').toLowerCase();
-          const pos = n.indexOf(pLower);
-          return (pos === -1 ? 1e6 : pos) * 1000 + n.length; // менше — краще
-        };
-        accRows.sort((a,b) => score(a) - score(b));
-      }
+        seen.add(doc.id);
+      });
     }
+    const score = (row) => {
+      const n = (row.name || '').toLowerCase();
+      const pos = n.indexOf(pLower);
+      return (pos === -1 ? 1e6 : pos) * 1000 + n.length;
+    };
+    accRows.sort((a,b) => score(a) - score(b));
+  }
+}
 
     _resetDatalistOptions('directoryList');
     _appendDatalistOptions(accRows.slice(0, limit), 'directoryList');
@@ -2002,6 +2070,14 @@ async function saveToDB() {
     const purpose   = document.getElementById('routePurpose').value;
     const intermediateText = document.getElementById('intermediateText').value.trim();
 	const hub = (document.getElementById('hubSelect').value || '').trim();
+  if (!hub && !isAllHubs()) {
+  alert('Оберіть хаб (обовʼязково).');
+  return;
+}
+if (!userAllowsHub(hub)) {
+  alert('⛔ Ви не маєте права зберігати маршрути для хабу: ' + hub);
+  return;
+}
     const logistId = getLogistIdByInput('logistInput');
     if (!fromCode || !toCode) { alert('Оберіть значення “Від” та “До” зі списку довідника.'); return; }
     if (!logistId) { alert('Оберіть логіста зі списку.'); return; }
@@ -2232,7 +2308,9 @@ async function refreshRoutesList(mode='reset'){
   if (routesDone){ isRefreshingRoutes = false; return; }
 
   const pageSize = 100; // скільки підтягувати за раз
-  let q = db.collection('routes').orderBy('updatedAt','desc').limit(pageSize);
+  let q = db.collection('routes');
+q = withHubFilter(q, 'hub');
+q = q.orderBy('updatedAt','desc').limit(pageSize);
   if (routesPageLastDoc) q = q.startAfter(routesPageLastDoc);
 
   try{
@@ -2276,6 +2354,10 @@ async function loadFromDB() {
     const docSnap = await docRef.get();
     if (!docSnap.exists) { alert('Маршрут не знайдено'); return; }
     const data = docSnap.data();
+    if (!userAllowsHub(data.hub || '')) {
+  alert('⛔ У вас немає доступу до хабу цього маршруту: ' + (data.hub || '—'));
+  return;
+}
 
     const fName = getNameByCode(data.fromCode) || parseNameFromLabel(data.fromLabel);
     const tName = getNameByCode(data.toCode)   || parseNameFromLabel(data.toLabel);
@@ -2445,7 +2527,7 @@ document.getElementById('clearForm').onclick = clearForm;
 /* Directory buttons */
 document.getElementById('refreshDirectory').onclick = () => loadDirectory(true);
 document.getElementById('clearDirCache').onclick = () => {
-  try { localStorage.removeItem(DIR_CACHE_KEY); } catch {}
+  try { localStorage.removeItem(dirCacheKey()); } catch {}
   loadDirectory(true);
 };
 
@@ -2512,6 +2594,7 @@ async function searchRoutes(q, mode='reset'){
     .startAt(routesSearchQ)
     .endBefore(routesSearchQ + '\uf8ff')
     .limit(limit);
+    qRef = withHubFilter(qRef, 'hub'); // 👈 додали
 
   if (mode === 'next' && routesSearchLastDoc) qRef = qRef.startAfter(routesSearchLastDoc);
 
@@ -2521,23 +2604,24 @@ async function searchRoutes(q, mode='reset'){
   routesSearchDone = s1.size < limit;
 
   // 2) Якщо перша сторінка «бідна» і це перший запит — спробуємо contains по тріграмам
-  if (mode === 'reset' && acc.length < limit){
-    const grams = trigrams(routesSearchQ); // до 10 штук
-    if (grams.length){
-      const s2 = await db.collection('routes')
+if (mode === 'reset' && acc.length < limit){
+  const grams = trigrams(routesSearchQ);
+  if (grams.length){
+    const hubsForLoop = isAllHubs() ? [null] : ALLOWED_HUBS.slice(0, 10);
+    for (const h of hubsForLoop){
+      let q2 = db.collection('routes')
         .where('nameNgrams', 'array-contains-any', grams)
-        .limit(limit)
-        .get({ source:'default' });
-
+        .limit(limit);
+      if (h) q2 = q2.where('hub','==', h);
+      const s2 = await q2.get({ source:'default' });
       s2.forEach(d => { if (!seen.has(d.id)) acc.push(d); });
     }
-
-    // трохи підсортуємо за «ближчістю» входження
     acc.sort((a, b) =>
       scoreByPosition((a.data().nameLower||''), routesSearchQ) -
       scoreByPosition((b.data().nameLower||''), routesSearchQ)
     );
   }
+}
 
   renderRoutesDocs(acc);
 }
@@ -2578,6 +2662,10 @@ async function loadRouteById(rid) {
     const snap = await db.collection('routes').doc(rid).get();
     if (!snap.exists) { alert('Маршрут з таким ID не знайдено: ' + rid); return; }
     const data = snap.data();
+    if (!userAllowsHub(data.hub || '')) {
+  alert('⛔ У вас немає доступу до хабу цього маршруту: ' + (data.hub || '—'));
+  return;
+}
     document.getElementById('fromName').value = getNameByCode(data.fromCode) || parseNameFromLabel(data.fromLabel) || '';
     document.getElementById('toName').value   = getNameByCode(data.toCode)   || parseNameFromLabel(data.toLabel)   || '';
     document.getElementById('routeType').value = data.routeType || 'Основний';
@@ -2839,6 +2927,20 @@ if (!['admin','logist','user'].includes(role)) {
 }
 // ✅ показуємо реальну роль, у т.ч. user (read-only)
 applyRoleUI(['admin','logist','user'].includes(role) ? role : 'guest');
+// ⬇️ підвантажуємо дозволені хаби для користувача
+try {
+  ALLOWED_HUBS = await getAllowedHubsForUser(user.uid, window.__userRole || role || 'user');
+} catch (_) {
+  ALLOWED_HUBS = [];
+}
+applyHubSelectVisibility();
+
+// Перечитати довідник під доступи (без force — спробує кеш)
+await loadDirectory(false);
+
+// Перезібрати список маршрутів під доступи
+routesInitLoaded = false;
+await refreshRoutesList('reset');
 
     // live-оновлення ролі (підписка на users/{uid})
     if (roleUnsub) try{ roleUnsub(); }catch{}
