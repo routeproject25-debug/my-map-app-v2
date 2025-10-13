@@ -233,6 +233,10 @@
   border: 1px solid rgba(0,0,0,.25); /* тонка обводка, щоб було чітко видно */
   vertical-align: middle;
 }
+/* опційно: різні кольори індикатора для кожної кнопки */
+#toggleAdd.active::after     { background:#22c55e; } /* Маршрут – зелений */
+#startLineMode.active::after { background:#2563eb; } /* Лінійка(поч.) – синій */
+#endLineMode.active::after   { background:#f59e0b; } /* Лінійка(кін.) – помаранчевий */
 
   </style>
 </head>
