@@ -268,6 +268,15 @@ try { firebase.apps?.length ? firebase.app() : firebase.initializeApp(CFG); } ca
     }
   }
 
+  function normalizeHub(h, d) {
+    // d — увесь users/{uid}
+    if (typeof h === 'string') return h;
+    if (h && typeof h === 'object') return h.code || h.id || h.name || h.title || '';
+    if (d && typeof d.hubId === 'string')   return d.hubId;
+    if (d && typeof d.hubCode === 'string') return d.hubCode;
+    return '';
+  }
+
   // при виході/перезавантаженні — відписатися від live-ролі
   window.addEventListener('beforeunload', () => { try { window.__roleUnsub?.(); } catch(_) {} });
 
@@ -275,9 +284,15 @@ try { firebase.apps?.length ? firebase.app() : firebase.initializeApp(CFG); } ca
     if (!u) { location.replace(loginURL); return; }
 
     try {
-      // ✅ ролі — лише з сервера, щоб не було "залипання" кешу
-      const snap = await db.collection('users').doc(u.uid).get({ source: 'server' });
-      const role = snap.exists ? (snap.data().role || 'pending') : 'pending';
+          const snap = await db.collection('users').doc(u.uid).get({ source: 'server' });
+    const role = snap.exists ? (snap.data().role || 'pending') : 'pending';
+    const hub  = snap.exists ? normalizeHub(snap.data().hub, snap.data()) : '';
+
+    // зробимо і роль, і хаб доступними нижнім скриптам
+    window.__userRole = role;
+    window.__userHub  = hub;
+
+    setRoleBadge(role);
 
       // зробимо роль доступною нижнім скриптам
       window.__userRole = role;
@@ -297,14 +312,17 @@ try { firebase.apps?.length ? firebase.app() : firebase.initializeApp(CFG); } ca
       try {
         window.__roleUnsub?.();
         window.__roleUnsub = db.collection('users').doc(u.uid).onSnapshot((ds) => {
-          const r = ds.exists ? (ds.data().role || 'pending') : 'pending';
-          window.__userRole = r;
-          setRoleBadge(r);
-          if (r === 'pending' || !['admin','logist','user','security'].includes(r)) {
-  alert('Доступ відкликано або роль змінено. Потрібен повторний вхід.');
-  location.replace(loginURL);
-}
-        });
+  const r = ds.exists ? (ds.data().role || 'pending') : 'pending';
+  const h = ds.exists ? normalizeHub(ds.data().hub, ds.data()) : '';
+  window.__userRole = r;
+  window.__userHub  = h;
+  setRoleBadge(r);
+  if (r === 'pending' || !['admin','logist','user','security'].includes(r)) {
+    alert('Доступ відкликано або роль змінено. Потрібен повторний вхід.');
+    location.replace(loginURL);
+  }
+});
+
       } catch (_) {}
 
       // все добре — показуємо DOM
@@ -547,6 +565,7 @@ const statusEl = document.getElementById('status');
 let db = null, auth = null;
 let currentUser = null;
 let currentRole = null;
+let currentHub  = null; // <— додали
 
 try {
   // Додаток уже ініціалізовано guard-скриптом вище
@@ -603,6 +622,7 @@ auth?.onAuthStateChanged(async (u) => {
 
   // роль уже перевірив верхній AUTH GUARD
   currentRole = window.__userRole || 'pending';
+  currentHub  = window.__userHub  || null;
 
   authInfo.textContent = `Увійшли як ${u.email || u.uid}`;
   btnLogout.style.display = '';
@@ -612,13 +632,18 @@ auth?.onAuthStateChanged(async (u) => {
   
   // ⬇⬇⬇ ВСТАВ СЮДИ ⬇⬇⬇
   const syncRoleAndRerender = () => {
-    const r = String(window.__userRole || '').toLowerCase();
-    if (r && r !== currentRole) {
-      currentRole = r;
-      // оновлюємо бейдж і перемальовуємо таблицю (щоб з’явився лінк “Погодити”)
-      try { authRoleBadge.textContent = `Роль: ${currentRole}`; reRender(); } catch(_) {}
-    }
-  };
+  const r = String(window.__userRole || '').toLowerCase();
+  if (r && r !== currentRole) {
+    currentRole = r;
+    try { authRoleBadge.textContent = `Роль: ${currentRole}`; } catch(_) {}
+  }
+  const h = window.__userHub || null;
+  if (h !== currentHub) {
+    currentHub = h;
+  }
+  // якщо щось змінилось — перемалюємо
+  try { reRender(); } catch(_) {}
+};
   syncRoleAndRerender();
   setTimeout(syncRoleAndRerender, 100); // якщо guard допише роль із затримкою
   // ⬆⬆⬆ ВСТАВ СЮДИ ⬆⬆⬆
@@ -1058,6 +1083,16 @@ function computeApprovalStatus(d){
 function buildBaseQuery(){
   if (!db || !currentUser) throw new Error('Необхідно увійти');
   let q = db.collection('routes');
+    // 🔒 обмеження за ХАБ для ролі logist
+  const roleNow = String(window.__userRole ?? currentRole ?? '').toLowerCase();
+  if (roleNow === 'logist') {
+    const hub = window.__userHub || currentHub || '';
+    if (!hub) {
+      // Якщо логістові не призначили хаб — пояснюємо чому порожньо
+      throw new Error('Вашій ролі не призначено ХАБ. Зверніться до адміністратора.');
+    }
+    q = q.where('hub', '==', hub);
+  }
 
   const fromCode = getCodeByNameInput('fromName');
   const toCode   = getCodeByNameInput('toName');
