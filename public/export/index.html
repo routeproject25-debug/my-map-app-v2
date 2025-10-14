@@ -295,6 +295,7 @@
 
   window.addEventListener('beforeunload', () => { try { window.__roleUnsub?.(); } catch(_) {} });
 
+
   auth.onAuthStateChanged(async (u) => {
     if (!u) { location.replace(loginURL); return; }
 
@@ -1093,6 +1094,40 @@ let _hasMore = false;
 let allRows = [];
 let FORCE_SERVER = false;
 
+/* === LIVE оновлення (onSnapshot) === */
+let _liveUnsub = null;     // актуальна відписка
+let _liveLimit = PAGE_SIZE;
+let _liveEnabled = false;
+
+function stopLive(){
+  try { _liveUnsub && _liveUnsub(); } catch(_) {}
+  _liveUnsub = null;
+  _liveEnabled = false;
+}
+
+function startLive(limit){
+  if (!_baseQuery) return;
+  _liveLimit = Math.max(1, limit || PAGE_SIZE);
+  stopLive();
+  _liveEnabled = true;
+
+  // слухаємо той самий "базовий" запит з поточним лімітом
+  const q = _baseQuery.limit(_liveLimit);
+  _liveUnsub = q.onSnapshot(
+    (snap) => {
+      const { rows, lastDoc } = parseSnap(snap);
+      allRows = rows;
+      _cursor = lastDoc;
+      _hasMore = snap.size === _liveLimit;   // якщо дорівнює ліміту — є що догружати
+      reRender();                             // перемальовуємо таблицю
+    },
+    (e) => {
+      console.error('Live listener error:', e);
+      statusEl.textContent = 'Помилка live-оновлення';
+    }
+  );
+}
+
 /* ---------- Сортування ---------- */
 const sortState = { key: 'updatedAtRaw', dir: -1 };
 
@@ -1224,7 +1259,10 @@ function parseSnap(snap){
 async function loadFirstPage(forceServer=false){
   FORCE_SERVER = !!forceServer;
   _baseQuery = buildBaseQuery();
+
+  stopLive();                 // ← додано: зупиняємо попередню підписку
   _cursor = null; _hasMore = false; allRows = [];
+
   let snap = null;
   try { snap = await _baseQuery.limit(PAGE_SIZE).get({source: FORCE_SERVER ? 'server' : 'default'}); }
   catch(e){
@@ -1236,10 +1274,19 @@ async function loadFirstPage(forceServer=false){
   allRows = rows;
   _cursor = lastDoc;
   _hasMore = !!lastDoc && snap.size === PAGE_SIZE;
+
+  startLive(PAGE_SIZE);       // ← додано: відтепер всі зміни летять у таблицю в реальному часі
   return rows;
 }
 
 async function loadNextPage(){
+  if (_liveEnabled){
+    _liveLimit += PAGE_SIZE;   // збільшуємо вікно підписки
+    startLive(_liveLimit);     // перезапускаємо слухач з більшим лімітом
+    return [];
+  }
+
+  // ↓ старий режим (якщо live вимкнений — лишаємо як фолбек)
   if (!_baseQuery || !_cursor) return [];
   let snap = null;
   try { snap = await _baseQuery.startAfter(_cursor).limit(PAGE_SIZE).get({source: FORCE_SERVER ? 'server' : 'default'}); }
@@ -1751,10 +1798,17 @@ btnMore.addEventListener('click', async ()=>{
 btnAll.addEventListener('click', async ()=>{
   try{
     setBusy(true);
-    const MAX_ROWS = 50000; // запобіжник
-    while(_hasMore && allRows.length < MAX_ROWS){ await loadNextPage(); }
-    reRender();
-    if (_hasMore) alert(`Досягнуто ліміт ${MAX_ROWS.toLocaleString()} рядків. Звузьте фільтри або експортуйте частинами.`);
+    const MAX_ROWS = 50000; // ваш запобіжник
+
+    if (_liveEnabled){
+      _liveLimit = MAX_ROWS;   // слухаємо максимум
+      startLive(_liveLimit);
+      // reRender() викличеться з onSnapshot → нічого більше не треба
+    } else {
+      while(_hasMore && allRows.length < MAX_ROWS){ await loadNextPage(); }
+      reRender();
+      if (_hasMore) alert(`Досягнуто ліміт ${MAX_ROWS.toLocaleString()} рядків. Звузьте фільтри або експортуйте частинами.`);
+    }
   }catch(e){ handleFirestoreError(e); }
   finally{ setBusy(false); }
 });
@@ -1797,6 +1851,33 @@ btnClearFilters.addEventListener('click', ()=>{
   document.querySelectorAll('#resTable thead .filters input, #resTable thead .filters select')
     .forEach(el=>{ el.value=''; });
   reRender();
+});
+// (7) Автоперебудова базового Firestore-запиту при зміні верхніх фільтрів
+const restartQuery = debounce(async () => {
+  try {
+    setBusy(true);
+    await loadFirstPage(true);  // перебудує _baseQuery і перезапустить startLive(...)
+    reRender();
+  } catch (e) {
+    handleFirestoreError(e);
+  } finally {
+    setBusy(false);
+  }
+}, 300);
+
+// Слухаємо поля, які впливають на сам запит до Firestore:
+[
+  'fromName',      // datalist + текст — краще 'input' для живої реакції
+  'toName',        // datalist + текст — краще 'input'
+  'routeType',     // select
+  'dateFrom',      // date
+  'dateTo',        // date
+  'logistFilter'   // datalist + текст — краще 'input'
+].forEach((id) => {
+  const el = document.getElementById(id);
+  if (!el) return;
+  const evt = (id === 'fromName' || id === 'toName' || id === 'logistFilter') ? 'input' : 'change';
+  el.addEventListener(evt, restartQuery);
 });
 
 /* Делегування кліків: Поділитися + Копіювати ID/Код */
@@ -2102,6 +2183,10 @@ applyFiltersState();
 document.getElementById('btnToggleFilters')?.addEventListener('click', () => {
   const hidden = FILTERS.classList.toggle('is-hidden');
   localStorage.setItem(FILTERS_STATE_KEY, hidden ? '1' : '0');
+});
+// (6) Чисте вимкнення live-підписки при виході/перезавантаженні сторінки
+window.addEventListener('beforeunload', () => {
+  try { stopLive(); } catch (_) {}
 });
 
 </script>
