@@ -1632,10 +1632,16 @@ let visibleCols = new Set();
 function loadVisibleCols(){
   try{
     const raw = localStorage.getItem(VCOL_KEY);
-    if (raw){
+    if (raw != null) {
       const arr = JSON.parse(raw);
-      const ok = (arr||[]).filter(k=>COLS_ORDER.includes(k));
-      if (ok.length){ visibleCols = new Set(ok); return; }
+      if (Array.isArray(arr)) {
+        const ok = arr.filter(k => COLS_ORDER.includes(k));
+        // якщо користувач свідомо зберіг порожній список — лишаємо порожнім
+        if (arr.length === 0) { visibleCols = new Set(); return; }
+        // якщо в масиві були валідні ключі — використовуємо їх
+        if (ok.length > 0) { visibleCols = new Set(ok); return; }
+        // якщо в масиві були лише невалідні ключі — впадемо на дефолтні
+      }
     }
   }catch{}
   visibleCols = new Set(DEFAULT_VISIBLE);
