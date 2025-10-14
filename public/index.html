@@ -2161,32 +2161,38 @@ async function saveToDB() {
   try {
     if (!db) { alert('БД не ініціалізована'); return; }
     if (readOnly) { alert('⛔ Недостатньо прав'); return; }
-    if (points.length === 0 && startRuler.length === 0 && endRuler.length === 0) { alert('Немає що зберігати'); return; }
+    if (points.length === 0 && startRuler.length === 0 && endRuler.length === 0) {
+      alert('Немає що зберігати'); return;
+    }
 
     const fromCode = getCodeByInput('fromName');
     const toCode   = getCodeByInput('toName');
     const routeType = document.getElementById('routeType').value;
     const purpose   = document.getElementById('routePurpose').value;
     const intermediateText = document.getElementById('intermediateText').value.trim();
-	const hub = (document.getElementById('hubSelect').value || '').trim();
-  if (!hub && !isAllHubs()) {
-  alert('Оберіть хаб (обовʼязково).');
-  return;
-}
-if (!userAllowsHub(hub)) {
-  alert('⛔ Ви не маєте права зберігати маршрути для хабу: ' + hub);
-  return;
-}
+    const hub = (document.getElementById('hubSelect').value || '').trim();
+
+    if (!hub && !isAllHubs()) {
+      alert('Оберіть хаб (обовʼязково).'); return;
+    }
+    if (!userAllowsHub(hub)) {
+      alert('⛔ Ви не маєте права зберігати маршрути для хабу: ' + hub); return;
+    }
+
     const logistId = getLogistIdByInput('logistInput');
-    if (!fromCode || !toCode) { alert('Оберіть значення “Від” та “До” зі списку довідника.'); return; }
-    if (!logistId) { alert('Оберіть логіста зі списку.'); return; }
+    if (!fromCode || !toCode) {
+      alert('Оберіть значення “Від” та “До” зі списку довідника.'); return;
+    }
+    if (!logistId) {
+      alert('Оберіть логіста зі списку.'); return;
+    }
 
     const from = dirByCode[fromCode] || {};
-    const to   = dirByCode[toCode] || {};
+    const to   = dirByCode[toCode]   || {};
     const fromLabel = makeDirLabelByCode(fromCode);
     const toLabel   = makeDirLabelByCode(toCode);
-    const generatedName = `${fromLabel} → ${toLabel} [${routeType}${purpose ? ' • '+purpose : ''}]`;
 
+    const generatedName = `${fromLabel} → ${toLabel} [${routeType}${purpose ? ' • '+purpose : ''}]`;
     const manual = (document.getElementById('routeName').value || '').trim();
     const finalName = manual || generatedName;
 
@@ -2199,140 +2205,125 @@ if (!userAllowsHub(hub)) {
       points: toObjPoints(points),
       startRuler: toObjPoints(startRuler),
       endRuler: toObjPoints(endRuler),
-      logisticId: logistId,
+      logisticId,
       logisticName: getLogistNameById(logistId),
       createdByUid: user?.uid || null,
       createdByEmail: user?.email || null,
       distance_km: getUIKm(),
       updatedAt: new Date().toISOString(),
-	  hub: hub || null // 👈 додано
+      hub: hub || null
     };
 
+    // 🧠 ІНДЕКСНІ ПОЛЯ РАХУЄМО ОДИН РАЗ (поза транзакцією)
+    const searchText = [finalName, fromLabel, toLabel].filter(Boolean).join(' | ');
+    const indexFields = {
+      nameLower:      (finalName || '').toLowerCase(),
+      fromLabelLower: (fromLabel || '').toLowerCase(),
+      toLabelLower:   (toLabel   || '').toLowerCase(),
+      nameNgrams:     trigrams(finalName),
+      fromNgrams:     trigrams(fromLabel),
+      toNgrams:       trigrams(toLabel),
+      searchNgrams:   trigrams(searchText),
+      updatedAt:      new Date().toISOString()
+    };
+
+    // Перевірка дубля
     const existing = await findExistingRoute(fromCode, toCode, routeType);
     const baseId = sanitizeId(finalName);
     let docId = baseId;
     let mode = 'new'; // 'new' | 'overwrite' | 'copy'
 
-    if (existing){
+    if (existing) {
       const existingName = existing.data()?.name || existing.id;
       const choice = await askDuplicateAction(existingName);
       if (choice === 'cancel'){ alert('❎ Збереження скасовано'); return; }
       if (choice === 'overwrite'){ docId = existing.id; mode = 'overwrite'; }
-      if (choice === 'copy'){ docId = makeCopyId(baseId); payload.name = `${payload.name} (копія)`; mode = 'copy'; }
+      if (choice === 'copy'){ docId = `${baseId}__${Date.now()}`; payload.name = `${payload.name} (копія)`; mode = 'copy'; }
     }
 
     const prefix = firstLetter(from.name) + firstLetter(to.name);
     const meta = { fromCode, toCode, fromName: from.name || '', toName: to.name || '' };
 
     let routeKeySaved = null;
-	let savedApproval = null; // 👈 додали, щоб оновити UI після збереження
-try{
-  await db.runTransaction(async (tx) => {
-    const routeRef  = db.collection('routes').doc(docId);
-    const routeSnap = await tx.get(routeRef);
+    let savedApproval = null;
 
-    let routeKey = null;
-    if (mode === 'overwrite' && routeSnap.exists && routeSnap.data()?.routeKey){
-      routeKey = String(routeSnap.data().routeKey);
-      const keyRef = db.collection('routeKeys').doc(routeKey);
-      await tx.get(keyRef);
-      tx.set(keyRef, {
-        routeId: docId,
-        updatedAt: new Date().toISOString(),
-        fromCode, toCode,
-        fromName: meta.fromName, toName: meta.toName
-      }, { merge:true });
-    } else {
-      routeKey = await reserveKeyTx(tx, prefix, docId, meta);
-    }
+    // 🧾 ТРАНЗАКЦІЯ: збереження route та резервування routeKey
+    try {
+      await db.runTransaction(async (tx) => {
+        const routeRef  = db.collection('routes').doc(docId);
+        const routeSnap = await tx.get(routeRef);
 
-    // ❗ Інвалідуємо погодження, якщо змінилась відстань і було approved
-    let approvalUpdate = null;
-    const prev = routeSnap.exists ? routeSnap.data() : null;
-    if (prev && prev.approval && prev.approval.status === 'approved'){
-      const oldDist = (typeof prev.distance_km === 'number') ? prev.distance_km : null;
-      const newDist = payload.distance_km;
-      if (oldDist !== null && Math.abs(newDist - oldDist) > 0.01){
-        const rev = (prev.approval.revision || 0) + 1;
-        approvalUpdate = {
-          status: 'draft',
-          revision: rev,
-          comment: `Відстань змінена: було ${oldDist.toFixed(2)} км → стало ${newDist.toFixed(2)} км`,
-          submittedAt: null, submittedByUid: null, submittedByEmail: null,
-          decidedByUid: null, decidedByEmail: null, decisionAt: null
+        // routeKey
+        let routeKey = null;
+        if (mode === 'overwrite' && routeSnap.exists && routeSnap.data()?.routeKey){
+          routeKey = String(routeSnap.data().routeKey);
+          const keyRef = db.collection('routeKeys').doc(routeKey);
+          await tx.get(keyRef); // щоб не впасти на відсутності
+          tx.set(keyRef, {
+            routeId: docId,
+            updatedAt: new Date().toISOString(),
+            fromCode, toCode,
+            fromName: meta.fromName, toName: meta.toName
+          }, { merge:true });
+        } else {
+          routeKey = await reserveKeyTx(tx, prefix, docId, meta);
+        }
+
+        // Інвалідація погодження, якщо змінився кілометраж і було approved
+        let approvalUpdate = null;
+        const prev = routeSnap.exists ? routeSnap.data() : null;
+        if (prev && prev.approval?.status === 'approved'){
+          const oldDist = (typeof prev.distance_km === 'number') ? prev.distance_km : null;
+          const newDist = payload.distance_km;
+          if (oldDist !== null && Math.abs(newDist - oldDist) > 0.01){
+            const rev = (prev.approval.revision || 0) + 1;
+            approvalUpdate = {
+              status: 'draft',
+              revision: rev,
+              comment: `Відстань змінена: було ${oldDist.toFixed(2)} км → стало ${newDist.toFixed(2)} км`,
+              submittedAt: null, submittedByUid: null, submittedByEmail: null,
+              decidedByUid: null, decidedByEmail: null, decisionAt: null
+            };
+          }
+        }
+
+        const updateObj = {
+          ...payload,
+          ...indexFields,
+          routeKey
         };
+        if (approvalUpdate){
+          updateObj.approval = approvalUpdate;
+          savedApproval = approvalUpdate;
+        } else {
+          savedApproval = prev?.approval || null;
+        }
+
+        tx.set(routeRef, updateObj, { merge: true });
+        routeKeySaved = routeKey;
+      });
+
+      alert(`✅ Збережено в БД: ${payload.name}\nКод маршруту: ${routeKeySaved}`);
+    } catch (txErr) {
+      // Fallback: зберігаємо маршрут без routeKey
+      console.warn('Транзакція (routeKeys) не вдалася:', txErr?.code || txErr, txErr?.message);
+      try {
+        await db.collection('routes').doc(docId).set(
+          { ...payload, ...indexFields },
+          { merge: true }
+        );
+        alert('⚠️ Збережено маршрут БЕЗ коду (routeKey).\nПричина: ' + (txErr?.message || txErr));
+      } catch (saveErr) {
+        throw saveErr;
       }
     }
-    // з цього ми будуємо індекси для пошуку
-const searchText = [finalName, fromLabel, toLabel].filter(Boolean).join(' | ');
 
-// індексні поля — рахуємо один раз, щоб використати і в txn, і у fallback
-const indexFields = {
-  nameLower:      (finalName || '').toLowerCase(),
-  fromLabelLower: (fromLabel || '').toLowerCase(),
-  toLabelLower:   (toLabel   || '').toLowerCase(),
-  nameNgrams:     trigrams(finalName),
-  fromNgrams:     trigrams(fromLabel),
-  toNgrams:       trigrams(toLabel),
-  searchNgrams:   trigrams(searchText),
-  updatedAt:      new Date().toISOString()
-};
+    // ⤴️ ПІСЛЯ ЗАПИСУ — оновлюємо UI/список
+    setApprovalUI(savedApproval);
+    ensureRouteOptionSelected(docId, { ...payload, approval: savedApproval });
+    await refreshRoutesList('reset');
+    ensureRouteOptionSelected(docId, { ...payload, approval: savedApproval });
 
-    // У СЕРЕДИНІ транзакції:
-const updateObj = {
-  ...payload,
-  ...indexFields,
-  routeKey
-};
-tx.set(routeRef, updateObj, { merge: true });
-
-  // 🔎 базові лоуер-версії для префіксного пошуку
-  nameLower:        (payload.name || '').toLowerCase(),
-  fromLabelLower:   (fromLabel     || '').toLowerCase(),
-  toLabelLower:     (toLabel       || '').toLowerCase(),
-
-  // 🔎 тріґрами для contains-пошуку
-  nameNgrams:       trigrams(payload.name),
-  fromNgrams:       trigrams(fromLabel),
-  toNgrams:         trigrams(toLabel),
-  searchNgrams:     trigrams(searchText), // один "зведений" індекс
-
-  updatedAt: new Date().toISOString()
-};
-    if (approvalUpdate){
-      updateObj.approval = approvalUpdate;
-      savedApproval = approvalUpdate;
-    } else {
-      savedApproval = prev?.approval || null;
-    }
-
-    routeKeySaved = routeKey;
-    tx.set(routeRef, updateObj, { merge: true });
-  });
-
-  alert(`✅ Збережено в БД: ${payload.name}\nКод маршруту: ${routeKeySaved}`);
-} catch (txErr) {
-  console.warn('Транзакція (routeKeys) не вдалася:', txErr?.code || txErr, txErr?.message);
-  try{
-    await db.collection('routes').doc(docId).set(
-  { ...payload, ...indexFields },
-  { merge: true }
-);
-    alert('⚠️ Збережено маршрут БЕЗ коду (routeKey).\nПричина відхилення коду: ' + (txErr?.message || txErr));
-  }catch(saveErr){
-    throw saveErr;
-  }
-}
-
-// після транзакції — оновити панель погодження в UI
-setApprovalUI(savedApproval);
-
-// ✅ одразу підставляємо щойно збережений маршрут у селект
-ensureRouteOptionSelected(docId, { ...payload, approval: savedApproval });
-
-// Після оновлення списку — знову виділяємо потрібний елемент (на випадок, якщо refresh очистив селект)
-await refreshRoutesList('reset');
-ensureRouteOptionSelected(docId, { ...payload, approval: savedApproval });
   } catch (err) {
     console.error('❌ Помилка збереження в Firestore:', err);
     alert('❌ Не вдалося зберегти в БД: ' + (err?.message || err));
