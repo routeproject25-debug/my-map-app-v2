@@ -1546,6 +1546,7 @@ async function exportJsonFromRows(rows){
   downloadJson(data, fname);
 }
 /* ==== Керування видимістю колонок (чекбокси ліворуч) ==== */
+const VCOL_KEY = 'export.visibleColumns.v1'; // ключ для localStorage  ← ДОДАТИ
 const COLS_ORDER = [
   'hub','fromCode','toCode','fromName','toName','via','distance','type',
   'logist','status','comment','updated','routeKey','id','map','review','navigator','json',
