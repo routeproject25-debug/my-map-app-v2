@@ -36,10 +36,57 @@
       margin:2px 12px 8px 0;
       user-select:none;
     }
+    /* ── Панель керування ─────────────────────────── */
+.controls{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:8px 0 12px}
+.controls input,.controls select{padding:8px 10px;border:1px solid #cbd5e1;border-radius:8px}
+.controls .badge{background:#f1f5f9;border:1px solid #e5e7eb;border-radius:999px;padding:2px 8px;font-size:12px}
+.sticky-top{position:sticky;top:0;background:#fff;z-index:10;padding:8px 0;border-bottom:1px solid #eee}
+
+/* ── Розмітка списку ──────────────────────────── */
+.section{margin-top:12px}
+.section h3{margin:6px 0 8px;font-size:14px;color:#475569;position:sticky;top:46px;background:#fff;z-index:5;padding:4px 0}
+
+/* ── Пагінація ─────────────────────────────────── */
+.pagination{display:flex;align-items:center;gap:8px;margin:8px 0}
+
+/* ── Компактний режим ─────────────────────────── */
+body.compact .user-row{padding:8px 10px}
+body.compact .user-row b{font-size:14px}
   </style>
 </head>
 <body>
   <header>
+    <div class="controls sticky-top" id="toolbar">
+  <input id="q" type="text" placeholder="Пошук: ім’я або email…" autocomplete="off" />
+  <select id="filterRole">
+    <option value="">Усі ролі</option>
+    <option value="pending">Очікує</option>
+    <option value="user">User</option>
+    <option value="logist">Logist</option>
+    <option value="security">Security</option>
+    <option value="admin">Admin</option>
+  </select>
+  <select id="filterHub">
+    <option value="">Усі хаби</option>
+    <!-- опції підкинемо з JS з масиву HUBS -->
+  </select>
+  <label class="muted"><input type="checkbox" id="pendingOnly"> лише «Очікує»</label>
+  <select id="sortBy">
+    <option value="created_desc">Нові зверху</option>
+    <option value="created_asc">Старі зверху</option>
+    <option value="name_asc">Ім’я A→Я</option>
+    <option value="name_desc">Ім’я Я→A</option>
+    <option value="role_asc">Роль A→Я</option>
+  </select>
+  <button class="btn" id="btnCompact" title="Перемкнути компактний режим">🧱 Компактно</button>
+  <span class="badge" id="countView">0</span>
+</div>
+
+<div class="pagination" id="pager" style="display:none;">
+  <button class="btn" id="prevPage">←</button>
+  <span id="pageInfo" class="muted"></span>
+  <button class="btn" id="nextPage">→</button>
+</div>
     <div>
       <h2 style="margin:0">Адмін-панель: керування користувачами</h2>
       <div class="muted" id="hello">Перевірка…</div>
@@ -103,6 +150,152 @@ async function resolveUserRole(uid){
 
   return 'pending';
 }
+
+/* ===== Контролі / стан списку ===== */
+const PAGE_SIZE = 30;
+const toolbar = {
+  q: document.getElementById('q'),
+  role: document.getElementById('filterRole'),
+  hub: document.getElementById('filterHub'),
+  onlyPending: document.getElementById('pendingOnly'),
+  sortBy: document.getElementById('sortBy'),
+  compact: document.getElementById('btnCompact'),
+  count: document.getElementById('countView'),
+};
+const pager = {
+  box: document.getElementById('pager'),
+  prev: document.getElementById('prevPage'),
+  next: document.getElementById('nextPage'),
+  info: document.getElementById('pageInfo'),
+};
+
+let allUsers = [];    // сирі дані з Firestore
+let page = 0;        // номер сторінки
+const F = { q:'', role:'', hub:'', onlyPending:false, sort:'created_desc' };
+
+/* заповнимо селект хабів */
+(function fillHubSelect(){
+  const sel = toolbar.hub;
+  HUBS.forEach(h => {
+    const o = document.createElement('option');
+    o.value = h; o.textContent = h;
+    sel.appendChild(o);
+  });
+})();
+
+/* збереження компактного режиму */
+(function restoreCompact(){
+  const on = localStorage.getItem('admin.compact') === '1';
+  document.body.classList.toggle('compact', on);
+})();
+toolbar.compact.addEventListener('click', () => {
+  const on = !document.body.classList.contains('compact');
+  document.body.classList.toggle('compact', on);
+  localStorage.setItem('admin.compact', on ? '1' : '0');
+});
+
+/* дрібний помічник */
+function toLower(s){ return String(s || '').toLowerCase(); }
+function getCreatedMs(u){
+  const t = u.createdAt || u.created_at || null;
+  if (!t) return 0;
+  if (t.seconds != null) return t.seconds*1000 + (t.nanoseconds||0)/1e6;
+  const d = new Date(t); return isNaN(d) ? 0 : d.getTime();
+}
+
+/* фільтрація + сортування у пам'яті */
+function applyFilters(){
+  const q = toLower(F.q);
+  const filtered = allUsers.filter(u => {
+    if (F.role && toLower(u.role) !== F.role) return false;
+    if (F.onlyPending && toLower(u.role) !== 'pending') return false;
+
+    if (F.hub){
+      const hubs = Array.isArray(u.allowedHubs) ? u.allowedHubs : [];
+      const seeAll = hubs.includes('*') || ['admin','security'].includes(toLower(u.role));
+      if (!seeAll && !hubs.includes(F.hub)) return false;
+    }
+
+    if (q){
+      const hay = `${u.displayName||''} ${u.email||''}`.toLowerCase();
+      if (!hay.includes(q)) return false;
+    }
+    return true;
+  });
+
+  // сортування
+  const arr = filtered.slice();
+  const byName = (u) => toLower(u.displayName || u.email);
+  switch(F.sort){
+    case 'created_asc':  arr.sort((a,b)=> getCreatedMs(a) - getCreatedMs(b)); break;
+    case 'name_asc':     arr.sort((a,b)=> byName(a).localeCompare(byName(b),'uk')); break;
+    case 'name_desc':    arr.sort((a,b)=> byName(b).localeCompare(byName(a),'uk')); break;
+    case 'role_asc':     arr.sort((a,b)=> toLower(a.role).localeCompare(toLower(b.role),'uk') || byName(a).localeCompare(byName(b),'uk')); break;
+    default:             arr.sort((a,b)=> getCreatedMs(b) - getCreatedMs(a)); // created_desc
+  }
+  return arr;
+}
+
+/* рендер списку із групуванням за ролями + пагінація */
+function renderUsers(){
+  const data = applyFilters();
+  toolbar.count.textContent = `${data.length} користувачів`;
+
+  // пагінація
+  const pages = Math.max(1, Math.ceil(data.length / PAGE_SIZE));
+  page = Math.min(Math.max(0, page), pages-1);
+  pager.box.style.display = data.length > PAGE_SIZE ? '' : 'none';
+  pager.info.textContent = `${page+1} / ${pages}`;
+  pager.prev.disabled = page <= 0;
+  pager.next.disabled = page >= pages-1;
+
+  const start = page * PAGE_SIZE;
+  const slice = data.slice(start, start + PAGE_SIZE);
+
+  // групування
+  const rolesOrder = ['pending','user','logist','security','admin'];
+  const byRole = new Map();
+  slice.forEach(u => {
+    const r = toLower(u.role || 'pending');
+    if (!byRole.has(r)) byRole.set(r, []);
+    byRole.get(r).push(u);
+  });
+
+  listEl.innerHTML = '';
+  const addSection = (roleKey) => {
+    const items = byRole.get(roleKey) || [];
+    if (!items.length) return;
+    const header = document.createElement('div');
+    header.className = 'section';
+    header.innerHTML = `<h3>${roleKey.toUpperCase()} (${items.length})</h3>`;
+    listEl.appendChild(header);
+    items.forEach(u => {
+      listEl.insertAdjacentHTML('beforeend', userRowHTML(u.id, u));
+    });
+  };
+
+  // малюємо секції у фіксованому порядку, потім інші (на випадок неочікуваних ролей)
+  rolesOrder.forEach(addSection);
+  Array.from(byRole.keys())
+    .filter(k => !rolesOrder.includes(k))
+    .sort()
+    .forEach(addSection);
+
+  // повертаємо інтерактивність існуючим кнопкам
+  bindRoleChangeHandlers();
+  bindHubHandlers();
+}
+
+/* події панелі */
+function debounce(fn, ms){ let t; return (...a)=>{ clearTimeout(t); t=setTimeout(()=>fn(...a), ms); }; }
+const rerender = debounce(() => { page = 0; renderUsers(); }, 150);
+toolbar.q.addEventListener('input',  e => { F.q = e.target.value; rerender(); });
+toolbar.role.addEventListener('change', e => { F.role = e.target.value; rerender(); });
+toolbar.hub.addEventListener('change',  e => { F.hub  = e.target.value; rerender(); });
+toolbar.onlyPending.addEventListener('change', e => { F.onlyPending = e.target.checked; rerender(); });
+toolbar.sortBy.addEventListener('change', e => { F.sort = e.target.value; rerender(); });
+pager.prev.addEventListener('click', () => { page = Math.max(0, page-1); renderUsers(); });
+pager.next.addEventListener('click', () => { page = page+1; renderUsers(); });
 
 /* ================= Guard + завантаження ================= */
 auth.onAuthStateChanged(async (u) => {
@@ -197,15 +390,11 @@ function escapeHtml(s){
 function loadUsers(){
   try { if (unsubscribeUsers) { unsubscribeUsers(); unsubscribeUsers = null; } } catch {}
   unsubscribeUsers = db.collection('users')
-    .orderBy('role')
+    .orderBy('role')                // просто щоб був стабільний порядок у снапшоті
     .onSnapshot((snap) => {
-      listEl.innerHTML = '';
-      snap.forEach((doc) => {
-        const user = doc.data() || {};
-        listEl.insertAdjacentHTML('beforeend', userRowHTML(doc.id, user));
-      });
-      bindRoleChangeHandlers();
-      bindHubHandlers();            // ⬅️ прив’язуємо обробники хабів після рендеру
+      allUsers = [];
+      snap.forEach(doc => allUsers.push({ id: doc.id, ...(doc.data() || {}) }));
+      renderUsers();
     }, (err) => {
       console.error('onSnapshot(users) error:', err);
       statusEl.textContent = 'Помилка завантаження користувачів: ' + (err.message || err);
