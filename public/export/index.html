@@ -381,6 +381,14 @@
   <div class="main">
     <div class="card filters-card" style="margin-bottom:12px;">
       <div id="filtersArea">
+        <!-- ➊ Хаб — верхній фільтр, впливає на сам запит -->
+<div class="row cols-2">
+  <div>
+    <label>Хаб</label>
+    <input id="hubFilter" type="text" placeholder="Почни вводити..." list="hubsList" autocomplete="off">
+    <datalist id="hubsList"></datalist>
+  </div>
+</div>
         <div class="row cols-2">
           <div>
             <label>Фільтр: Від</label>
@@ -669,6 +677,7 @@ auth?.onAuthStateChanged(async (u) => {
   currentRole   = window.__userRole || 'pending';
   allowedHubs   = Array.isArray(window.__userHubs) ? window.__userHubs.slice() : [];
   allowAllHubs  = !!window.__userAllHubs;
+  fillHubsList();
 
   authInfo.textContent = `Увійшли як ${u.email || u.uid}`;
   btnLogout.style.display = '';
@@ -677,20 +686,22 @@ auth?.onAuthStateChanged(async (u) => {
   setBusy(false);
 
   const syncRoleAndRerender = () => {
-    const r = String(window.__userRole || '').toLowerCase();
-    if (r && r !== currentRole) {
-      currentRole = r;
-      try { authRoleBadge.textContent = `Роль: ${currentRole}`; } catch(_) {}
-    }
-    const hubsNow  = Array.isArray(window.__userHubs) ? window.__userHubs : [];
-    const allNow   = !!window.__userAllHubs;
-    // оновлюємо локальний стан, якщо щось змінилося
-    if (JSON.stringify(hubsNow) !== JSON.stringify(allowedHubs) || allNow !== allowAllHubs) {
-      allowedHubs  = hubsNow.slice();
-      allowAllHubs = allNow;
-    }
-    try { reRender(); } catch(_) {}
-  };
+  const r = String(window.__userRole || '').toLowerCase();
+  if (r && r !== currentRole) {
+    currentRole = r;
+    try { authRoleBadge.textContent = `Роль: ${currentRole}`; } catch(_) {}
+  }
+  const hubsNow  = Array.isArray(window.__userHubs) ? window.__userHubs : [];
+  const allNow   = !!window.__userAllHubs;
+
+  if (JSON.stringify(hubsNow) !== JSON.stringify(allowedHubs) || allNow !== allowAllHubs) {
+    allowedHubs  = hubsNow.slice();
+    allowAllHubs = allNow;
+  }
+
+  try { fillHubsList(); } catch(_) {}
+  try { reRender(); } catch(_) {}
+};
   syncRoleAndRerender();
   setTimeout(syncRoleAndRerender, 100);
 
@@ -1184,20 +1195,37 @@ function buildBaseQuery(){
   if (!db || !currentUser) throw new Error('Необхідно увійти');
   let q = db.collection('routes');
 
-  // 🔒 обмеження за ХАБ для ролі logist (якщо НЕ всі хаби)
-const roleNow = String(window.__userRole ?? currentRole ?? '').toLowerCase();
-const allNow  = !!(window.__userAllHubs ?? allowAllHubs);
-if (roleNow === 'logist' && !allNow) {
-  const hubs = (Array.isArray(window.__userHubs) ? window.__userHubs : allowedHubs).filter(Boolean);
-  if (!hubs.length) {
-    throw new Error('Вашій ролі не призначено жодного ХАБу. Зверніться до адміністратора.');
-  }
-  // Firestore: максимум 10 значень в "in"
-  if (hubs.length === 1) q = q.where('hub','==', hubs[0]);
-  else q = q.where('hub','in', hubs.slice(0,10));
-  if (hubs.length > 10) console.warn('Вибрано >10 хабів — у запит піде тільки перші 10.');
-}
+  // вибір з верхнього поля
+  const hubSel = (document.getElementById('hubFilter')?.value || '').trim();
 
+  // обмеження за роллю
+  const roleNow = String(window.__userRole ?? currentRole ?? '').toLowerCase();
+  const allNow  = !!(window.__userAllHubs ?? allowAllHubs);
+  const hubsAllowed = (Array.isArray(window.__userHubs) ? window.__userHubs : (allowedHubs || [])).filter(Boolean);
+
+  if (roleNow === 'logist' && !allNow) {
+    if (!hubsAllowed.length) throw new Error('Вашій ролі не призначено жодного ХАБу. Зверніться до адміністратора.');
+
+    if (hubSel) {
+      // якщо логіст вибрав конкретний ХАБ — перевіряємо, що він дозволений
+      if (hubsAllowed.includes(hubSel)) {
+        q = q.where('hub','==', hubSel);
+      } else {
+        // зробимо порожню вибірку (без страшної помилки)
+        q = q.where('hub','==','__forbidden__');
+      }
+    } else {
+      // без конкретного вибору — всі дозволені (до 10 для 'in')
+      if (hubsAllowed.length === 1) q = q.where('hub','==', hubsAllowed[0]);
+      else                          q = q.where('hub','in', hubsAllowed.slice(0,10));
+      if (hubsAllowed.length > 10) console.warn('Вибрано >10 хабів — у запит піде тільки перші 10.');
+    }
+  } else {
+    // admin/user/security або логіст зі «всі хаби»
+    if (hubSel) q = q.where('hub','==', hubSel);
+  }
+
+  // інші верхні фільтри (як було)
   const fromCode = getCodeByNameInput('fromName');
   const toCode   = getCodeByNameInput('toName');
   const type     = document.getElementById('routeType')?.value;
@@ -1300,6 +1328,30 @@ async function loadNextPage(){
   _hasMore = !!lastDoc && snap.size === PAGE_SIZE;
   allRows = allRows.concat(rows);
   return rows;
+}
+/* ===== Список ХАБів для верхнього input+datalist ===== */
+function fillHubsList(){
+  const input = document.getElementById('hubFilter');
+  const list  = document.getElementById('hubsList');
+  if (!input || !list) return;
+
+  const prev = input.value;          // поточне значення користувача
+  const set  = new Set();
+
+  // 1) з ролі користувача
+  const hubsByRole = Array.isArray(window.__userHubs) ? window.__userHubs : (allowedHubs || []);
+  hubsByRole.forEach(h => h && set.add(String(h)));
+
+  // 2) з уже завантажених рядків
+  (allRows || []).forEach(r => { if (r.hub) set.add(String(r.hub)); });
+
+  const hubs = Array.from(set).sort((a,b) => a.localeCompare(b,'uk'));
+
+  // наповнюємо datalist (без "— всі —", бо для datalist це не потрібно)
+  list.innerHTML = hubs.map(h => `<option value="${h}"></option>`).join('');
+
+  // якщо попереднє значення ще є у списку — залишаємо
+  if (prev && (prev === '' || hubs.includes(prev))) input.value = prev;
 }
 
 /* ---------- Фільтри (верхні) ---------- */
@@ -1773,7 +1825,8 @@ function reRender(){
   applyColumnVisibility();
   updatePagerUI();
   updateSortIcons();
-  syncXWidth();           // ← додали
+  syncXWidth();           // горизонтальний скрол синхронізуємо
+  fillHubsList();         // ← ДОДАЙ ЦЕ: оновлюємо datalist з хабами
 }
 
 /* ---------- Події ---------- */
@@ -1867,6 +1920,7 @@ const restartQuery = debounce(async () => {
 
 // Слухаємо поля, які впливають на сам запит до Firestore:
 [
+  'hubFilter',     // ← ДОДАНО
   'fromName',      // datalist + текст — краще 'input' для живої реакції
   'toName',        // datalist + текст — краще 'input'
   'routeType',     // select
@@ -1876,7 +1930,7 @@ const restartQuery = debounce(async () => {
 ].forEach((id) => {
   const el = document.getElementById(id);
   if (!el) return;
-  const evt = (id === 'fromName' || id === 'toName' || id === 'logistFilter') ? 'input' : 'change';
+  const evt = ['fromName','toName','logistFilter','hubFilter'].includes(id) ? 'input' : 'change';
   el.addEventListener(evt, restartQuery);
 });
 
@@ -2129,6 +2183,7 @@ btnAutosize.addEventListener('click', autosizeColumns);
   buildColumnPickerUI();
   fitTableToViewport();      // ← додали
   bindXSync();            // ← додали
+  fillHubsList();
 })();
 
 btnExportJson.addEventListener('click', async ()=>{
