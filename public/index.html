@@ -3146,6 +3146,41 @@ attachTypeahead('toName');
 
 document.getElementById('routeType').addEventListener('change', updateRouteName);
 document.getElementById('routePurpose').addEventListener('change', updateRouteName);
+
+// видалити потім
+async function backfillRoutes(){
+  const ref = firebase.firestore().collection('routes');
+  let snap = await ref.limit(500).get();
+  let done = 0;
+
+  while (!snap.empty) {
+    const batch = firebase.firestore().batch();
+    snap.docs.forEach(doc => {
+      const d = doc.data() || {};
+      const name      = d.name || '';
+      const fromLabel = d.fromLabel || '';
+      const toLabel   = d.toLabel   || '';
+      const searchText= [name, fromLabel, toLabel].filter(Boolean).join(' | ');
+
+      batch.set(doc.ref, {
+        nameLower:        (name||'').toLowerCase(),
+        fromLabelLower:   (fromLabel||'').toLowerCase(),
+        toLabelLower:     (toLabel||'').toLowerCase(),
+        nameNgrams:       trigrams(name),
+        fromNgrams:       trigrams(fromLabel),
+        toNgrams:         trigrams(toLabel),
+        searchNgrams:     trigrams(searchText),
+        updatedAt:        new Date().toISOString()
+      }, { merge:true });
+    });
+    await batch.commit();
+    done += snap.size;
+    const last = snap.docs[snap.docs.length-1];
+    snap = await ref.startAfter(last).limit(500).get();
+  }
+  console.log('Backfill done:', done);
+}
+
 </script>
 </body>
 </html>
