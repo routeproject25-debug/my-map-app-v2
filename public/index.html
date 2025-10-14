@@ -2199,20 +2199,20 @@ async function saveToDB() {
     const user = auth?.currentUser || null;
 
     const payload = {
-      name: finalName,
-      fromCode, toCode, routeType, purpose, intermediateText,
-      fromLabel, toLabel,
-      points: toObjPoints(points),
-      startRuler: toObjPoints(startRuler),
-      endRuler: toObjPoints(endRuler),
-      logisticId,
-      logisticName: getLogistNameById(logistId),
-      createdByUid: user?.uid || null,
-      createdByEmail: user?.email || null,
-      distance_km: getUIKm(),
-      updatedAt: new Date().toISOString(),
-      hub: hub || null
-    };
+  name: finalName,
+  fromCode, toCode, routeType, purpose, intermediateText,
+  fromLabel, toLabel,
+  points: toObjPoints(points),
+  startRuler: toObjPoints(startRuler),
+  endRuler: toObjPoints(endRuler),
+  logisticId: logistId,          // ✅ ключ у БД лишається logisticId, значення — змінна logistId
+  logisticName: getLogistNameById(logistId),
+  createdByUid: user?.uid || null,
+  createdByEmail: user?.email || null,
+  distance_km: getUIKm(),
+  updatedAt: new Date().toISOString(),
+  hub: hub || null
+};
 
     // 🧠 ІНДЕКСНІ ПОЛЯ РАХУЄМО ОДИН РАЗ (поза транзакцією)
     const searchText = [finalName, fromLabel, toLabel].filter(Boolean).join(' | ');
