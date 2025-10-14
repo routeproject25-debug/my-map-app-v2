@@ -1658,11 +1658,20 @@ const LOGISTS_CACHE_TTL_MS = 12 * 60 * 60 * 1000;
 function _norm(s){ return String(s||'').trim().toLowerCase(); }
 // ↓↓↓ додати поряд із _norm
 function trigrams(s){
-  const t = (s || '').toString().toLowerCase().replace(/\s+/g,' ');
+  const t = (s || '')
+    .toString()
+    .toLowerCase()
+    .normalize('NFKD')                 // прибираємо діакритику
+    .replace(/[\u0300-\u036f]/g,'')
+    .replace(/[^\p{L}\p{N}]+/gu,' ')   // усе, що не літера або цифра — у пробіл
+    .replace(/\s+/g,' ')
+    .trim();
+
   const out = new Set();
-  if (t.length < 3) return [];
+  if (!t) return [];
+  if (t.length < 3) return [t];        // короткі слова теж індексуємо
   for (let i = 0; i <= t.length - 3; i++) out.add(t.slice(i, i+3));
-  // Firestore: array-contains-any підтримує максимум 10 значень
+  // Firestore: array-contains-any приймає ≤10 значень — обрізаємо
   return Array.from(out).slice(0, 10);
 }
 
@@ -2258,8 +2267,18 @@ try{
     const updateObj = {
   ...payload,
   routeKey,
-  nameLower: (payload.name || '').toLowerCase(),
-  nameNgrams: trigrams(payload.name), // 👈 додай це
+
+  // 🔎 базові лоуер-версії для префіксного пошуку
+  nameLower:        (payload.name || '').toLowerCase(),
+  fromLabelLower:   (fromLabel     || '').toLowerCase(),
+  toLabelLower:     (toLabel       || '').toLowerCase(),
+
+  // 🔎 тріґрами для contains-пошуку
+  nameNgrams:       trigrams(payload.name),
+  fromNgrams:       trigrams(fromLabel),
+  toNgrams:         trigrams(toLabel),
+  searchNgrams:     trigrams(searchText), // один "зведений" індекс
+
   updatedAt: new Date().toISOString()
 };
     if (approvalUpdate){
@@ -2660,16 +2679,12 @@ function scoreByPosition(rowNameLower, qLower){
 async function searchRoutes(q, mode='reset'){
   const qLower = String(q||'').trim().toLowerCase();
 
-  // якщо запит короткий — не робимо жодних запитів
   if (mode === 'reset'){
     routesSearchQ = qLower;
     routesSearchLastDoc = null;
     routesSearchDone = true;
     resetRoutesUI();
-    if (qLower.length < 3){
-      // Нічого не шукаємо, просто чекаємо, поки користувач додрукує
-      return;
-    }
+    if (qLower.length < 3) return;     // чекаємо поки стане осмислена довжина
   }
 
   if (!routesSearchQ) return;
@@ -2677,42 +2692,79 @@ async function searchRoutes(q, mode='reset'){
   const limit = 50;
   const acc = [];
   const seen = new Set();
+  const addDocs = (snap) => snap.forEach(d => { if (!seen.has(d.id)) { acc.push(d); seen.add(d.id); } });
 
-  // 1) Префікс (із пагінацією)
-  let qRef = db.collection('routes')
-    .orderBy('nameLower')
-    .startAt(routesSearchQ)
-    .endBefore(routesSearchQ + '\uf8ff')
-    .limit(limit);
-    qRef = withHubFilter(qRef, 'hub'); // 👈 додали
+  // -------- 1) ПРЕФІКС — по nameLower, fromLabelLower, toLabelLower --------
+  const mkPrefix = (field) => {
+    let qRef = db.collection('routes')
+      .orderBy(field)
+      .startAt(routesSearchQ)
+      .endBefore(routesSearchQ + '\uf8ff')
+      .limit(limit);
+    qRef = withHubFilter(qRef, 'hub');
+    return qRef.get({ source:'default' });
+  };
 
-  if (mode === 'next' && routesSearchLastDoc) qRef = qRef.startAfter(routesSearchLastDoc);
-
-  const s1 = await qRef.get({ source:'default' });
-  s1.forEach(d => { acc.push(d); seen.add(d.id); });
-  routesSearchLastDoc = s1.docs.length ? s1.docs[s1.docs.length - 1] : routesSearchLastDoc;
-  routesSearchDone = s1.size < limit;
-
-  // 2) Якщо перша сторінка «бідна» і це перший запит — спробуємо contains по тріграмам
-if (mode === 'reset' && acc.length < limit){
-  const grams = trigrams(routesSearchQ);
-  if (grams.length){
-    const hubsForLoop = isAllHubs() ? [null] : ALLOWED_HUBS.slice(0, 10);
-    for (const h of hubsForLoop){
-      let q2 = db.collection('routes')
-        .where('nameNgrams', 'array-contains-any', grams)
-        .limit(limit);
-      if (h) q2 = q2.where('hub','==', h);
-      const s2 = await q2.get({ source:'default' });
-      s2.forEach(d => { if (!seen.has(d.id)) acc.push(d); });
+  if (mode === 'reset') {
+    // Перша сторінка: три незалежні префіксні запити, результати мерджимо
+    const [sName, sFrom, sTo] = await Promise.allSettled([
+      mkPrefix('nameLower'),
+      mkPrefix('fromLabelLower'),
+      mkPrefix('toLabelLower')
+    ]);
+    [sName, sFrom, sTo].forEach(r => { if (r.status === 'fulfilled') addDocs(r.value); });
+    // для пагінації запам'ятаємо тільки "nameLower" (просто і достатньо)
+    if (sName.status === 'fulfilled' && sName.value.docs.length) {
+      routesSearchLastDoc = sName.value.docs[sName.value.docs.length - 1];
+      routesSearchDone = sName.value.size < limit;
+    } else {
+      routesSearchLastDoc = null;
+      routesSearchDone = true;
     }
-    acc.sort((a, b) =>
-      scoreByPosition((a.data().nameLower||''), routesSearchQ) -
-      scoreByPosition((b.data().nameLower||''), routesSearchQ)
-    );
+  } else {
+    // Наступні сторінки: догружаємо тільки по nameLower (головний список)
+    let qRef = db.collection('routes')
+      .orderBy('nameLower')
+      .startAt(routesSearchQ)
+      .endBefore(routesSearchQ + '\uf8ff')
+      .limit(limit);
+    qRef = withHubFilter(qRef, 'hub');
+    if (routesSearchLastDoc) qRef = qRef.startAfter(routesSearchLastDoc);
+    const sNext = await qRef.get({ source:'default' });
+    addDocs(sNext);
+    routesSearchLastDoc = sNext.docs.length ? sNext.docs[sNext.docs.length - 1] : routesSearchLastDoc;
+    routesSearchDone = sNext.size < limit;
   }
-}
 
+  // -------- 2) FALLBACK CONTAINS — по searchNgrams (зведений) --------
+  if (mode === 'reset' && acc.length < limit && routesSearchQ.length >= 3){
+    const grams = trigrams(routesSearchQ);
+    if (grams.length){
+      const hubs = isAllHubs() ? [null] : ALLOWED_HUBS.slice(0,10);
+      for (const h of hubs){
+        let q2 = db.collection('routes')
+          .where('searchNgrams','array-contains-any', grams)
+          .limit(limit);
+        if (h) q2 = q2.where('hub','==', h);
+        const s2 = await q2.get({ source:'default' });
+        addDocs(s2);
+      }
+    }
+  }
+
+  // -------- 3) РАНЖУВАННЯ — ближче до початку у будь-якому з полів --------
+  const pos = (s) => (s || '').indexOf(routesSearchQ);
+  const score = (d) => {
+    const x = d.data() || {};
+    const toNum = (v) => (v < 0 ? 1e6 : v); // -1 → дуже далеко
+    return Math.min(
+      toNum(pos(x.nameLower)),
+      toNum(pos(x.fromLabelLower)),
+      toNum(pos(x.toLabelLower))
+    ) * 1000 + (x.nameLower || '').length;
+  };
+
+  acc.sort((a,b)=> score(a) - score(b));
   renderRoutesDocs(acc);
 }
 
