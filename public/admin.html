@@ -52,6 +52,20 @@
 /* ── Компактний режим ─────────────────────────── */
 body.compact .user-row{padding:8px 10px}
 body.compact .user-row b{font-size:14px}
+
+/* ── Колапс груп за ролями ───────────────────────── */
+.section.collapsed .section-body{ display:none; }
+
+.section h3.group-h{
+  margin:6px 0 8px; font-size:14px; color:#475569;
+  position:sticky; top:46px; background:#fff; z-index:5; padding:4px 0;
+  cursor:pointer; user-select:none;
+}
+.section h3.group-h .arrow{
+  display:inline-block; margin-right:6px; transition:transform .15s ease;
+  transform: rotate(90deg);
+}
+.section.collapsed h3.group-h .arrow{ transform: rotate(0deg); }
   </style>
 </head>
 <body>
@@ -202,6 +216,30 @@ function getCreatedMs(u){
   if (t.seconds != null) return t.seconds*1000 + (t.nanoseconds||0)/1e6;
   const d = new Date(t); return isNaN(d) ? 0 : d.getTime();
 }
+/* ===== Колапс груп (пам'ять у localStorage) ===== */
+const COLLAPSE_KEY = 'admin.collapsedRoles.v1';
+let _collapsed = (()=>{ try { return JSON.parse(localStorage.getItem(COLLAPSE_KEY)||'{}'); } catch { return {}; } })();
+const isCollapsed = (roleKey) => _collapsed[roleKey] !== false; // дефолт = collapsed
+const setCollapsed = (roleKey, val) => {
+  _collapsed[roleKey] = !!val;
+  try { localStorage.setItem(COLLAPSE_KEY, JSON.stringify(_collapsed)); } catch {}
+};
+
+/* ===== Трекінг змін хабів у рядку ===== */
+const normHubs = (arr) => {
+  if (Array.isArray(arr) && arr.includes('*')) return ['*'];
+  return (Array.isArray(arr) ? arr.slice() : []).map(String).sort();
+};
+function setHubsSnapshot(row, hubs){ row.dataset.hubsnap = JSON.stringify(normHubs(hubs)); }
+function isHubsDirty(row){
+  const cur = normHubs(buildAllowedHubsFromRow(row));
+  const prev = (()=>{ try { return JSON.parse(row.dataset.hubsnap||'[]'); } catch { return []; } })();
+  return JSON.stringify(cur) !== JSON.stringify(prev);
+}
+function updateSaveBtnState(row){
+  const btn = row.querySelector('.save-hubs');
+  if (btn) btn.disabled = !isHubsDirty(row);
+}
 
 /* фільтрація + сортування у пам'яті */
 function applyFilters(){
@@ -252,36 +290,62 @@ function renderUsers(){
   const start = page * PAGE_SIZE;
   const slice = data.slice(start, start + PAGE_SIZE);
 
-  // групування
+  // групування на поточній сторінці
   const rolesOrder = ['pending','user','logist','security','admin'];
   const byRole = new Map();
   slice.forEach(u => {
-    const r = toLower(u.role || 'pending');
+    const r = (u.role || 'pending').toLowerCase();
     if (!byRole.has(r)) byRole.set(r, []);
     byRole.get(r).push(u);
   });
 
   listEl.innerHTML = '';
+
   const addSection = (roleKey) => {
     const items = byRole.get(roleKey) || [];
     if (!items.length) return;
-    const header = document.createElement('div');
-    header.className = 'section';
-    header.innerHTML = `<h3>${roleKey.toUpperCase()} (${items.length})</h3>`;
-    listEl.appendChild(header);
-    items.forEach(u => {
-      listEl.insertAdjacentHTML('beforeend', userRowHTML(u.id, u));
-    });
+
+    const sec = document.createElement('section');
+    sec.className = 'section';
+    sec.dataset.role = roleKey;
+    if (isCollapsed(roleKey)) sec.classList.add('collapsed');
+
+    const h = document.createElement('h3');
+    h.className = 'group-h';
+    h.setAttribute('data-role', roleKey);
+    h.setAttribute('tabindex', '0');
+    h.innerHTML = `<span class="arrow">▸</span>${roleKey.toUpperCase()} (${items.length})`;
+    sec.appendChild(h);
+
+    const body = document.createElement('div');
+    body.className = 'section-body';
+    items.forEach(u => body.insertAdjacentHTML('beforeend', userRowHTML(u.id, u)));
+    sec.appendChild(body);
+
+    listEl.appendChild(sec);
   };
 
-  // малюємо секції у фіксованому порядку, потім інші (на випадок неочікуваних ролей)
   rolesOrder.forEach(addSection);
   Array.from(byRole.keys())
     .filter(k => !rolesOrder.includes(k))
     .sort()
     .forEach(addSection);
 
-  // повертаємо інтерактивність існуючим кнопкам
+  // делегований клік/клавіатура для згортання
+  listEl.addEventListener('click', (e) => {
+    const h = e.target.closest('h3.group-h'); if (!h) return;
+    const sec = h.closest('.section'); const role = h.dataset.role;
+    const nowCollapsed = !sec.classList.contains('collapsed') ? true : false;
+    sec.classList.toggle('collapsed', nowCollapsed);
+    setCollapsed(role, nowCollapsed);
+  }, { once:false });
+
+  listEl.addEventListener('keydown', (e) => {
+    const h = e.target.closest('h3.group-h'); if (!h) return;
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); h.click(); }
+  }, { once:false });
+
+  // повертаємо інтерактивність
   bindRoleChangeHandlers();
   bindHubHandlers();
 }
@@ -454,6 +518,9 @@ function bindRoleChangeHandlers(){
 
         e.target.setAttribute('data-prev', newRole);
         statusEl.textContent = `✅ Роль оновлено: ${uid} → ${newRole}`;
+        // після успішної зміни ролі — синхронізуємо стан кнопки "Зберегти хаби"
+        setHubsSnapshot(row, buildAllowedHubsFromRow(row));
+        updateSaveBtnState(row);
       } catch (err) {
         console.error(err);
         alert('Помилка збереження ролі: ' + (err.message || err));
@@ -506,11 +573,19 @@ function bindHubHandlers(){
     const star      = row.querySelector('.hub-all');
     const saveBtn   = row.querySelector('.save-hubs');
 
-    // первинне блокування за поточною роллю
+    // первинний стан
     applyRoleHubLock(row, roleSel.value);
+    setHubsSnapshot(row, buildAllowedHubsFromRow(row)); // зняли "снапшот"
+    updateSaveBtnState(row);                             // кнопка вимкнена
 
-    // клік по "всі хаби" — лише блокує/розблокує
-    star?.addEventListener('change', () => applyRoleHubLock(row, roleSel.value));
+    // відслідковуємо зміни у чекбоксах
+    star?.addEventListener('change', () => {
+      applyRoleHubLock(row, roleSel.value);
+      updateSaveBtnState(row);
+    });
+    row.querySelectorAll('.hub-chk').forEach(ch =>
+      ch.addEventListener('change', () => updateSaveBtnState(row))
+    );
 
     // збереження allowedHubs
     saveBtn?.addEventListener('click', async () => {
@@ -525,7 +600,6 @@ function bindHubHandlers(){
         const uref  = db.collection('users').doc(uid);
         batch.set(uref, { allowedHubs: hubs }, { merge: true });
 
-        // невеликий аудит (необов’язково, але корисно)
         const auditRef = db.collection('audit').doc();
         batch.set(auditRef, {
           type: 'hubs_change',
@@ -537,14 +611,17 @@ function bindHubHandlers(){
 
         await batch.commit();
 
+        // оновили "снапшот" — кнопка знову вимкнена
+        setHubsSnapshot(row, hubs);
+        updateSaveBtnState(row);
+
         saveBtn.textContent = '✅ Збережено';
-        setTimeout(()=> saveBtn.textContent = '💾 Зберегти доступ до хабів', 1200);
+        setTimeout(()=> saveBtn.textContent = '💾 Зберегти доступ до хабів', 900);
       }catch(e){
         console.error(e);
         alert('Не вдалося зберегти доступи: ' + (e?.message || e));
         saveBtn.textContent = '💾 Зберегти доступ до хабів';
-      }finally{
-        saveBtn.disabled = false;
+        updateSaveBtnState(row); // повернемо актуальний стан
       }
     });
   });
