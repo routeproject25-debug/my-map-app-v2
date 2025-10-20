@@ -8,7 +8,7 @@ function sendTelegramApprovalMessage(routeName, routeId) {
   const url = `https://api.telegram.org/bot${telegramToken}/sendMessage`;
   const reviewLink = reviewLinkForId(routeId);
   // Використовуємо HTML форматування для клікабельного посилання
-  const text = `🚦 Маршрут на погодження:<br>${routeName}<br><a href='${reviewLink}'>Маршрут</a>`;
+  const text = `🚦 Маршрут на погодження:\n${routeName}\n<a href='${reviewLink}'>Маршрут</a>`;
   fetch(`${url}?chat_id=${chatId}&text=${encodeURIComponent(text)}&parse_mode=HTML`)
     .then(r => r.json())
     .then(res => {
