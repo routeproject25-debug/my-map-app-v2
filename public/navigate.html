@@ -71,11 +71,10 @@
 
 <script>
 
-(async function(){
-  // ===== Auth gate (redirect to /login.html unless public/guest allowed) =====
-  const qs = new URLSearchParams(location.search);
-  const allowGuest = qs.has('guest') || qs.get('public') === '1';
 
+(async function(){
+  // ===== Публічна сторінка: без авторизації =====
+  const qs = new URLSearchParams(location.search);
   // Чекаємо на завантаження конфігу
   function waitForConfig(){
     return new Promise(resolve => {
@@ -90,27 +89,7 @@
   }
   await waitForConfig();
 
-  if (!allowGuest) {
-    const CFG = window.APP_CONFIG.firebase;
-    try{
-      const app = firebase.apps?.length ? firebase.app() : firebase.initializeApp(CFG);
-      const auth = firebase.auth();
-      await new Promise((resolve) => {
-        auth.onAuthStateChanged(u => {
-          if (u) resolve();
-          else {
-            const next = encodeURIComponent(location.pathname + location.search);
-            location.replace(`/login.html?next=${next}`);
-          }
-        });
-      });
-    }catch(e){
-      const next = encodeURIComponent(location.pathname + location.search);
-      location.replace(`/login.html?next=${next}`);
-      return;
-    }
-  }
-  // ===== /Auth gate =====
+  // Авторизація не потрібна, сторінка завжди доступна
 
   const MAPBOX_TOKEN = qs.get('token') || window.APP_CONFIG.mapboxToken || '';
   const PROFILE = qs.get('profile') || 'driving';
