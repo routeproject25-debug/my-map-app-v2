@@ -615,28 +615,6 @@
         if (!map.getSource(sourceId)) {
           map.addSource(sourceId, { type: 'vector', url: ts.url });
         }
-        // fill layer
-        const fillId = `tileset-fill-${ts.key}`;
-        if (!map.getLayer(fillId)) {
-          map.addLayer({
-            id: fillId,
-            type: 'fill',
-            source: sourceId,
-            'source-layer': ts.layer,
-            paint: { 'fill-color': '#22c55e', 'fill-opacity': 0.18 }
-          });
-        }
-        // outline layer
-        const outlineId = `tileset-outline-${ts.key}`;
-        if (!map.getLayer(outlineId)) {
-          map.addLayer({
-            id: outlineId,
-            type: 'line',
-            source: sourceId,
-            'source-layer': ts.layer,
-            paint: { 'line-color': '#16a34a', 'line-width': 1.2 }
-          });
-        }
       });
 
       // 2. Далі стандартна логіка маршруту
@@ -658,7 +636,7 @@
         addManualToMap();
         rebuildSnapFeatures();
 
-        // 3. Підсвічуємо геозони старту і фінішу
+        // 3. Показуємо тільки геозони старту і фінішу
         if (points && points.length >= 2) {
           const start = points[0];
           const end = points[points.length - 1];
@@ -692,6 +670,13 @@
             } else {
               map.setFilter(hlToId, ['within', { type: 'Point', coordinates: end }]);
             }
+          });
+          // Приховати всі інші геозони (fill/outline)
+          TILESETS.forEach(ts => {
+            const fillId = `tileset-fill-${ts.key}`;
+            const outlineId = `tileset-outline-${ts.key}`;
+            if (map.getLayer(fillId)) map.setLayoutProperty(fillId, 'visibility', 'none');
+            if (map.getLayer(outlineId)) map.setLayoutProperty(outlineId, 'visibility', 'none');
           });
         }
 
