@@ -18,11 +18,8 @@
   <!-- Firebase (auth) -->
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
-
-  <!-- Токен Mapbox зберігаємо тут (не в URL) -->
-  <script>
-    window.MAPBOX_TOKEN = 'pk.eyJ1IjoidGtjaGsiLCJhIjoiY21lYnIzcmcxMGQ3eTJrc2NpOTRkNHdwZCJ9.tHlbdCp9fCoZC3X5HYGLMw';
-  </script>
+  <!-- App config -->
+  <script src="/config/config.js"></script>
 
   <style>
     :root { --card:#fff; --line:#e5e7eb; --muted:#6b7280; --accent:#2563eb; }
@@ -73,23 +70,30 @@
   <div class="notice" id="notice">Для голосових підказок залишай цю сторінку відкритою на екрані. У фоновому режимі браузер може зупиняти GPS/звук.</div>
 
 <script>
+
 (async function(){
   // ===== Auth gate (redirect to /login.html unless public/guest allowed) =====
   const qs = new URLSearchParams(location.search);
   const allowGuest = qs.has('guest') || qs.get('public') === '1';
 
+  // Чекаємо на завантаження конфігу
+  function waitForConfig(){
+    return new Promise(resolve => {
+      if (window.APP_CONFIG?.firebase && window.APP_CONFIG?.mapboxToken) return resolve();
+      const check = setInterval(() => {
+        if (window.APP_CONFIG?.firebase && window.APP_CONFIG?.mapboxToken) {
+          clearInterval(check);
+          resolve();
+        }
+      }, 20);
+    });
+  }
+  await waitForConfig();
+
   if (!allowGuest) {
-    const firebaseConfig = {
-      apiKey: "AIzaSyDjDBZkmy-skuDEQF8-AkRma7yw6TugoQc",
-      authDomain: "my-map-app-58312.firebaseapp.com",
-      projectId: "my-map-app-58312",
-      storageBucket: "my-map-app-58312.firebasestorage.app",
-      messagingSenderId: "53260611353",
-      appId: "1:53260611353:web:f25e120996ad8305405f88",
-      measurementId: "G-9LRX1FLTKL"
-    };
+    const CFG = window.APP_CONFIG.firebase;
     try{
-      const app = firebase.apps?.length ? firebase.app() : firebase.initializeApp(firebaseConfig);
+      const app = firebase.apps?.length ? firebase.app() : firebase.initializeApp(CFG);
       const auth = firebase.auth();
       await new Promise((resolve) => {
         auth.onAuthStateChanged(u => {
@@ -108,7 +112,7 @@
   }
   // ===== /Auth gate =====
 
-  const MAPBOX_TOKEN = qs.get('token') || window.MAPBOX_TOKEN || '';
+  const MAPBOX_TOKEN = qs.get('token') || window.APP_CONFIG.mapboxToken || '';
   const PROFILE = qs.get('profile') || 'driving';
   const SRCZ = qs.get('srcz');               // стиснене посилання
   const SRC_B64 = qs.get('src');             // fallback
