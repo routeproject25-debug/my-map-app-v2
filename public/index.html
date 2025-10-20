@@ -6,7 +6,8 @@ const chatId = "-4864467412";
 function sendTelegramApprovalMessage(routeName, routeId) {
   if (!telegramToken || !chatId) return;
   const url = `https://api.telegram.org/bot${telegramToken}/sendMessage`;
-  const text = encodeURIComponent(`🚦 Маршрут на погодження:\n${routeName}\nПосилання: ${location.origin}/review.html?rid=${routeId}`);
+  const reviewLink = reviewLinkForId(routeId);
+  const text = encodeURIComponent(`🚦 Маршрут на погодження:\n${routeName}\nПосилання: ${reviewLink}`);
   fetch(`${url}?chat_id=${chatId}&text=${text}`)
     .then(r => r.json())
     .then(res => {
