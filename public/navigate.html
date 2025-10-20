@@ -231,6 +231,47 @@
       map.addLayer({ id:'route-line', type:'line', source:'route',
         paint:{ 'line-width':6, 'line-color':'#1d4ed8' } });
     }
+    // Додаємо геозони початку і кінця
+    if (routeGeoJSON.geometry && Array.isArray(routeGeoJSON.geometry.coordinates)) {
+      const coords = routeGeoJSON.geometry.coordinates;
+      if (coords.length >= 2) {
+        const start = coords[0];
+        const end = coords[coords.length - 1];
+        // GeoJSON для двох кругів
+        const geoZones = {
+          type: 'FeatureCollection',
+          features: [
+            turf.circle(start, 0.05, {steps:64, units:'kilometers', properties:{type:'start'}}),
+            turf.circle(end, 0.05, {steps:64, units:'kilometers', properties:{type:'end'}})
+          ]
+        };
+        if (!map.getSource('geoZones')) {
+          map.addSource('geoZones', { type:'geojson', data: geoZones });
+          map.addLayer({
+            id: 'geoZone-start',
+            type: 'fill',
+            source: 'geoZones',
+            filter: ['==', ['get', 'type'], 'start'],
+            paint: {
+              'fill-color': '#22c55e',
+              'fill-opacity': 0.25
+            }
+          });
+          map.addLayer({
+            id: 'geoZone-end',
+            type: 'fill',
+            source: 'geoZones',
+            filter: ['==', ['get', 'type'], 'end'],
+            paint: {
+              'fill-color': '#ef4444',
+              'fill-opacity': 0.25
+            }
+          });
+        } else {
+          map.getSource('geoZones').setData(geoZones);
+        }
+      }
+    }
     const bbox = turf.bbox(routeGeoJSON);
     map.fitBounds(bbox, { padding:{top:80, right:20, bottom:20, left:20} });
   }
