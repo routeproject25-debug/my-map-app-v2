@@ -231,44 +231,41 @@
       map.addLayer({ id:'route-line', type:'line', source:'route',
         paint:{ 'line-width':6, 'line-color':'#1d4ed8' } });
     }
-    // Додаємо геозони початку і кінця
+    // Підсвічування геозон "від" і "до" як у index.html
     if (routeGeoJSON.geometry && Array.isArray(routeGeoJSON.geometry.coordinates)) {
       const coords = routeGeoJSON.geometry.coordinates;
-      if (coords.length >= 2) {
+      if (coords.length >= 2 && map.getSource('geozones')) {
         const start = coords[0];
         const end = coords[coords.length - 1];
-        // GeoJSON для двох кругів
-        const geoZones = {
-          type: 'FeatureCollection',
-          features: [
-            turf.circle(start, 0.05, {steps:64, units:'kilometers', properties:{type:'start'}}),
-            turf.circle(end, 0.05, {steps:64, units:'kilometers', properties:{type:'end'}})
-          ]
-        };
-        if (!map.getSource('geoZones')) {
-          map.addSource('geoZones', { type:'geojson', data: geoZones });
+        // Знайти полігони, що містять ці точки
+        function highlightGeozone(point, layerId, color) {
+          // Фільтр для шару: показати полігон, що містить точку
+          map.setFilter(layerId, ['within', { type: 'Point', coordinates: point }]);
+          map.setPaintProperty(layerId, 'fill-color', color);
+          map.setPaintProperty(layerId, 'fill-opacity', 0.45);
+        }
+        // Якщо шарів ще немає — створити
+        if (!map.getLayer('geozones-hl-from')) {
           map.addLayer({
-            id: 'geoZone-start',
+            id: 'geozones-hl-from',
             type: 'fill',
-            source: 'geoZones',
-            filter: ['==', ['get', 'type'], 'start'],
-            paint: {
-              'fill-color': '#22c55e',
-              'fill-opacity': 0.25
-            }
-          });
-          map.addLayer({
-            id: 'geoZone-end',
-            type: 'fill',
-            source: 'geoZones',
-            filter: ['==', ['get', 'type'], 'end'],
-            paint: {
-              'fill-color': '#ef4444',
-              'fill-opacity': 0.25
-            }
+            source: 'geozones',
+            filter: ['within', { type: 'Point', coordinates: start }],
+            paint: { 'fill-color': '#3b82f6', 'fill-opacity': 0.45 }
           });
         } else {
-          map.getSource('geoZones').setData(geoZones);
+          highlightGeozone(start, 'geozones-hl-from', '#3b82f6');
+        }
+        if (!map.getLayer('geozones-hl-to')) {
+          map.addLayer({
+            id: 'geozones-hl-to',
+            type: 'fill',
+            source: 'geozones',
+            filter: ['within', { type: 'Point', coordinates: end }],
+            paint: { 'fill-color': '#f43f5e', 'fill-opacity': 0.45 }
+          });
+        } else {
+          highlightGeozone(end, 'geozones-hl-to', '#f43f5e');
         }
       }
     }
