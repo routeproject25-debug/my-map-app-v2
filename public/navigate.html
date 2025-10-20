@@ -600,24 +600,7 @@
 
 
   map.on('load', async ()=>{
-      // 1. Додаємо tileset-геозони як у index.html
-      const TILESETS = [
-        { key: 'bb2', url: 'mapbox://route-project.28u0jygh', layer: 'hmilnik-1xdu96' },
-        { key: '06s', url: 'mapbox://route-project.bv9r5t6a', layer: 'uarushiv-1602z5' },
-        { key: '61a', url: 'mapbox://route-project.cwrw3fvi', layer: 'tomashpil-14pg1k' },
-        { key: '62a', url: 'mapbox://route-project.dfky75m6', layer: 'sklad-0knlqz' },
-        { key: '63a', url: 'mapbox://route-project.04u4bn8m', layer: 'vin_hub1-d77dfz' },
-        { key: '64a', url: 'mapbox://route-project.bym769jm', layer: 'elevator2-7kdj7j' },
-        { key: '65a', url: 'mapbox://route-project.5m3es1zq', layer: 'let-agro-bar-2cw520' },
-      ];
-      TILESETS.forEach(ts => {
-        const sourceId = `geozones-tileset-${ts.key}`;
-        if (!map.getSource(sourceId)) {
-          map.addSource(sourceId, { type: 'vector', url: ts.url });
-        }
-      });
-
-      // 2. Далі стандартна логіка маршруту
+      // Тільки маршрут і функціонал карти, без tileset-геозон
       try{
         const { name, points, manualSegments: segs } = await loadRouteData();
         document.getElementById('routeTitle').textContent = name;
@@ -635,50 +618,6 @@
         addRouteToMap();
         addManualToMap();
         rebuildSnapFeatures();
-
-        // 3. Показуємо тільки геозони старту і фінішу
-        if (points && points.length >= 2) {
-          const start = points[0];
-          const end = points[points.length - 1];
-          TILESETS.forEach(ts => {
-            const srcId = `geozones-tileset-${ts.key}`;
-            const hlFromId = `tileset-hl-from-${ts.key}`;
-            const hlToId = `tileset-hl-to-${ts.key}`;
-            // FROM — синій
-            if (!map.getLayer(hlFromId)) {
-              map.addLayer({
-                id: hlFromId,
-                type: 'fill',
-                source: srcId,
-                'source-layer': ts.layer,
-                filter: ['within', { type: 'Point', coordinates: start }],
-                paint: { 'fill-color': '#3b82f6', 'fill-opacity': 0.45 }
-              });
-            } else {
-              map.setFilter(hlFromId, ['within', { type: 'Point', coordinates: start }]);
-            }
-            // TO — рожевий
-            if (!map.getLayer(hlToId)) {
-              map.addLayer({
-                id: hlToId,
-                type: 'fill',
-                source: srcId,
-                'source-layer': ts.layer,
-                filter: ['within', { type: 'Point', coordinates: end }],
-                paint: { 'fill-color': '#f43f5e', 'fill-opacity': 0.45 }
-              });
-            } else {
-              map.setFilter(hlToId, ['within', { type: 'Point', coordinates: end }]);
-            }
-          });
-          // Приховати всі інші геозони (fill/outline)
-          TILESETS.forEach(ts => {
-            const fillId = `tileset-fill-${ts.key}`;
-            const outlineId = `tileset-outline-${ts.key}`;
-            if (map.getLayer(fillId)) map.setLayoutProperty(fillId, 'visibility', 'none');
-            if (map.getLayer(outlineId)) map.setLayoutProperty(outlineId, 'visibility', 'none');
-          });
-        }
 
         if (AUTO_START) startNav();
       }catch(e){ console.error(e); alert(e.message || e); }
