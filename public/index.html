@@ -1,3 +1,20 @@
+<!-- Telegram notification for approval -->
+<script>
+const telegramToken = "8491491118:AAGjgtnwh4wXLR0C6bQKKAD-w-95_G3tgL0";
+const chatId = "-4864467412";
+
+function sendTelegramApprovalMessage(routeName, routeId) {
+  if (!telegramToken || !chatId) return;
+  const url = `https://api.telegram.org/bot${telegramToken}/sendMessage`;
+  const text = encodeURIComponent(`🚦 Маршрут на погодження:\n${routeName}\nПосилання: ${location.origin}/review.html?rid=${routeId}`);
+  fetch(`${url}?chat_id=${chatId}&text=${text}`)
+    .then(r => r.json())
+    .then(res => {
+      if (!res.ok) console.warn('Не вдалося надіслати повідомлення в Telegram:', res);
+    })
+    .catch(e => console.warn('Telegram fetch error:', e));
+}
+</script>
 <!DOCTYPE html>
 <html>
 <head>
@@ -2623,6 +2640,10 @@ async function sendForApproval(){
 
   setApprovalUI({ status:'pending' });
   await copyReviewLink();
+
+  // --- Надсилання повідомлення в Telegram ---
+  const routeName = document.getElementById('routeName')?.value || '';
+  sendTelegramApprovalMessage(routeName, id);
 }
 
 // кнопки панелі погодження
