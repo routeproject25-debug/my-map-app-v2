@@ -2013,14 +2013,21 @@ function getNameByCode(code) { return (dirByCode[code]?.name) || ''; }
 
 /* Назву будуємо стійко — працює і для code, і для key, і для збережених label */
 function prettyFromTo(data){
+  // 1) Якщо є збережені підписи, беремо лише «назву» (без юнітів/компаній)
   if (data.fromLabel || data.toLabel){
-    return [data.fromLabel || '', data.toLabel || ''];
+    const f = parseNameFromLabel(data.fromLabel) || data.fromLabel || '';
+    const t = parseNameFromLabel(data.toLabel)   || data.toLabel   || '';
+    return [f, t];
   }
+  // 2) Якщо є коди — показуємо коротку назву з довідника (без юнітів/компаній)
   if (data.fromCode || data.toCode){
-    return [makeDirLabelByCode(data.fromCode) || '', makeDirLabelByCode(data.toCode) || ''];
+    const f = getNameByCode(data.fromCode) || '';
+    const t = getNameByCode(data.toCode)   || '';
+    return [f, t];
   }
+  // 3) Якщо збережені «ключі» — нормалізуємо в короткий формат
   if (data.fromKey || data.toKey){
-    const fmt = k => String(k||'').split('|').map(s=>s.trim()).filter(Boolean).join(' • ');
+    const fmt = k => String(k||'').split('|').map(s=>s.trim()).filter(Boolean)[0] || '';
     return [fmt(data.fromKey), fmt(data.toKey)];
   }
   return ['',''];
