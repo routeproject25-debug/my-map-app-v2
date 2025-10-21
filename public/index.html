@@ -562,10 +562,6 @@ function sendTelegramApprovalMessage(routeName, routeId) {
         let r = null;
         let s = await db.collection('users').doc(u.uid).get({ source: 'server' });
         r = s.exists ? String(s.data().role || 'pending').toLowerCase() : null;
-        if (!r) {
-          s = await db.collection('roles').doc(u.uid).get({ source: 'server' });
-          r = s.exists ? String(s.data().role || 'pending').toLowerCase() : 'pending';
-        }
         window.__userRole = r;
 
         ['adminLink','adminLinkViewer','uploadRoutesLink'].forEach(id => {
