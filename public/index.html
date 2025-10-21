@@ -3040,6 +3040,11 @@ function fitGeozones(){
   }catch(e){ console.warn('fitGeozones:', e?.message||e); }
 }
 async function loadGeozonesFromStorage(path = STORAGE_GEOJSON_PATH, force=false){
+  // Глобовий вимикач: якщо Storage-геозони вимкнені — тихо виходимо
+  if (!ENABLE_STORAGE_GEOZONES) {
+    console.debug('[geozones] Storage disabled, skip load:', path);
+    return;
+  }
   try{
     if (!storage){ console.warn('Storage не ініціалізовано'); return; }
     let url = await storage.ref(path).getDownloadURL();
