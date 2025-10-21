@@ -2850,9 +2850,29 @@ async function searchRoutes(q, mode='reset'){
 
 /* ——— ЗВ’ЯЗУВАННЯ UI ——— */
 
-// ВАЖЛИВО: Щоб не робити зайвий запит при фокусі на полі пошуку — НЕ тягнемо "ensureRoutesLoaded" тут.
-// Якщо хочеш залишити початкову підвантажку «останніх» — прив’яжи ensureRoutesLoaded лише до фокуса на <select>.
-remoteRoutesSel.addEventListener('focus', ensureRoutesLoaded);
+// Завантажуємо список ДО першого відкриття дропдауну, щоб не було "вузько → широко" між 1-им і 2-им кліком.
+// Хак: перехоплюємо mousedown і блокуємо нативне відкриття, поки не підвантажимо першу сторінку.
+let _routesLoadingFirst = false;
+remoteRoutesSel.addEventListener('mousedown', async (e) => {
+  if (!routesInitLoaded && !_routesLoadingFirst) {
+    e.preventDefault(); // не відкривати дропдаун цього разу
+    _routesLoadingFirst = true;
+    const prevDisabled = remoteRoutesSel.disabled;
+    const firstOpt = remoteRoutesSel.options[0];
+    const prevLabel = firstOpt ? firstOpt.textContent : '';
+    try {
+      remoteRoutesSel.disabled = true;
+      if (firstOpt) firstOpt.textContent = '— завантаження… —';
+      await ensureRoutesLoaded();
+    } finally {
+      if (firstOpt) firstOpt.textContent = prevLabel || '— вибери маршрут з БД —';
+      remoteRoutesSel.disabled = prevDisabled;
+      _routesLoadingFirst = false;
+      // Після завантаження користувач клацне ще раз — і побачить уже повний стабільний список.
+      remoteRoutesSel.focus();
+    }
+  }
+});
 
 // debounce, щоб не спамити Firestore під час друку
 let _rsTimer = null;
