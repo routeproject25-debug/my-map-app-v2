@@ -606,7 +606,8 @@ const TILESETS = [
   { key: '06s', url: 'mapbox://route-project.bv9r5t6a', layer: 'uarushiv-1602z5',      hubs: ['Вінницький'] },
   { key: '61a', url: 'mapbox://route-project.cwrw3fvi', layer: 'tomashpil-14pg1k',     hubs: ['Вінницький'] },
   { key: '62a', url: 'mapbox://route-project.dfky75m6', layer: 'sklad-0knlqz',         hubs: ['МХП'] },
-  { key: '63a', url: 'mapbox://route-project.04u4bn8m', layer: 'vin_hub1-d77dfz',      hubs: ['Вінницький'] },
+  // Тимчасово вимкнено проблемний tileset, який дає 404 (оновіть url/source-layer та поставте enabled:true)
+  { key: '63a', url: 'mapbox://route-project.04u4bn8m', layer: 'vin_hub1-d77dfz',      hubs: ['Вінницький'], enabled: false },
   { key: '64a', url: 'mapbox://route-project.bym769jm', layer: 'elevator2-7kdj7j',     hubs: ['МХП'] },
   { key: '65a', url: 'mapbox://route-project.5m3es1zq', layer: 'let-agro-bar-2cw520',  hubs: ['МХП'] },
 ];
@@ -914,6 +915,7 @@ function addTilesets(){
   TS_OUTLINE_IDS = [];
 
   TILESETS.forEach(ts => {
+    if (ts.enabled === false) { console.warn('[tileset] disabled:', ts.key, ts.url); return; }
     const sourceId = `geozones-tileset-${ts.key}`;
     if (!map.getSource(sourceId)){
       map.addSource(sourceId, { type: 'vector', url: ts.url });
