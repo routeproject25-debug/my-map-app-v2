@@ -6,6 +6,11 @@ const basicAuth = require('express-basic-auth');
 const path      = require('path');
 const fs        = require('fs');
 
+// fetch polyfill for Node < 18
+const _fetch = (typeof fetch !== 'undefined') ? fetch : (
+  (...args) => import('node-fetch').then(({default: f}) => f(...args))
+);
+
 const app  = express();
 const PORT = process.env.PORT || 3000;
 app.use(express.json({ limit: '1mb' }));
@@ -101,12 +106,15 @@ app.get('/api/mapbox/tilesets', async (_req, res) => {
   if (!token){
     return res.status(200).json({ tilesets: [], note: 'Встановіть MAPBOX_ACCESS_TOKEN у .env для отримання списку tilesets' });
   }
-  const url = `https://api.mapbox.com/tilesets/v1/${encodeURIComponent(owner)}?access_token=${encodeURIComponent(token)}`;
+  const url = `https://api.mapbox.com/tilesets/v1/${encodeURIComponent(owner)}`;
   try{
-    const r = await fetch(url);
+    const r = await _fetch(url, { headers: { Authorization: `Bearer ${token}` } });
     if (!r.ok){
       const text = await r.text().catch(()=> '');
-      return res.status(502).json({ error: `Mapbox API ${r.status}`, body: text });
+      let hint = '';
+      if (r.status === 401) hint = 'Перевірте формат токена (має бути sk...)';
+      if (r.status === 403) hint = 'Недостатньо прав. Додайте scope tilesets:read для токена або перевірте MAPBOX_OWNER';
+      return res.status(502).json({ error: `Mapbox API ${r.status}`, hint, body: text });
     }
     const j = await r.json();
     // Уніфікуємо відповідь: масив обʼєктів з id, description, type, created
