@@ -541,11 +541,15 @@ function sendTelegramApprovalMessage(routeName, routeId) {
       try { await window.__PERSISTENCE_PROMISE; } catch(_) {}
     }
 
-    // 1) беремо роль лише з users/{uid}
+    // 1) швидко беремо роль із кешу (якщо є) — щоб UI міг відмалюватися
     let role = null;
     try {
       let snap = await db.collection('users').doc(u.uid).get({ source: 'cache' });
       role = snap.exists ? String(snap.data().role || 'pending').toLowerCase() : null;
+      if (!role) {
+        snap = await db.collection('roles').doc(u.uid).get({ source: 'cache' });
+        role = snap.exists ? String(snap.data().role || 'pending').toLowerCase() : null;
+      }
     } catch (_) {}
 
     window.__userRole = role || 'guest';
@@ -562,6 +566,10 @@ function sendTelegramApprovalMessage(routeName, routeId) {
         let r = null;
         let s = await db.collection('users').doc(u.uid).get({ source: 'server' });
         r = s.exists ? String(s.data().role || 'pending').toLowerCase() : null;
+        if (!r) {
+          s = await db.collection('roles').doc(u.uid).get({ source: 'server' });
+          r = s.exists ? String(s.data().role || 'pending').toLowerCase() : 'pending';
+        }
         window.__userRole = r;
 
         ['adminLink','adminLinkViewer','uploadRoutesLink'].forEach(id => {
@@ -723,16 +731,20 @@ function fmtArea(val){
   return n.toLocaleString('uk-UA', { maximumFractionDigits: 2 });
 }
 function getFieldProps(props){
-      try {
-        let r = null;
-        let s = await db.collection('users').doc(u.uid).get({ source: 'server' });
-        r = s.exists ? String(s.data().role || 'pending').toLowerCase() : null;
-        window.__userRole = r || 'guest';
-        document.getElementById('roleChip').textContent = 'Роль: ' + (window.__userRole || '—');
-        if (window.__userRole !== 'admin') {
-          // ...existing code...
-        }
-      } catch(_){}
+  return {
+    client: pickProp(props, 'Client', 'client', 'Підприємство'),
+    code:   pickProp(props, 'Code', 'code', 'Код'),
+    name:   pickProp(props, 'Name', 'name', 'Назва', 'Назва поля'),
+    farm:   pickProp(props, 'Farm', 'farm', 'Підрозділ', 'Виробничий підрозділ', 'department', 'unit'),
+    area:   pickProp(props, 'Area', 'area', 'Area_ha', 'Area (ha)', 'Площа', 'Площа, га')
+  };
+}
+
+const topbarEl = document.querySelector('header.topbar');
+function updateLayoutHeights(){
+  const h = (topbarEl?.offsetHeight || 56);
+  document.documentElement.style.setProperty('--nav-real', h + 'px');
+  try { map.resize(); } catch(_) {}
 }
 window.addEventListener('resize', updateLayoutHeights);
 updateLayoutHeights();
