@@ -15,6 +15,9 @@ const app  = express();
 const PORT = process.env.PORT || 3000;
 app.use(express.json({ limit: '1mb' }));
 
+// Public healthcheck (до будь-якої автентифікації)
+app.get('/healthz', (_req, res) => res.type('text').send('ok'));
+
 // Basic Auth (опційно через USER1/PASS1, USER2/PASS2, USER3/PASS3 у env)
 const users = {};
 ['1','2','3'].forEach(n => {
@@ -34,8 +37,7 @@ if (Object.keys(users).length) {
   console.log('🟢 Basic Auth disabled (no USER*/PASS* env vars).');
 }
 
-// healthcheck
-app.get('/healthz', (_req, res) => res.type('text').send('ok'));
+// (healthz вже оголошено вище, до Basic Auth)
 
 // статика (НЕ віддавати index.html на "/")
 app.use(express.static(path.join(__dirname, 'public'), {
