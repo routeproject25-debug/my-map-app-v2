@@ -2906,6 +2906,8 @@ updatePanelToggleLabel();
 
 /* ======== ⬇️ ГЕОЗОНИ зі STORAGE (geozones/all.geojson) ========= */
 const STORAGE_GEOJSON_PATH = 'geozones/all.geojson';
+// Якщо геозони зберігаються ТІЛЬКИ в Mapbox tilesets — вимкніть завантаження зі Storage
+const ENABLE_STORAGE_GEOZONES = false;
 let geozonesDataCache = null;
 let geozonesFitted = false;
 let geoClickHandler = null;
@@ -3133,10 +3135,14 @@ roleUnsub = db.collection('users').doc(user.uid)
   });
 
     await loadLogists(true);
-    // Відкласти, щоб не блокувати перший рендер UI/карти
-    (window.requestIdleCallback ? window.requestIdleCallback : setTimeout)(() => {
-      loadGeozonesFromStorage(STORAGE_GEOJSON_PATH, true);
-    });
+    // Відкласти, щоб не блокувати перший рендер UI/карти — лише якщо увімкнено Storage-геозони
+    if (ENABLE_STORAGE_GEOZONES) {
+      (window.requestIdleCallback ? window.requestIdleCallback : setTimeout)(() => {
+        loadGeozonesFromStorage(STORAGE_GEOJSON_PATH, true);
+      });
+    } else {
+      console.log('GeoJSON зі Storage вимкнено: використовуємо лише Mapbox Tilesets');
+    }
 
   } else {
   hideSplash();          // ⬅️ і тут
