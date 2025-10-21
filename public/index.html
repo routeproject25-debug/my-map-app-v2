@@ -435,7 +435,10 @@ function sendTelegramApprovalMessage(routeName, routeId) {
 
     <!-- Робота з переліком маршрутів -->
     <div id="dbLoad" class="section">
-      <div><strong>Маршрути (БД)</strong></div>
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
+        <strong>Маршрути (БД)</strong>
+        <small id="routesFound" class="muted"></small>
+      </div>
 
       <input id="routeSearch" type="text" placeholder="🔎 Пошук маршруту..." list="routesList" autocomplete="off" />
       <datalist id="routesList"></datalist>
@@ -2752,6 +2755,14 @@ const remoteRoutesSel   = document.getElementById('remoteRoutes');
 let routesSearchQ       = '';
 let routesSearchLastDoc = null;   // пагінація саме для префіксного пошуку
 let routesSearchDone    = true;
+let routesFoundSoFar    = 0;      // лічильник знайдених (поточний запит)
+
+function updateRoutesFoundLabel(n){
+  const el = document.getElementById('routesFound');
+  if (!el) return;
+  if (n == null || n === 0){ el.textContent = ''; return; }
+  el.textContent = `Знайдено: ${n}`;
+}
 
 function resetRoutesUI(){
   routesPageLastDoc = null;       // не чіпає базову пагінацію «за датою», але ми її тут не юзаємо
@@ -2760,6 +2771,8 @@ function resetRoutesUI(){
   remoteRoutesSel.innerHTML = '<option value="">— вибери маршрут з БД —</option>';
   document.getElementById('routesList').innerHTML = '';
   routesLoadedCount = 0;
+  routesFoundSoFar = 0;
+  updateRoutesFoundLabel('');
 }
 
 function scoreByPosition(rowNameLower, qLower){
@@ -2778,7 +2791,7 @@ async function searchRoutes(q, mode='reset'){
     routesSearchLastDoc = null;
     routesSearchDone = true;
     resetRoutesUI();
-    if (qLower.length < 3) return;     // чекаємо поки стане осмислена довжина
+    if (qLower.length < 3){ updateRoutesFoundLabel(''); return; } // чекаємо 3+ символи
   }
 
   if (!routesSearchQ) return;
@@ -2872,6 +2885,8 @@ async function searchRoutes(q, mode='reset'){
 
   onlyMatches.sort((a,b)=> score(a) - score(b));
   renderRoutesDocs(onlyMatches);
+  routesFoundSoFar += onlyMatches.length;
+  updateRoutesFoundLabel(routesFoundSoFar);
 }
 
 /* ——— ЗВ’ЯЗУВАННЯ UI ——— */
@@ -2882,7 +2897,8 @@ async function searchRoutes(q, mode='reset'){
 let _rsTimer = null;
 routeSearch.addEventListener('input', () => {
   if (_rsTimer) clearTimeout(_rsTimer);
-  _rsTimer = setTimeout(() => searchRoutes(routeSearch.value, 'reset'), 300);
+  // Запускаємо пошук через 3 секунди після того, як користувач перестав друкувати
+  _rsTimer = setTimeout(() => searchRoutes(routeSearch.value, 'reset'), 3000);
 });
 
 // Enter = якщо щось знайшли — завантажуємо
