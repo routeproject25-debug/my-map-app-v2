@@ -2757,11 +2757,11 @@ let routesSearchLastDoc = null;   // пагінація саме для преф
 let routesSearchDone    = true;
 let routesFoundSoFar    = 0;      // лічильник знайдених (поточний запит)
 
-function updateRoutesFoundLabel(n){
+function updateRoutesFoundLabel(n, hasMore){
   const el = document.getElementById('routesFound');
   if (!el) return;
   if (n == null || n === 0){ el.textContent = ''; return; }
-  el.textContent = `Знайдено: ${n}`;
+  el.textContent = `Знайдено: ${n}${hasMore ? '+' : ''}`;
 }
 
 function resetRoutesUI(){
@@ -2873,20 +2873,55 @@ async function searchRoutes(q, mode='reset'){
 
   // 🔎 Додатковий клієнтський фільтр: лишаємо тільки ті маршрути,
   // у яких запит входить у назву або у короткі від/до
-  const onlyMatches = acc.filter(doc => {
-    const x = doc.data() || {};
-    const q = routesSearchQ;
+  const containsQ = (x, q) => {
+    if (!x) return false;
     if ((x.nameLower||'').includes(q)) return true;
     if ((x.fromLabelLower||'').includes(q)) return true;
     if ((x.toLabelLower||'').includes(q)) return true;
     const fb = (formatRouteTitle(x) || '').toLowerCase();
     return fb.includes(q);
+  };
+
+  const onlyMatches = acc.filter(doc => {
+    const x = doc.data() || {};
+    return containsQ(x, routesSearchQ);
   });
 
   onlyMatches.sort((a,b)=> score(a) - score(b));
-  renderRoutesDocs(onlyMatches);
-  routesFoundSoFar += onlyMatches.length;
-  updateRoutesFoundLabel(routesFoundSoFar);
+  let results = onlyMatches.slice();
+
+  // 🔁 Додатковий "скан" останніх документів, якщо збігів мало або індекси відсутні у старих маршрутів
+  let scanHasMore = false;
+  if (mode === 'reset' && results.length < 10){
+    const SCAN_PAGE = 100;   // за раз
+    const SCAN_PAGES = 3;    // максимум сторінок (300 документів)
+    let last = null;
+    const seen = new Set(results.map(d=>d.id));
+    for (let i=0; i<SCAN_PAGES && results.length < 50; i++){
+      let qRef = db.collection('routes').orderBy('updatedAt','desc').limit(SCAN_PAGE);
+      qRef = withHubFilter(qRef, 'hub');
+      if (last) qRef = qRef.startAfter(last);
+      const s = await qRef.get({ source:'default' });
+      if (s.empty) break;
+      s.forEach(doc=>{
+        if (seen.has(doc.id)) return;
+        const x = doc.data() || {};
+        if (containsQ(x, routesSearchQ)){
+          results.push(doc);
+          seen.add(doc.id);
+        }
+      });
+      last = s.docs[s.docs.length-1];
+      if (s.size < SCAN_PAGE){ break; }
+      // якщо після 3 сторінок ще є — вважай, що є ще результати
+      if (i === SCAN_PAGES-1) scanHasMore = true;
+    }
+  }
+
+  renderRoutesDocs(results);
+  routesFoundSoFar += results.length;
+  const hasMore = !routesSearchDone || scanHasMore;
+  updateRoutesFoundLabel(routesFoundSoFar, hasMore);
 }
 
 /* ——— ЗВ’ЯЗУВАННЯ UI ——— */
