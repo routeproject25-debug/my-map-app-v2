@@ -606,18 +606,38 @@ let __tilesetsLoaded = false;
 async function loadTilesetsConfigOnce(){
   if (__tilesetsLoaded) return;
   try{
-    const res = await fetch('/config/tilesets.json?v=' + Date.now());
-    if (!res.ok) throw new Error('HTTP ' + res.status);
-    const data = await res.json();
-    if (Array.isArray(data)) TILESETS = data;
-    else if (data && Array.isArray(data.tilesets)) TILESETS = data.tilesets;
-    else {
-      console.warn('tilesets.json: невірний формат (очікується масив або поле tilesets[])');
-      TILESETS = [];
+    // 1) Спроба прочитати з Firestore (онлайн-конфіг, який редагує адмін-UI)
+    let fromFs = null;
+    try{
+      if (window.firebase?.firestore){
+        const doc = await firebase.firestore().collection('config').doc('tilesets').get({ source: 'server' });
+        if (doc.exists){
+          const data = doc.data();
+          if (Array.isArray(data)) fromFs = data;
+          else if (data && Array.isArray(data.tilesets)) fromFs = data.tilesets;
+        }
+      }
+    } catch(e){ console.warn('tilesets (Firestore) недоступний:', e?.message||e); }
+
+    if (Array.isArray(fromFs) && fromFs.length){
+      TILESETS = fromFs;
+    } else {
+      // 2) Фолбек на статичний файл
+      try{
+        const res = await fetch('/config/tilesets.json?v=' + Date.now());
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const data = await res.json();
+        if (Array.isArray(data)) TILESETS = data;
+        else if (data && Array.isArray(data.tilesets)) TILESETS = data.tilesets;
+        else {
+          console.warn('tilesets.json: невірний формат (очікується масив або поле tilesets[])');
+          TILESETS = [];
+        }
+      } catch(e){
+        console.warn('Не вдалося завантажити /config/tilesets.json:', e?.message||e);
+        TILESETS = [];
+      }
     }
-  } catch(e){
-    console.warn('Не вдалося завантажити /config/tilesets.json:', e?.message||e);
-    TILESETS = [];
   } finally { __tilesetsLoaded = true; }
 }
 // Якщо якийсь tileset повинен бути видимим усім — у конфігу поставте hubs: ['*']

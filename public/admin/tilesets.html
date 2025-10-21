@@ -1,0 +1,234 @@
+<!doctype html>
+<html lang="uk">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Адмін: Tilesets</title>
+  <!-- Firebase (compat) -->
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+  <!-- App config -->
+  <script src="/config/config.js"></script>
+  <style>
+    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Arial,sans-serif;margin:0;background:#0b1020;color:#e5e7eb}
+    header{display:flex;align-items:center;gap:12px;padding:12px 16px;background:#0f172a;border-bottom:1px solid #1f2937}
+    .container{padding:16px;}
+    .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:8px}
+    input,select,button,textarea{background:#111827;border:1px solid #374151;color:#e5e7eb;border-radius:6px;padding:6px 8px}
+    input[type="checkbox"]{width:18px;height:18px;vertical-align:middle}
+    table{width:100%;border-collapse:collapse;margin-top:12px}
+    th,td{border-bottom:1px solid #1f2937;padding:8px;text-align:left;font-size:14px}
+    th{color:#9ca3af}
+    .btn{cursor:pointer}
+    .btn.primary{background:#2563eb}
+    .btn.ghost{background:#0b1020;border-color:#374151}
+    .pill{display:inline-flex;align-items:center;gap:6px;border:1px solid #374151;background:#0b1020;border-radius:999px;padding:4px 8px}
+    .muted{color:#9ca3af}
+    .error{color:#f87171}
+    .success{color:#34d399}
+    .grid{display:grid;grid-template-columns:1fr auto auto auto auto 1fr;gap:8px;align-items:center}
+    .actions{display:flex;gap:8px}
+    .toolbar{display:flex;gap:8px;align-items:center}
+    .mono{font-family:ui-monospace,Menlo,Consolas,monospace}
+  </style>
+</head>
+<body>
+  <header>
+    <h3 style="margin:0">Керування Tilesets</h3>
+    <span class="muted" id="modeNote">Режим Firebase (онлайн, без сервера)</span>
+  </header>
+  <div class="container">
+    <div class="toolbar">
+      <button class="btn" id="loadBtn">Оновити</button>
+      <button class="btn primary" id="saveBtn">Зберегти</button>
+      <button class="btn ghost" id="addBtn">Додати</button>
+      <span id="status" class="muted"></span>
+    </div>
+
+    <div class="row">
+      <label>Фільтр:</label>
+      <input id="filter" placeholder="пошук за key/url/layer/hubs..." />
+      <label class="pill"><input type="checkbox" id="onlyEnabled" /> Показати лише enabled</label>
+    </div>
+
+    <table>
+      <thead>
+        <tr>
+          <th>Enabled</th>
+          <th>Key</th>
+          <th>URL</th>
+          <th>Source layer</th>
+          <th>Hubs</th>
+          <th>Дії</th>
+        </tr>
+      </thead>
+      <tbody id="tbody"></tbody>
+    </table>
+
+    <details style="margin-top:16px">
+      <summary class="muted">Імпорт з Mapbox</summary>
+      <div class="row muted">Без сервера цей розділ лише довідковий (небезпечно тримати секретний токен у браузері). Скопіюйте id/layer вручну з Mapbox Studio.</div>
+      <div id="mapboxList" class="mono" style="white-space:pre-wrap"></div>
+    </details>
+  </div>
+
+  <script>
+    const $ = sel => document.querySelector(sel);
+    const tbody = $('#tbody');
+    const status = $('#status');
+    const filter = $('#filter');
+    const onlyEnabled = $('#onlyEnabled');
+
+    let tiles = [];
+    let db = null;
+    let auth = null;
+
+    function debounce(fn, ms=250){ let t; return (...a)=>{ clearTimeout(t); t=setTimeout(()=>fn(...a), ms); } }
+
+    function render(){
+      const q = filter.value.trim().toLowerCase();
+      const onlyOn = !!onlyEnabled.checked;
+      tbody.innerHTML = '';
+      (tiles||[]).forEach((t, idx) => {
+        const hay = [t.key, t.url, t.layer, (t.hubs||[]).join(','), String(t.enabled)].join(' ').toLowerCase();
+        if (q && !hay.includes(q)) return;
+        if (onlyOn && !t.enabled) return;
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td><input type="checkbox" ${t.enabled?'checked':''} data-action="toggle" data-idx="${idx}" /></td>
+          <td><input value="${t.key||''}" data-field="key" data-idx="${idx}" class="mono"/></td>
+          <td><input value="${t.url||''}" data-field="url" data-idx="${idx}" class="mono" style="width:100%"/></td>
+          <td><input value="${t.layer||''}" data-field="layer" data-idx="${idx}" class="mono"/></td>
+          <td><input value="${(t.hubs||[]).join(', ')}" data-field="hubs" data-idx="${idx}" /></td>
+          <td class="actions">
+            <button class="btn" data-action="dup" data-idx="${idx}">Дублювати</button>
+            <button class="btn" data-action="del" data-idx="${idx}">Видалити</button>
+          </td>`;
+        tbody.appendChild(tr);
+      });
+    }
+
+    async function load(){
+      status.textContent = 'Завантаження...';
+      try{
+        const doc = await db.collection('config').doc('tilesets').get({ source: 'server' });
+        let arr = [];
+        if (doc.exists){
+          const data = doc.data();
+          if (Array.isArray(data)) arr = data;
+          else if (Array.isArray(data.tilesets)) arr = data.tilesets;
+        } else {
+          // перший запуск: спробуємо підвантажити статичний файл і записати його в Firestore
+          const res = await fetch('/config/tilesets.json').catch(()=>null);
+          if (res && res.ok){
+            const j = await res.json().catch(()=>[]);
+            if (Array.isArray(j)){
+              arr = j;
+              await db.collection('config').doc('tilesets').set({ tilesets: arr, createdAt: firebase.firestore.FieldValue.serverTimestamp() }, { merge: true }).catch(()=>{});
+            }
+          }
+        }
+        tiles = arr || [];
+        status.textContent = `Завантажено ${tiles.length}`;
+        render();
+      } catch(e){
+        console.warn(e);
+        status.textContent = 'Помилка завантаження';
+      }
+    }
+
+    async function save(){
+      status.textContent = 'Збереження...';
+      try{
+        // нормалізація hubs
+        const payload = tiles.map(t => ({
+          key: (t.key||'').trim(),
+          url: (t.url||'').trim(),
+          layer: (t.layer||'').trim(),
+          hubs: Array.isArray(t.hubs) ? t.hubs : String(t.hubs||'').split(',').map(s=>s.trim()).filter(Boolean),
+          enabled: !!t.enabled,
+        }));
+        await db.collection('config').doc('tilesets').set({ tilesets: payload, updatedAt: firebase.firestore.FieldValue.serverTimestamp() }, { merge: true });
+        status.textContent = 'Збережено ✓';
+        await load();
+      } catch(e){
+        status.textContent = 'Помилка збереження: ' + (e.message||e);
+      }
+    }
+
+    tbody.addEventListener('input', debounce(e => {
+      const el = e.target;
+      const idx = +el.dataset.idx;
+      if (Number.isNaN(idx)) return;
+      if (el.dataset.field){
+        const f = el.dataset.field;
+        tiles[idx] = tiles[idx] || {};
+        if (f === 'hubs') tiles[idx][f] = el.value;
+        else tiles[idx][f] = el.value;
+      }
+    }, 50));
+
+    tbody.addEventListener('change', e => {
+      const el = e.target;
+      const idx = +el.dataset.idx;
+      const action = el.dataset.action;
+      if (action === 'toggle'){
+        tiles[idx].enabled = !!el.checked;
+      }
+    });
+
+    tbody.addEventListener('click', e => {
+      const btn = e.target.closest('button');
+      if (!btn) return;
+      const idx = +btn.dataset.idx;
+      const action = btn.dataset.action;
+      if (action === 'del'){
+        tiles.splice(idx,1);
+        render();
+      } else if (action === 'dup'){
+        const t = tiles[idx];
+        tiles.splice(idx+1,0,{...t, key: (t.key||'')+"_copy"});
+        render();
+      }
+    });
+
+    document.getElementById('addBtn').addEventListener('click', () => {
+      tiles.push({ key:'new-key', url:'mapbox://owner.id', layer:'source-layer', hubs:[], enabled:true });
+      render();
+    });
+    document.getElementById('loadBtn').addEventListener('click', load);
+    document.getElementById('saveBtn').addEventListener('click', save);
+
+    filter.addEventListener('input', debounce(render, 100));
+    onlyEnabled.addEventListener('change', render);
+    
+    // ==== Firebase init + guard ====
+    (function init(){
+      const CFG = window.APP_CONFIG?.firebase;
+      if (!CFG){
+        status.textContent = 'Немає APP_CONFIG.firebase';
+        return;
+      }
+      try { firebase.apps?.length ? firebase.app() : firebase.initializeApp(CFG); } catch(e){}
+      db = firebase.firestore();
+      auth = firebase.auth();
+      auth.onAuthStateChanged(async (u) => {
+        if (!u){ location.replace('/login.html?next=' + encodeURIComponent(location.pathname)); return; }
+        let role = 'pending';
+        try {
+          const d = await db.collection('users').doc(u.uid).get({ source: 'server' });
+          if (d.exists && d.data()?.role) role = String(d.data().role).toLowerCase();
+        } catch{}
+        if (role !== 'admin'){
+          status.textContent = '⛔ Доступ заборонено (потрібна роль admin)';
+          setTimeout(()=> location.replace('/'), 1200);
+          return;
+        }
+        document.getElementById('modeNote').textContent = 'Режим Firebase (онлайн, без сервера)';
+        await load();
+      });
+    })();
+  </script>
+</body>
+</html>
