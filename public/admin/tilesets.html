@@ -66,9 +66,13 @@
       <tbody id="tbody"></tbody>
     </table>
 
-    <details style="margin-top:16px">
+    <details style="margin-top:16px" id="mapboxSection">
       <summary class="muted">Імпорт з Mapbox</summary>
-      <div class="row muted">Без сервера цей розділ лише довідковий (небезпечно тримати секретний токен у браузері). Скопіюйте id/layer вручну з Mapbox Studio.</div>
+      <div class="row muted" id="mapboxNote">Якщо сервер запущений і у .env задано MAPBOX_ACCESS_TOKEN, можна отримати список tilesets. Інакше — скористайтесь Mapbox Studio.</div>
+      <div class="row">
+        <button class="btn" id="fetchMapbox">Отримати список tilesets</button>
+        <span id="mapboxStatus" class="muted"></span>
+      </div>
       <div id="mapboxList" class="mono" style="white-space:pre-wrap"></div>
     </details>
   </div>
@@ -203,6 +207,37 @@
     filter.addEventListener('input', debounce(render, 100));
     onlyEnabled.addEventListener('change', render);
     
+    // Спроба звернутись до серверного ендпоїнта (локально або прод), якщо доступний
+    async function tryServerTilesets(){
+      const sec = document.getElementById('mapboxSection');
+      const btn = document.getElementById('fetchMapbox');
+      const st  = document.getElementById('mapboxStatus');
+      const box = document.getElementById('mapboxList');
+      if (!sec || !btn) return;
+      btn.addEventListener('click', async () => {
+        st.textContent = 'Запит...'; box.textContent = '';
+        try{
+          const r = await fetch('/api/mapbox/tilesets', { credentials:'include' });
+          const j = await r.json();
+          if (!r.ok) throw new Error((j && (j.error||j.message)) || ('HTTP '+r.status));
+          st.textContent = Array.isArray(j.tilesets) ? `Отримано ${j.tilesets.length}` : '—';
+          box.textContent = JSON.stringify(j, null, 2);
+        } catch(e){
+          st.textContent = 'Помилка: ' + (e.message||e);
+        }
+      });
+      // необовʼязковий пінг — щоб показати підказку, якщо API недоступний
+      try{
+        const ping = await fetch('/api/tilesets', { method:'GET', credentials:'include' });
+        if (!ping.ok) throw 0;
+        // ок — залишаємо секцію активною
+      } catch {
+        // немає бекенда — залишаємо секцію, але з підказкою
+        const note = document.getElementById('mapboxNote');
+        if (note) note.textContent = 'Серверний API недоступний: працюйте через Firestore або Mapbox Studio.';
+      }
+    }
+    
     // ==== Firebase init + guard ====
     (function init(){
       const CFG = window.APP_CONFIG?.firebase;
@@ -227,6 +262,7 @@
         }
         document.getElementById('modeNote').textContent = 'Режим Firebase (онлайн, без сервера)';
         await load();
+        tryServerTilesets();
       });
     })();
   </script>
