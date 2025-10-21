@@ -3133,9 +3133,9 @@ roleUnsub = db.collection('users').doc(user.uid)
 
     await loadLogists(true);
     // Відкласти, щоб не блокувати перший рендер UI/карти
-(requestIdleCallback || setTimeout)(() => {
-  loadGeozonesFromStorage(STORAGE_GEOJSON_PATH, true);
-}, 0);
+    (window.requestIdleCallback ? window.requestIdleCallback : setTimeout)(() => {
+      loadGeozonesFromStorage(STORAGE_GEOJSON_PATH, true);
+    }, 0);
 
   } else {
   hideSplash();          // ⬅️ і тут
