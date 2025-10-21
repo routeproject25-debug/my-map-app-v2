@@ -99,6 +99,9 @@ function sendTelegramApprovalMessage(routeName, routeId) {
     width:100%; max-width:100%; padding:9px 11px; font-size:14px;
     border:1px solid var(--line); border-radius:10px; outline:none;
   }
+  /* Фіксуємо поведінку випадаючого списку: робимо текст опцій компактнішим */
+  #remoteRoutes{ width:100%; }
+  #remoteRoutes option{ white-space:nowrap; }
   #controls textarea{min-height:48px; resize:vertical}
   label{display:block;font-size:13px;color:#444;margin:2px 0 6px}
   small.muted{color:#6b7280}
@@ -2400,6 +2403,11 @@ function renderRoutesDocs(docs){
     sel.innerHTML = '<option value="">— вибери маршрут з БД —</option>';
   }
 
+  const clip = (s, n=80) => {
+    const str = String(s||'');
+    return str.length > n ? (str.slice(0, n-1) + '…') : str;
+  };
+
   docs.forEach(doc=>{
     const d = doc.data() || {};
     const km = (typeof d.distance_km === 'number') ? ` (${d.distance_km.toFixed(2)} км)` : '';
@@ -2410,8 +2418,10 @@ function renderRoutesDocs(docs){
     if (routesLookup[label]) return;
     routesLookup[label] = doc.id;
 
-    const opt = document.createElement('option');
-    opt.value = doc.id; opt.textContent = label;
+  const opt = document.createElement('option');
+  opt.value = doc.id;
+  opt.textContent = clip(label, 80);
+  opt.title = label; // повний підпис у підказці
     sel.appendChild(opt);
 
     const sOpt = document.createElement('option');
@@ -2429,16 +2439,19 @@ function ensureRouteOptionSelected(id, data){
 
   // Підпис для опції
   const label = formatRouteTitle(data) + (typeof data.distance_km === 'number' ? ` (${data.distance_km.toFixed(2)} км)` : '');
+  const clip = (s, n=80) => String(s||'').length > n ? (String(s).slice(0,n-1) + '…') : String(s||'');
 
   // Якщо такої опції немає — додаємо; якщо є — оновлюємо текст
   let opt = [...sel.options].find(o => o.value === id);
   if (!opt) {
     opt = document.createElement('option');
     opt.value = id;
-    opt.textContent = label;
+    opt.textContent = clip(label, 80);
+    opt.title = label;
     sel.appendChild(opt);
   } else {
-    opt.textContent = label;
+    opt.textContent = clip(label, 80);
+    opt.title = label;
   }
 
   // Додамо запис у datalist пошуку (не критично, але зручно)
