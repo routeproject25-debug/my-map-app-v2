@@ -37,6 +37,10 @@
   <header>
     <h3 style="margin:0">Керування Tilesets</h3>
     <span class="muted" id="modeNote">Режим Firebase (онлайн, без сервера)</span>
+    <nav style="margin-left:auto;display:flex;gap:8px;align-items:center">
+      <a href="/admin.html" class="btn ghost" title="Повернутися до адмін сторінки">← Назад</a>
+      <a href="/index.html" class="btn primary" title="На головну сторінку (створення маршруту)">🏠 На головну</a>
+    </nav>
   </header>
   <div class="container">
     <div class="toolbar">
@@ -218,12 +222,16 @@
         st.textContent = 'Запит...'; box.textContent = '';
         try{
           const r = await fetch('/api/mapbox/tilesets', { credentials:'include' });
-          const j = await r.json();
-          if (!r.ok) throw new Error((j && (j.error||j.message)) || ('HTTP '+r.status));
-          st.textContent = Array.isArray(j.tilesets) ? `Отримано ${j.tilesets.length}` : '—';
+          let j = null; try { j = await r.json(); } catch {}
+          if (!r.ok){
+            st.textContent = `Помилка: HTTP ${r.status}`;
+            box.textContent = j ? JSON.stringify(j, null, 2) : '— без тіла відповіді —';
+            return;
+          }
+          st.textContent = Array.isArray(j?.tilesets) ? `Отримано ${j.tilesets.length}` : '—';
           box.textContent = JSON.stringify(j, null, 2);
         } catch(e){
-          st.textContent = 'Помилка: ' + (e.message||e);
+          st.textContent = 'Помилка запиту: ' + (e.message||e);
         }
       });
       // необовʼязковий пінг — щоб показати підказку, якщо API недоступний

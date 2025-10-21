@@ -102,8 +102,10 @@ app.put('/api/tilesets', (req, res) => {
 });
 
 // Опціонально: перелік tilesets з Mapbox акаунта через секретний токен із .env
-app.get('/api/mapbox/tilesets', async (_req, res) => {
-  const owner = process.env.MAPBOX_OWNER || 'route-project';
+app.get('/api/mapbox/tilesets', async (req, res) => {
+  // allow overriding owner via query (?owner=USERNAME) for troubleshooting
+  const qOwner = (req.query.owner || '').toString().trim();
+  const owner = qOwner || process.env.MAPBOX_OWNER || 'route-project';
   const token = process.env.MAPBOX_ACCESS_TOKEN || process.env.MAPBOX_TOKEN || '';
   if (!token){
     return res.status(200).json({ tilesets: [], note: 'Встановіть MAPBOX_ACCESS_TOKEN у .env для отримання списку tilesets' });
@@ -114,9 +116,15 @@ app.get('/api/mapbox/tilesets', async (_req, res) => {
     if (!r.ok){
       const text = await r.text().catch(()=> '');
       let hint = '';
-      if (r.status === 401) hint = 'Перевірте формат токена (має бути sk...)';
-      if (r.status === 403) hint = 'Недостатньо прав. Додайте scope tilesets:read для токена або перевірте MAPBOX_OWNER';
-      return res.status(502).json({ error: `Mapbox API ${r.status}`, hint, body: text });
+      const tokenPrefix = (token || '').slice(0,3);
+      if (r.status === 401) {
+        hint = tokenPrefix !== 'sk.'
+          ? 'Використовується не секретний токен. Створіть Secret токен (починається з sk.) без обмежень URL/IP.'
+          : 'Токен відхилено. Переконайтесь, що немає URL/IP/Resources обмежень і власник правильний.';
+      }
+      if (r.status === 403) hint = 'Недостатньо прав. Додайте scopes tilesets:list і tilesets:read для токена або перевірте MAPBOX_OWNER';
+      if (/Direct access not allowed/i.test(text)) hint = 'Токен має URL/IP/Resource-обмеження. Створіть Secret токен БЕЗ URL та IP restrictions і з tilesets:list + tilesets:read.';
+      return res.status(502).json({ error: `Mapbox API ${r.status}`, owner, hint, body: text });
     }
     const j = await r.json();
     // Уніфікуємо відповідь: масив обʼєктів з id, description, type, created
@@ -125,6 +133,14 @@ app.get('/api/mapbox/tilesets', async (_req, res) => {
   } catch(e){
     return res.status(502).json({ error: 'Помилка запиту до Mapbox', message: String(e && e.message || e) });
   }
+});
+
+// Debug env (safe): показує лише owner і чи заданий токен (без розкриття)
+app.get('/api/debug/env', (_req, res) => {
+  const owner = process.env.MAPBOX_OWNER || 'route-project';
+  const hasToken = !!(process.env.MAPBOX_ACCESS_TOKEN || process.env.MAPBOX_TOKEN);
+  const tokenPrefix = (process.env.MAPBOX_ACCESS_TOKEN || process.env.MAPBOX_TOKEN || '').slice(0,3);
+  res.json({ owner, hasToken, tokenPrefix });
 });
 
 // явні сторінки
