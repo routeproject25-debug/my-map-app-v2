@@ -2858,8 +2858,20 @@ async function searchRoutes(q, mode='reset'){
     ) * 1000 + (x.nameLower || '').length;
   };
 
-  acc.sort((a,b)=> score(a) - score(b));
-  renderRoutesDocs(acc);
+  // 🔎 Додатковий клієнтський фільтр: лишаємо тільки ті маршрути,
+  // у яких запит входить у назву або у короткі від/до
+  const onlyMatches = acc.filter(doc => {
+    const x = doc.data() || {};
+    const q = routesSearchQ;
+    if ((x.nameLower||'').includes(q)) return true;
+    if ((x.fromLabelLower||'').includes(q)) return true;
+    if ((x.toLabelLower||'').includes(q)) return true;
+    const fb = (formatRouteTitle(x) || '').toLowerCase();
+    return fb.includes(q);
+  });
+
+  onlyMatches.sort((a,b)=> score(a) - score(b));
+  renderRoutesDocs(onlyMatches);
 }
 
 /* ——— ЗВ’ЯЗУВАННЯ UI ——— */
