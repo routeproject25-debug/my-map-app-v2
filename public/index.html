@@ -1671,6 +1671,8 @@ function dirCacheKey(){
 const DIR_CACHE_TTL_MS = 12 * 60 * 60 * 1000;
 // 👇 ДОДАЙ ЦЕ ТУТ
 const DIR_NAME_FIELD = 'nameLower'; // якщо поля немає — тимчасово постав 'name'
+// Глобальний прапорець, щоб не викликати loadDirectory(false) двічі при старті
+let DIR_LOADED_ONCE = false;
 
 const LOGISTS_CACHE_KEY = 'logistsCache.v1';
 const LOGISTS_CACHE_TTL_MS = 12 * 60 * 60 * 1000;
@@ -3114,7 +3116,10 @@ try {
 applyHubSelectVisibility();
 
 // Перечитати довідник під доступи (без force — спробує кеш)
-await loadDirectory(false);
+if (!DIR_LOADED_ONCE) {
+  await loadDirectory(false);
+  DIR_LOADED_ONCE = true;
+}
 // Після того як відомі дозволені хаби — сховати чужі tileset-и
 applyTilesetHubVisibilitySafe();
 // І перевстановити глобальну видимість, щоб усе було узгоджено
@@ -3152,7 +3157,10 @@ roleUnsub = db.collection('users').doc(user.uid)
 /* ===== Start ===== */
 window.addEventListener('load', async () => {
   if (!db) return;
-  await loadDirectory(false); // тільки кеш, без повного fetch
+  if (!DIR_LOADED_ONCE) {      // тільки кеш, без повного fetch
+    await loadDirectory(false);
+    DIR_LOADED_ONCE = true;
+  }
   const rid = new URLSearchParams(location.search).get('rid');
   if (rid) { await ensureRoutesLoaded(); await loadRouteById(rid); }
   requestAnimationFrame(updateLayoutHeights);
