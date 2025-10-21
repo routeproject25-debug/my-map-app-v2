@@ -697,6 +697,13 @@ function showPanel(id){
   document.querySelectorAll('#panelDock .dock-btn').forEach(b=>{
     b.classList.toggle('active', b.dataset.panel === id);
   });
+  // Коли відкриваємо панель "База" — підвантажити список маршрутів заздалегідь,
+  // щоб перший клік по селекту відкривався одразу без "стрибка" ширини
+  try {
+    if (id === 'panel-load' && typeof ensureRoutesLoaded === 'function' && !routesInitLoaded){
+      ensureRoutesLoaded();
+    }
+  } catch(_){}
   // дрібний ресайз карти після анімації
   requestAnimationFrame(()=>{ try{ map.resize(); }catch(_){ } });
 }
@@ -2850,29 +2857,7 @@ async function searchRoutes(q, mode='reset'){
 
 /* ——— ЗВ’ЯЗУВАННЯ UI ——— */
 
-// Завантажуємо список ДО першого відкриття дропдауну, щоб не було "вузько → широко" між 1-им і 2-им кліком.
-// Хак: перехоплюємо mousedown і блокуємо нативне відкриття, поки не підвантажимо першу сторінку.
-let _routesLoadingFirst = false;
-remoteRoutesSel.addEventListener('mousedown', async (e) => {
-  if (!routesInitLoaded && !_routesLoadingFirst) {
-    e.preventDefault(); // не відкривати дропдаун цього разу
-    _routesLoadingFirst = true;
-    const prevDisabled = remoteRoutesSel.disabled;
-    const firstOpt = remoteRoutesSel.options[0];
-    const prevLabel = firstOpt ? firstOpt.textContent : '';
-    try {
-      remoteRoutesSel.disabled = true;
-      if (firstOpt) firstOpt.textContent = '— завантаження… —';
-      await ensureRoutesLoaded();
-    } finally {
-      if (firstOpt) firstOpt.textContent = prevLabel || '— вибери маршрут з БД —';
-      remoteRoutesSel.disabled = prevDisabled;
-      _routesLoadingFirst = false;
-      // Після завантаження користувач клацне ще раз — і побачить уже повний стабільний список.
-      remoteRoutesSel.focus();
-    }
-  }
-});
+// Автопідвантаження тепер відбувається, коли відкривають панель "База" (див. showPanel).
 
 // debounce, щоб не спамити Firestore під час друку
 let _rsTimer = null;
