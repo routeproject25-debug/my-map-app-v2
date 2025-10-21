@@ -545,7 +545,7 @@ function sendTelegramApprovalMessage(routeName, routeId) {
     let role = null;
     try {
       const snap = await db.collection('users').doc(u.uid).get({ source: 'cache' });
-      role = snap.exists ? String(snap.data().role || 'pending').toLowerCase() : null;
+      role = snap.exists ? String(snap.data().role ?? 'pending').trim().toLowerCase() : null;
       console.log('[role][cache] uid:', u.uid, 'role:', role, 'data:', snap.data());
     } catch (e) { console.warn('[role][cache] error:', e?.message||e); }
 
@@ -561,7 +561,7 @@ function sendTelegramApprovalMessage(routeName, routeId) {
     (async () => {
       try {
         const s = await db.collection('users').doc(u.uid).get({ source: 'server' });
-        const r = s.exists ? String(s.data().role || 'pending').toLowerCase() : 'pending';
+        const r = s.exists ? String(s.data().role ?? 'pending').trim().toLowerCase() : 'pending';
         window.__userRole = r;
         console.log('[role][server] uid:', u.uid, 'role:', r, 'data:', s.data());
 
@@ -578,6 +578,9 @@ function sendTelegramApprovalMessage(routeName, routeId) {
         }
       } catch (e) {
         console.error('Role check (server) failed:', e);
+        if (e && (e.code === 'permission-denied' || /permission/i.test(String(e.message||'')))){
+          alert('Немає дозволу читати users/' + u.uid + '. Перевірте правила Firestore (allow read для свого uid).');
+        }
       }
     })();
   });
