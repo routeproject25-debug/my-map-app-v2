@@ -2981,7 +2981,7 @@ let _rsTimer = null;
 routeSearch.addEventListener('input', () => {
   if (_rsTimer) clearTimeout(_rsTimer);
   // Запускаємо пошук через 2 секунди після того, як користувач перестав друкувати
-  _rsTimer = setTimeout(() => searchRoutes(routeSearch.value, 'reset'), 2000);
+  _rsTimer = setTimeout(() => searchRoutes(routeSearch.value, 'reset'), 1000);
 });
 
 // Enter = якщо щось знайшли — завантажуємо
