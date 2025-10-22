@@ -49,6 +49,14 @@
       font-size:13px; line-height:1.35; display:none; z-index:20;
       pointer-events:none;
     }
+    /* Портретний режим: зробити верхню панель багаторядковою */
+    @media (max-width: 600px) {
+      .topbar { height:auto; flex-wrap:wrap; gap:6px 8px; align-items:flex-start; padding-bottom:8px; }
+      .title { order:1; flex:1 1 100%; }
+      .stats { order:2; flex:1 1 100%; gap:6px; font-size:12px; }
+      .controls { order:3; flex:1 1 100%; display:flex; flex-wrap:wrap; gap:6px; }
+      .controls button { flex:1 1 calc(50% - 6px); height:36px; padding:0 8px; font-size:13px; }
+    }
     /* Плаваючий кружечок швидкості */
     .speed-badge{
       position:fixed; right:12px; bottom:calc(env(safe-area-inset-bottom) + 92px);
