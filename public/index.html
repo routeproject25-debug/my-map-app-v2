@@ -2569,10 +2569,14 @@ async function loadFromDB() {
     if ((!id || id === '') && cur.length) {
       id = cur[0].id;
     }
-    // Фолбек: якщо в селекті нічого не обрано, але в полі пошуку є точний лейбл — знайдемо id
+    // Фолбек: якщо в селекті нічого не обрано, але в полі пошуку є текст — намагаємось знайти id різними способами
     if (!id) {
-      const label = (document.getElementById('routeSearch')?.value || '').trim();
+      let label = (document.getElementById('routeSearch')?.value || '').trim();
       if (label) {
+        // 0) Прибрати суфікс з кілометрами, якщо користувач скопіював підпис з "(xx км)"
+        const kmSuffix = label.match(/^(.*)\s*\(\s*\d+[\.,]?\d*\s*км\s*\)$/i);
+        if (kmSuffix && kmSuffix[1]) label = kmSuffix[1].trim();
+
         const mapped = routesLookup[label];
         if (mapped) { id = mapped; sel.value = id; }
         // Дозволимо вставити посилання з rid=... або сам ID документа
@@ -2600,6 +2604,28 @@ async function loadFromDB() {
               if (!q.empty) { id = q.docs[0].id; }
             } catch(_) { /* ignore */ }
           }
+        }
+        if (!id && label.length >= 2) {
+          // 4) Точний збіг по nameLower
+          try {
+            const exact = await withHubFilter(db.collection('routes'), 'hub')
+              .where('nameLower','==', label.toLowerCase())
+              .limit(1).get({ source:'default' });
+            if (!exact.empty) { id = exact.docs[0].id; }
+          } catch(_) { /* ignore */ }
+        }
+        if (!id && label.length >= 2) {
+          // 5) Префіксний пошук по nameLower (візьмемо перший збіг)
+          try {
+            let qRef = db.collection('routes')
+              .orderBy('nameLower')
+              .startAt(label.toLowerCase())
+              .endBefore(label.toLowerCase() + '\uf8ff')
+              .limit(1);
+            qRef = withHubFilter(qRef, 'hub');
+            const s = await qRef.get({ source:'default' });
+            if (!s.empty) { id = s.docs[0].id; }
+          } catch(_) { /* ignore */ }
         }
         if (id) { sel.value = id; }
       }
