@@ -28,10 +28,10 @@
       content:""; position:fixed; inset:0; z-index:-2;
       background:var(--login-bg) center/cover no-repeat fixed;
       opacity:0; transform: scale(1.04); will-change: transform, opacity;
-      animation: login-bg-fade 900ms ease-out forwards;
+      animation: login-bg-fade 1600ms ease-out forwards;
     }
     @media (prefers-reduced-motion: no-preference){
-      body::before{ animation: login-bg-fade 900ms ease-out forwards, login-bg-ken 40s ease-in-out 300ms infinite alternate; }
+      body::before{ animation: login-bg-fade 1600ms ease-out forwards, login-bg-ken 45s ease-in-out 300ms infinite alternate; }
     }
     /* Легке затемнення для контрасту */
     body::after{ content:""; position:fixed; inset:0; z-index:-1; background:linear-gradient(to bottom right, rgba(0,0,0,var(--login-overlay)), rgba(0,0,0,calc(var(--login-overlay) + .08))); }
