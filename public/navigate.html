@@ -66,6 +66,15 @@
       touch-action:none; cursor:grab; box-shadow:0 2px 8px rgba(0,0,0,.18);
     }
     .speed-badge:active{ cursor:grabbing; }
+    /* Плаваючий ярличок наступного маневру */
+    .turn-badge{
+      position:fixed; left:12px; bottom:calc(env(safe-area-inset-bottom) + 92px);
+      width:56px; height:56px; border-radius:50%; background:#fff; color:#111;
+      border:1px solid var(--line); display:grid; place-items:center;
+      font-weight:800; font-size:22px; z-index:10050; user-select:none;
+      touch-action:none; cursor:grab; box-shadow:0 2px 8px rgba(0,0,0,.18);
+    }
+    .turn-badge:active{ cursor:grabbing; }
   </style>
 </head>
 <body>
@@ -74,7 +83,6 @@
   <div class="topbar">
     <div class="title" id="routeTitle">Навігація</div>
     <div class="stats">
-      <div class="pill" id="nextTurn" title="Наступний маневр"></div>
       <div class="pill" id="statDistance">— км</div>
       <div class="pill" id="statEta">ETA —</div>
       <div class="pill" id="statMode">driving</div>
@@ -98,6 +106,7 @@
   <div class="toast" id="toast">Скопійовано</div>
   <div class="notice" id="notice">Для голосових підказок залишай цю сторінку відкритою на екрані. У фоновому режимі браузер може зупиняти GPS/звук.</div>
   <div id="speedBadge" class="speed-badge" title="Швидкість, км/год">0</div>
+  <div id="turnBadge" class="turn-badge" title="Наступний маневр">↑</div>
 
 <script>
 
@@ -222,7 +231,7 @@
   const $keepAwakeBtn = document.getElementById('btnKeepAwake');
   const $keepAwakeFab = document.getElementById('fabKeepAwake');
   const $speedBadge = document.getElementById('speedBadge');
-  const $nextTurn = document.getElementById('nextTurn');
+  const $turnBadge = document.getElementById('turnBadge');
 
   // ініціалізація перетягування бейджа швидкості
   const SPEED_POS_KEY = 'NAV_SPEED_BADGE_POS';
@@ -266,6 +275,50 @@
       try{
         const left = parseFloat(el.style.left)||0; const top = parseFloat(el.style.top)||0;
         localStorage.setItem(SPEED_POS_KEY, JSON.stringify({left, top}));
+      }catch(_){ }
+    });
+  })();
+
+  // ініціалізація перетягування ярличка маневру
+  const TURN_POS_KEY = 'NAV_TURN_BADGE_POS';
+  (function initTurnBadgeDrag(){
+    const el = $turnBadge; if (!el) return;
+    try{
+      const raw = localStorage.getItem(TURN_POS_KEY);
+      if (raw){
+        const p = JSON.parse(raw);
+        if (Number.isFinite(p.left) && Number.isFinite(p.top)){
+          el.style.left = p.left + 'px'; el.style.top = p.top + 'px';
+          el.style.right = 'auto'; el.style.bottom = 'auto';
+        }
+      }
+    }catch(_){ }
+    let dragging = null;
+    function clamp(v, min, max){ return Math.max(min, Math.min(max, v)); }
+    el.addEventListener('pointerdown', (e)=>{
+      try{ el.setPointerCapture(e.pointerId); }catch(_){ }
+      const rect = el.getBoundingClientRect();
+      if (el.style.left === '' && el.style.top === ''){
+        el.style.left = rect.left + 'px'; el.style.top = rect.top + 'px';
+        el.style.right = 'auto'; el.style.bottom = 'auto';
+      }
+      dragging = { x:e.clientX, y:e.clientY, left: parseFloat(el.style.left)||0, top: parseFloat(el.style.top)||0 };
+    });
+    window.addEventListener('pointermove', (e)=>{
+      if (!dragging) return;
+      const dx = e.clientX - dragging.x; const dy = e.clientY - dragging.y;
+      const w = el.offsetWidth, h = el.offsetHeight;
+      const vw = window.innerWidth, vh = window.innerHeight;
+      const nl = clamp(dragging.left + dx, 6, vw - w - 6);
+      const nt = clamp(dragging.top + dy, 6 + 64, vh - h - 6);
+      el.style.left = nl + 'px'; el.style.top = nt + 'px';
+      el.style.right = 'auto'; el.style.bottom = 'auto';
+    });
+    window.addEventListener('pointerup', ()=>{
+      if (!dragging) return; dragging = null;
+      try{
+        const left = parseFloat(el.style.left)||0; const top = parseFloat(el.style.top)||0;
+        localStorage.setItem(TURN_POS_KEY, JSON.stringify({left, top}));
       }catch(_){ }
     });
   })();
@@ -420,15 +473,15 @@
     if (!userMarker){
       // Стрілочка-навігатор як SVG (краща видимість, можна обертати)
       const el = document.createElement('div');
-      el.style.width = '48px';
-      el.style.height = '48px';
+  el.style.width = '72px';
+  el.style.height = '72px';
       el.style.display = 'grid';
       el.style.placeItems = 'center';
       el.style.position = 'relative';
       el.style.pointerEvents = 'none';
       el.style.filter = 'drop-shadow(0 1px 2px rgba(0,0,0,.35))';
       el.innerHTML = `
-        <svg width="40" height="40" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false">
+  <svg width="60" height="60" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false">
           <!-- білий контур для контрасту -->
           <path d="M32 4 L44 40 L32 33 L20 40 Z" fill="#ffffff" opacity="0.95"/>
           <!-- сама стрілка -->
@@ -681,8 +734,8 @@
       if (next){
         const etaSec = (remainRoute / (totalDistance/1000)) * totalDuration;
         $eta.textContent = `ETA ${secondsToETA(etaSec)}`;
-        // Оновлюємо ярличок наступного маневру
-        if ($nextTurn){
+        // Оновлюємо ярличок наступного маневру (плаваючий)
+        if ($turnBadge){
           const icon = (function(step){
             const man = step?.maneuver || {}; const mod = String(man.modifier||'').toLowerCase();
             const type = String(man.type||'').toLowerCase();
@@ -700,7 +753,7 @@
             if (type === 'merge' && mod.includes('left')) return '⇠';
             return '↑';
           })(next);
-          $nextTurn.textContent = icon;
+          $turnBadge.textContent = icon;
         }
 
         const lead = Math.min(SPEAK_MAX_DIST, Math.max(SPEAK_MIN_DIST, speedMps * SPEAK_LOOKAHEAD_SEC));
@@ -716,7 +769,7 @@
         }
       } else {
         $eta.textContent = 'ETA —';
-        if ($nextTurn) $nextTurn.textContent = '';
+        if ($turnBadge) $turnBadge.textContent = '';
       }
     }
   }
