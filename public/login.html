@@ -31,7 +31,7 @@
       animation: login-bg-fade 3200ms ease-out forwards;
     }
     @media (prefers-reduced-motion: no-preference){
-      body::before{ animation: login-bg-fade 3200ms ease-out forwards, login-bg-ken 70s ease-in-out 300ms infinite alternate; }
+      body::before{ animation: login-bg-fade 3200ms ease-out forwards, login-bg-ken 100s ease-in-out 300ms infinite alternate; }
     }
     /* Легке затемнення для контрасту */
     body::after{ content:""; position:fixed; inset:0; z-index:-1; background:linear-gradient(to bottom right, rgba(0,0,0,var(--login-overlay)), rgba(0,0,0,calc(var(--login-overlay) + .08))); }
