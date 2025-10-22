@@ -2507,8 +2507,9 @@ function renderRoutesDocs(docs){
   opt.title = label; // повний підпис у підказці
     sel.appendChild(opt);
 
-    const sOpt = document.createElement('option');
-    sOpt.value = label; list.appendChild(sOpt);
+  // Раніше дублювали у datalist. Вимкнено, щоб не зʼявлявся нативний список поверх кастомного попапу.
+  // const sOpt = document.createElement('option');
+  // sOpt.value = label; list && list.appendChild(sOpt);
     // collect results for single-form use
     currentResults.push({ id: doc.id, label, data: d });
   });
@@ -2572,13 +2573,7 @@ function ensureRouteOptionSelected(id, data){
     opt.title = label;
   }
 
-  // Додамо запис у datalist пошуку (не критично, але зручно)
-  const existsInDatalist = [...list.options].some(o => o.value === label);
-  if (!existsInDatalist) {
-    const sOpt = document.createElement('option');
-    sOpt.value = label;
-    list.appendChild(sOpt);
-  }
+  // Більше не додаємо в datalist (щоб не накладався нативний список на кастомний попап)
 
   // Обрати щойно збережений
   sel.value = id;
