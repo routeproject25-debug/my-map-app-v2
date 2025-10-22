@@ -13,6 +13,6 @@
     mapboxToken: "pk.eyJ1Ijoicm91dGUtcHJvamVjdCIsImEiOiJjbWc2YW92dHQwYXAzMmpyMnk0bXVuaWZmIn0.RCbWRVvqx6q9skCB-rv5pA",
     // Optional: set to your Cloudflare Worker URL + "/send-approval" to send Telegram messages online
     // Example: "https://route-telegram-endpoint.<account>.workers.dev/send-approval"
-    telegramEndpoint: ""
+    telegramEndpoint: "https://route-telegram-endpoint.route-project25.workers.dev/send-approval"
   });
 })();
