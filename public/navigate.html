@@ -223,6 +223,8 @@
   const MAX_SPEED_MPS = 90/3.6;
 
   let snapFeatures = [];
+  let speedBadgeEl = null;
+  let speedTextEl = null;
 
   let uaVoice = null;
   function pickUkrainianVoice() {
@@ -356,6 +358,8 @@
       el.style.height = '40px';
       el.style.display = 'grid';
       el.style.placeItems = 'center';
+      el.style.position = 'relative';
+      el.style.pointerEvents = 'none';
       el.style.filter = 'drop-shadow(0 1px 2px rgba(0,0,0,.35))';
       el.innerHTML = `
         <svg width="32" height="32" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false">
@@ -364,6 +368,30 @@
           <!-- сама стрілка -->
           <path d="M32 6 L42 38 L32 32 L22 38 Z" fill="#10b981"/>
         </svg>`;
+
+      // Кружечок зі швидкістю (км/год)
+      speedBadgeEl = document.createElement('div');
+      speedBadgeEl.style.position = 'absolute';
+      speedBadgeEl.style.right = '-4px';
+      speedBadgeEl.style.bottom = '-6px';
+      speedBadgeEl.style.width = '28px';
+      speedBadgeEl.style.height = '28px';
+      speedBadgeEl.style.borderRadius = '50%';
+      speedBadgeEl.style.background = '#ffffff';
+      speedBadgeEl.style.border = '1px solid rgba(0,0,0,.15)';
+      speedBadgeEl.style.boxShadow = '0 1px 3px rgba(0,0,0,.25)';
+      speedBadgeEl.style.display = 'grid';
+      speedBadgeEl.style.placeItems = 'center';
+      speedBadgeEl.style.fontWeight = '700';
+      speedBadgeEl.style.fontSize = '11px';
+      speedBadgeEl.style.color = '#111827';
+      speedBadgeEl.style.userSelect = 'none';
+      speedBadgeEl.title = 'км/год (GPS)';
+
+      speedTextEl = document.createElement('div');
+      speedTextEl.textContent = '0';
+      speedBadgeEl.appendChild(speedTextEl);
+      el.appendChild(speedBadgeEl);
       // Вирівнюємо як іконку по центру та дозволяємо обертання відносно вʼюпорта
       userMarker = new mapboxgl.Marker({
         element: el,
@@ -539,6 +567,11 @@
       const dt = Math.max(0.2, (ts - lastTs)/1000);
       const inst = Math.min(dM/dt, 90/3.6);
       speedMps = (1 - 0.5)*speedMps + 0.5*inst;
+    }
+    // Оновлення бейджа швидкості (км/год)
+    if (speedTextEl){
+      const v = Math.round(Math.max(0, speedMps) * 3.6);
+      speedTextEl.textContent = String(v);
     }
     const movedEnough = lastSpeedPos
       ? turf.distance(turf.point(lastSpeedPos), turf.point(filteredPos), {units:'kilometers'})*1000 > MIN_MOVE_FOR_HEADING_M
