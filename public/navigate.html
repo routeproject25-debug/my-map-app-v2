@@ -75,6 +75,7 @@
       touch-action:none; cursor:grab; box-shadow:0 2px 8px rgba(0,0,0,.18);
     }
     .turn-badge:active{ cursor:grabbing; }
+    .turn-badge .turn-arrow{ width:38px; height:38px; transform-origin:50% 50%; transition: transform .15s ease; }
   </style>
 </head>
 <body>
@@ -106,7 +107,13 @@
   <div class="toast" id="toast">Скопійовано</div>
   <div class="notice" id="notice">Для голосових підказок залишай цю сторінку відкритою на екрані. У фоновому режимі браузер може зупиняти GPS/звук.</div>
   <div id="speedBadge" class="speed-badge" title="Швидкість, км/год">0</div>
-  <div id="turnBadge" class="turn-badge" title="Наступний маневр">↑</div>
+  <div id="turnBadge" class="turn-badge" title="Наступний маневр">
+    <svg id="turnArrow" class="turn-arrow" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false">
+      <!-- Товста стрілка вгору; будемо обертати весь SVG -->
+      <path fill="#111827" d="M32 6 L50 26 L38 26 L38 50 L26 50 L26 26 L14 26 Z"/>
+    </svg>
+    <span id="turnText" style="display:none; font-size:20px; line-height:1">↑</span>
+  </div>
 
 <script>
 
@@ -232,6 +239,8 @@
   const $keepAwakeFab = document.getElementById('fabKeepAwake');
   const $speedBadge = document.getElementById('speedBadge');
   const $turnBadge = document.getElementById('turnBadge');
+  const $turnArrow = $turnBadge ? $turnBadge.querySelector('#turnArrow') : null;
+  const $turnText  = $turnBadge ? $turnBadge.querySelector('#turnText') : null;
 
   // ініціалізація перетягування бейджа швидкості
   const SPEED_POS_KEY = 'NAV_SPEED_BADGE_POS';
@@ -546,6 +555,43 @@
     map.easeTo(opts);
   }
 
+  // Визначення та оновлення ярличка майбутнього маневру
+  function descriptorForStep(step){
+    const man = step?.maneuver || {}; const mod = String(man.modifier||'').toLowerCase();
+    const type = String(man.type||'').toLowerCase();
+    if (type === 'arrive') return { mode:'text', text:'🏁' };
+    if (type.includes('roundabout')) return { mode:'text', text:'⟳' };
+    if (type.includes('uturn') || mod.includes('uturn')) return { mode:'arrow', angle:180 };
+    if (type === 'merge' && mod.includes('right')) return { mode:'arrow', angle: 45 };
+    if (type === 'merge' && mod.includes('left'))  return { mode:'arrow', angle:-45 };
+    if (mod === 'right')       return { mode:'arrow', angle: 90 };
+    if (mod === 'left')        return { mode:'arrow', angle:-90 };
+    if (mod === 'slight right')return { mode:'arrow', angle: 45 };
+    if (mod === 'slight left') return { mode:'arrow', angle:-45 };
+    if (mod === 'sharp right') return { mode:'arrow', angle:135 };
+    if (mod === 'sharp left')  return { mode:'arrow', angle:-135 };
+    // straight / continue / fallback
+    return { mode:'arrow', angle:0 };
+  }
+  function updateTurnBadge(desc){
+    if (!$turnBadge || (!$turnArrow && !$turnText)) return;
+    if (!desc){
+      if ($turnArrow) $turnArrow.style.display = 'none';
+      if ($turnText)  $turnText.style.display  = 'none';
+      return;
+    }
+    if (desc.mode === 'text'){
+      if ($turnArrow) $turnArrow.style.display = 'none';
+      if ($turnText){ $turnText.style.display = 'block'; $turnText.textContent = desc.text || ''; }
+    } else { // arrow
+      if ($turnText)  $turnText.style.display  = 'none';
+      if ($turnArrow){
+        $turnArrow.style.display = 'block';
+        $turnArrow.style.transform = `rotate(${desc.angle||0}deg)`;
+      }
+    }
+  }
+
   let spoken = { idx: -1, early: false, now: false };
   function resetSpokenFor(idx){ spoken = { idx, early:false, now:false }; }
 
@@ -735,26 +781,7 @@
         const etaSec = (remainRoute / (totalDistance/1000)) * totalDuration;
         $eta.textContent = `ETA ${secondsToETA(etaSec)}`;
         // Оновлюємо ярличок наступного маневру (плаваючий)
-        if ($turnBadge){
-          const icon = (function(step){
-            const man = step?.maneuver || {}; const mod = String(man.modifier||'').toLowerCase();
-            const type = String(man.type||'').toLowerCase();
-            if (type === 'arrive') return '🏁';
-            if (type.includes('roundabout')) return '⟳';
-            if (type.includes('uturn') || mod.includes('uturn')) return '⤵';
-            if (mod === 'right') return '→';
-            if (mod === 'left') return '←';
-            if (mod === 'slight right') return '↗';
-            if (mod === 'slight left') return '↖';
-            if (mod === 'sharp right') return '↘';
-            if (mod === 'sharp left') return '↙';
-            if (mod === 'straight' || type === 'continue') return '↑';
-            if (type === 'merge' && mod.includes('right')) return '⇢';
-            if (type === 'merge' && mod.includes('left')) return '⇠';
-            return '↑';
-          })(next);
-          $turnBadge.textContent = icon;
-        }
+        updateTurnBadge(descriptorForStep(next));
 
         const lead = Math.min(SPEAK_MAX_DIST, Math.max(SPEAK_MIN_DIST, speedMps * SPEAK_LOOKAHEAD_SEC));
         if (spoken.idx !== next._index) resetSpokenFor(next._index);
@@ -769,7 +796,7 @@
         }
       } else {
         $eta.textContent = 'ETA —';
-        if ($turnBadge) $turnBadge.textContent = '';
+  updateTurnBadge(null);
       }
     }
   }
