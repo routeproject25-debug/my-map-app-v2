@@ -2748,6 +2748,7 @@ document.getElementById('clearForm').onclick = clearForm;
 document.getElementById('remoteRoutes').addEventListener('change', () => {
   try { if (_rsTimer) { clearTimeout(_rsTimer); _rsTimer = null; } } catch {}
   routesSearchQ = '';
+  try { document.getElementById('routeSearch').value = ''; } catch {}
   updateRoutesFoundLabel('');
 });
 
@@ -2812,8 +2813,10 @@ async function searchRoutes(q, mode='reset'){
     routesSearchQ = qLower;
     routesSearchLastDoc = null;
     routesSearchDone = true;
-    resetRoutesUI();
+    // Не очищаємо селект/підказки, якщо запит коротший за 3 символи —
+    // це запобігає зникненню списку під час випадкових натискань
     if (qLower.length < 3){ updateRoutesFoundLabel(''); return; } // чекаємо 3+ символи
+    resetRoutesUI();
   }
 
   if (!routesSearchQ) return;
@@ -2954,8 +2957,8 @@ async function searchRoutes(q, mode='reset'){
 let _rsTimer = null;
 routeSearch.addEventListener('input', () => {
   if (_rsTimer) clearTimeout(_rsTimer);
-  // Запускаємо пошук через 3 секунди після того, як користувач перестав друкувати
-  _rsTimer = setTimeout(() => searchRoutes(routeSearch.value, 'reset'), 3000);
+  // Запускаємо пошук через 2 секунди після того, як користувач перестав друкувати
+  _rsTimer = setTimeout(() => searchRoutes(routeSearch.value, 'reset'), 2000);
 });
 
 // Enter = якщо щось знайшли — завантажуємо
