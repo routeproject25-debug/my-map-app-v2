@@ -1703,6 +1703,13 @@ function withHubFilter(q, field = 'hub'){
   return q.where(field, 'in', ALLOWED_HUBS.slice(0, 10)); // Firestore in: до 10 значень
 }
 
+// Хто може резервувати унікальні routeKey в колекції routeKeys (потребує прав у Rules)
+function userRoleLower(){ return (window.__userRole || currentRole || '').toLowerCase(); }
+function userCanReserveRouteKeys(){
+  const r = userRoleLower();
+  return r === 'admin' || r === 'security';
+}
+
 /* ===================== Directory / helpers / UI ===================== */
 const dirByCode = {};
 const codeByName = {};
@@ -2326,31 +2333,84 @@ async function saveToDB() {
     let routeKeySaved = null;
     let savedApproval = null;
 
-    // 🧾 ТРАНЗАКЦІЯ: збереження route та резервування routeKey
-    try {
-      await db.runTransaction(async (tx) => {
+    if (userCanReserveRouteKeys()){
+      // 🧾 ТРАНЗАКЦІЯ: адмін/СБ — резервуємо унікальний ключ у routeKeys
+      try {
+        await db.runTransaction(async (tx) => {
+          const routeRef  = db.collection('routes').doc(docId);
+          const routeSnap = await tx.get(routeRef);
+
+          // routeKey
+          let routeKey = null;
+          if (mode === 'overwrite' && routeSnap.exists && routeSnap.data()?.routeKey){
+            routeKey = String(routeSnap.data().routeKey);
+            const keyRef = db.collection('routeKeys').doc(routeKey);
+            await tx.get(keyRef); // щоб не впасти на відсутності
+            tx.set(keyRef, {
+              routeId: docId,
+              updatedAt: new Date().toISOString(),
+              fromCode, toCode,
+              fromName: meta.fromName, toName: meta.toName
+            }, { merge:true });
+          } else {
+            routeKey = await reserveKeyTx(tx, prefix, docId, meta);
+          }
+
+          // Інвалідація погодження, якщо змінився кілометраж і було approved
+          let approvalUpdate = null;
+          const prev = routeSnap.exists ? routeSnap.data() : null;
+          if (prev && prev.approval?.status === 'approved'){
+            const oldDist = (typeof prev.distance_km === 'number') ? prev.distance_km : null;
+            const newDist = payload.distance_km;
+            if (oldDist !== null && Math.abs(newDist - oldDist) > 0.01){
+              const rev = (prev.approval.revision || 0) + 1;
+              approvalUpdate = {
+                status: 'draft',
+                revision: rev,
+                comment: `Відстань змінена: було ${oldDist.toFixed(2)} км → стало ${newDist.toFixed(2)} км`,
+                submittedAt: null, submittedByUid: null, submittedByEmail: null,
+                decidedByUid: null, decidedByEmail: null, decisionAt: null
+              };
+            }
+          }
+
+          const updateObj = {
+            ...payload,
+            ...indexFields,
+            routeKey
+          };
+          if (approvalUpdate){
+            updateObj.approval = approvalUpdate;
+            savedApproval = approvalUpdate;
+          } else {
+            savedApproval = prev?.approval || null;
+          }
+
+          tx.set(routeRef, updateObj, { merge: true });
+          routeKeySaved = routeKey;
+        });
+
+        alert(`✅ Збережено в БД: ${payload.name}\nКод маршруту: ${routeKeySaved}`);
+      } catch (txErr) {
+        // Fallback для адміна: якщо ключ не зарезервувався, все одно збережемо без нього
+        console.warn('Транзакція (routeKeys) не вдалася:', txErr?.code || txErr, txErr?.message);
+        await db.collection('routes').doc(docId).set(
+          { ...payload, ...indexFields },
+          { merge: true }
+        );
+        alert('⚠️ Збережено маршрут БЕЗ коду (routeKey).\nПричина: ' + (txErr?.message || txErr));
+      }
+    } else {
+      // Логісти та інші: не торкаємось routeKeys (часто немає прав). Генеруємо локальний routeKey.
+      try {
         const routeRef  = db.collection('routes').doc(docId);
-        const routeSnap = await tx.get(routeRef);
+        const prevSnap  = await routeRef.get();
+        let keepKey = prevSnap.exists ? (prevSnap.data()?.routeKey || null) : null;
+        const localKey = keepKey || (prefix + '-' + randomDigits(10));
 
-        // routeKey
-        let routeKey = null;
-        if (mode === 'overwrite' && routeSnap.exists && routeSnap.data()?.routeKey){
-          routeKey = String(routeSnap.data().routeKey);
-          const keyRef = db.collection('routeKeys').doc(routeKey);
-          await tx.get(keyRef); // щоб не впасти на відсутності
-          tx.set(keyRef, {
-            routeId: docId,
-            updatedAt: new Date().toISOString(),
-            fromCode, toCode,
-            fromName: meta.fromName, toName: meta.toName
-          }, { merge:true });
-        } else {
-          routeKey = await reserveKeyTx(tx, prefix, docId, meta);
-        }
-
-        // Інвалідація погодження, якщо змінився кілометраж і було approved
+        // Інвалідація погодження, якщо відстань змінена
         let approvalUpdate = null;
-        const prev = routeSnap.exists ? routeSnap.data() : null;
+        const prev = prevSnap.exists ? prevSnap.data() : null;
         if (prev && prev.approval?.status === 'approved'){
           const oldDist = (typeof prev.distance_km === 'number') ? prev.distance_km : null;
           const newDist = payload.distance_km;
@@ -2359,7 +2419,7 @@ async function saveToDB() {
             approvalUpdate = {
               status: 'draft',
               revision: rev,
-              comment: `Відстань змінена: було ${oldDist.toFixed(2)} км → стало ${newDist.toFixed(2)} км`,
+              comment: `Відстань змінена: було ${oldDist?.toFixed ? oldDist.toFixed(2) : oldDist} км → стало ${newDist?.toFixed ? newDist.toFixed(2) : newDist} км`,
               submittedAt: null, submittedByUid: null, submittedByEmail: null,
               decidedByUid: null, decidedByEmail: null, decisionAt: null
             };
@@ -2369,7 +2429,7 @@ async function saveToDB() {
         const updateObj = {
           ...payload,
           ...indexFields,
-          routeKey
+          routeKey: localKey
         };
         if (approvalUpdate){
           updateObj.approval = approvalUpdate;
@@ -2378,22 +2438,12 @@ async function saveToDB() {
           savedApproval = prev?.approval || null;
         }
 
-        tx.set(routeRef, updateObj, { merge: true });
-        routeKeySaved = routeKey;
-      });
-
-      alert(`✅ Збережено в БД: ${payload.name}\nКод маршруту: ${routeKeySaved}`);
-    } catch (txErr) {
-      // Fallback: зберігаємо маршрут без routeKey
-      console.warn('Транзакція (routeKeys) не вдалася:', txErr?.code || txErr, txErr?.message);
-      try {
-        await db.collection('routes').doc(docId).set(
-          { ...payload, ...indexFields },
-          { merge: true }
-        );
-        alert('⚠️ Збережено маршрут БЕЗ коду (routeKey).\nПричина: ' + (txErr?.message || txErr));
-      } catch (saveErr) {
-        throw saveErr;
+        await routeRef.set(updateObj, { merge: true });
+        routeKeySaved = localKey;
+        alert(`✅ Збережено в БД: ${payload.name}\nКод маршруту: ${routeKeySaved}`);
+      } catch (errNonAdmin) {
+        console.error('save (no routeKeys) failed:', errNonAdmin);
+        throw errNonAdmin;
       }
     }
 
