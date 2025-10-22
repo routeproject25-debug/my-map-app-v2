@@ -28,7 +28,10 @@
       content:""; position:fixed; inset:0; z-index:-2;
       background:var(--login-bg) center/cover no-repeat fixed;
       opacity:0; transform: scale(1.04); will-change: transform, opacity;
-      animation: login-bg-fade 1600ms ease-out forwards; /* Лишається лише плавна поява */
+      animation: login-bg-fade 5000ms ease-out forwards; /* Лишається лише плавна поява */
+    }
+    @media (prefers-reduced-motion: reduce){
+      body::before{ animation: none; }
     }
     
     /* Легке затемнення для контрасту */
