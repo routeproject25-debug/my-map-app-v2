@@ -1841,7 +1841,8 @@ function _appendDatalistOptions(rows, datalistId){
 async function queryDirectoryPrefix(prefix, limit = 20){
   try{
     const p = String(prefix||'').trim();
-    if (!p) { _resetDatalistOptions('directoryList'); return; }
+    // Мінімальна довжина для звернень до Firestore — 2 символи
+    if (!p || p.length < 2) { _resetDatalistOptions('directoryList'); return; }
 
     const pLower = p.toLowerCase();
     const accRows = [];
@@ -1871,11 +1872,12 @@ async function queryDirectoryPrefix(prefix, limit = 20){
       });
     } catch(_) { /* ігноруємо, підемо на fallback */ }
 
-    // 2) якщо мало результатів — fallback: "містить" через nameNgrams
-if (accRows.length < limit && pLower.length >= 3){
+    // 2) якщо мало результатів — fallback: "містить" через nameNgrams (строгіше: від 4 символів)
+if (accRows.length < limit && pLower.length >= 4){
   const grams = trigrams(pLower);
   if (grams.length){
-    const hubsForLoop = isAllHubs() ? [null] : ALLOWED_HUBS.slice(0, 10);
+    // Не обмежуємо hubsForLoop (за вимогою) — скануємо усі дозволені хаби
+    const hubsForLoop = isAllHubs() ? [null] : ALLOWED_HUBS;
     for (const h of hubsForLoop){
       let q2 = db.collection('directory')
         .where('nameNgrams', 'array-contains-any', grams)
@@ -1919,7 +1921,8 @@ function attachTypeahead(inputId){
   el.addEventListener('input', ()=>{
     const prev = _typeTimers.get(inputId);
     if (prev) clearTimeout(prev);
-    const t = setTimeout(()=> queryDirectoryPrefix(el.value, 20), 200);
+    // Збільшуємо дебаунс до 600мс, щоб зменшити кількість читань
+    const t = setTimeout(()=> queryDirectoryPrefix(el.value, 20), 600);
     _typeTimers.set(inputId, t);
   });
 }
@@ -2396,8 +2399,7 @@ async function saveToDB() {
 
     // ⤴️ ПІСЛЯ ЗАПИСУ — оновлюємо UI/список
     setApprovalUI(savedApproval);
-    ensureRouteOptionSelected(docId, { ...payload, approval: savedApproval });
-    await refreshRoutesList('reset');
+    // Локально оновлюємо/select без повного перезавантаження списку з БД, щоб не витрачати ріди
     ensureRouteOptionSelected(docId, { ...payload, approval: savedApproval });
 
   } catch (err) {
@@ -2891,11 +2893,12 @@ async function searchRoutes(q, mode='reset'){
     routesSearchDone = sNext.size < limit;
   }
 
-  // -------- 2) FALLBACK CONTAINS — по searchNgrams (зведений) --------
-  if (mode === 'reset' && acc.length < limit && routesSearchQ.length >= 3){
+  // -------- 2) FALLBACK CONTAINS — по searchNgrams (зведений, стриманіше: від 4 символів) --------
+  if (mode === 'reset' && acc.length < limit && routesSearchQ.length >= 4){
     const grams = trigrams(routesSearchQ);
     if (grams.length){
-      const hubs = isAllHubs() ? [null] : ALLOWED_HUBS.slice(0,10);
+      // Не обмежуємо хаби (за вимогою)
+      const hubs = isAllHubs() ? [null] : ALLOWED_HUBS;
       for (const h of hubs){
         let q2 = db.collection('routes')
           .where('searchNgrams','array-contains-any', grams)
@@ -2938,9 +2941,10 @@ async function searchRoutes(q, mode='reset'){
   onlyMatches.sort((a,b)=> score(a) - score(b));
   let results = onlyMatches.slice();
 
-  // 🔁 Додатковий "скан" останніх документів, якщо збігів мало або індекси відсутні у старих маршрутів
+  // 🔁 Додатковий "скан" останніх документів — ВИМКНЕНО за замовчуванням, щоб не спалювати квоту
   let scanHasMore = false;
-  if (mode === 'reset' && results.length < 10){
+  const ENABLE_ROUTES_SCAN = false;
+  if (ENABLE_ROUTES_SCAN && mode === 'reset' && results.length < 10){
     const SCAN_PAGE = 100;   // за раз
     const SCAN_PAGES = 3;    // максимум сторінок (300 документів)
     let last = null;
@@ -2980,7 +2984,7 @@ async function searchRoutes(q, mode='reset'){
 let _rsTimer = null;
 routeSearch.addEventListener('input', () => {
   if (_rsTimer) clearTimeout(_rsTimer);
-  // Запускаємо пошук через 2 секунди після того, як користувач перестав друкувати
+  // Запускаємо пошук через 1 секунду після того, як користувач перестав друкувати
   _rsTimer = setTimeout(() => searchRoutes(routeSearch.value, 'reset'), 1000);
 });
 
