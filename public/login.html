@@ -13,12 +13,36 @@
 <script src="/config/config.js"></script>
 
   <style>
-    :root{ --card:#fff; --line:#e5e7eb; --pad:clamp(12px,2vw,24px); }
+    :root{
+      --card:#fff; --line:#e5e7eb; --pad:clamp(12px,2vw,24px);
+      /* Заміни шлях нижче на свій файл фону (наприклад: /img/login-wheat.jpg) */
+      --login-bg:url("/img/login-bg.jpg");
+      /* інтенсивність затемнення зверху (0.0–0.6) */
+      --login-overlay: 0.24;
+    }
     *{ box-sizing:border-box }
     html,body{ height:100% }
-    body{ margin:0; font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif; background:#1d4ed8; }
-    body::before{ content:""; position:fixed; inset:0; background:url("/img/login-bg.jpg") center/cover no-repeat fixed; z-index:-2; }
-    body::after{ content:""; position:fixed; inset:0; background:linear-gradient(to bottom right, rgba(0,0,0,.18), rgba(0,0,0,.28)); z-index:-1; }
+    body{ margin:0; font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif; background:#111827; }
+    /* Фон-ізображення: мінімальна анімація появи + повільний "кенбернс" (у кого дозволено) */
+    body::before{
+      content:""; position:fixed; inset:0; z-index:-2;
+      background:var(--login-bg) center/cover no-repeat fixed;
+      opacity:0; transform: scale(1.04); will-change: transform, opacity;
+      animation: login-bg-fade 900ms ease-out forwards;
+    }
+    @media (prefers-reduced-motion: no-preference){
+      body::before{ animation: login-bg-fade 900ms ease-out forwards, login-bg-ken 40s ease-in-out 300ms infinite alternate; }
+    }
+    /* Легке затемнення для контрасту */
+    body::after{ content:""; position:fixed; inset:0; z-index:-1; background:linear-gradient(to bottom right, rgba(0,0,0,var(--login-overlay)), rgba(0,0,0,calc(var(--login-overlay) + .08))); }
+
+    @keyframes login-bg-fade{ from{ opacity:0; transform:scale(1.06); } to{ opacity:1; transform:scale(1); } }
+    /* Дуже легкий повільний рух, щоб не відволікати */
+    @keyframes login-bg-ken{
+      0%{ transform: scale(1) translate3d(0,0,0); }
+      50%{ transform: scale(1.035) translate3d(0,-0.6%,0); }
+      100%{ transform: scale(1.07) translate3d(0.5%,0.5%,0); }
+    }
     .wrap{ min-height:100%; padding:var(--pad) }
     .card{ position:fixed; top:var(--pad); right:var(--pad); width:min(420px,94vw); background:rgba(255,255,255,.94);
            border:1px solid var(--line); border-radius:14px; box-shadow:0 20px 60px rgba(0,0,0,.25); backdrop-filter:blur(6px); padding:22px; }
