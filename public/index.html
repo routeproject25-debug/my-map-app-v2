@@ -2575,6 +2575,33 @@ async function loadFromDB() {
       if (label) {
         const mapped = routesLookup[label];
         if (mapped) { id = mapped; sel.value = id; }
+        // Дозволимо вставити посилання з rid=... або сам ID документа
+        if (!id) {
+          // 1) Спроба витягнути rid з URL/рядка
+          const m = label.match(/[?&]rid=([a-zA-Z0-9_-]{10,})/);
+          if (m && m[1]) { id = m[1]; }
+        }
+        if (!id) {
+          // 2) Якщо схоже на Firestore ID — перевіримо напряму одним рідом
+          const looksLikeId = /^[a-zA-Z0-9_-]{10,}$/.test(label);
+          if (looksLikeId) {
+            try {
+              const probe = await db.collection('routes').doc(label).get();
+              if (probe.exists) { id = label; }
+            } catch(_) { /* ignore */ }
+          }
+        }
+        if (!id) {
+          // 3) Мінімальний пошук по routeKey, якщо користувач вставив код маршруту
+          const rk = label.replace(/^код[:\s]*/i,'').trim();
+          if (rk && /^[A-Z0-9-]{4,}$/.test(rk)){
+            try {
+              const q = await db.collection('routes').where('routeKey','==', rk).limit(1).get({ source:'default' });
+              if (!q.empty) { id = q.docs[0].id; }
+            } catch(_) { /* ignore */ }
+          }
+        }
+        if (id) { sel.value = id; }
       }
     }
     if (!id) { alert('Оберіть маршрут у списку або виберіть зі списку підказок пошуку'); return; }
@@ -3014,7 +3041,12 @@ routeSearch.addEventListener('keydown', (e) => {
     for (const opt of remoteRoutesSel.options) {
       if (opt.value) { remoteRoutesSel.value = opt.value; break; }
     }
-    if (remoteRoutesSel.value) document.getElementById('loadFromDB').click();
+    if (remoteRoutesSel.value) {
+      document.getElementById('loadFromDB').click();
+    } else if ((routeSearch.value||'').trim()) {
+      // якщо немає видимих результатів, але є текст у полі — спробуємо завантажити напряму (ID/rid/routeKey)
+      document.getElementById('loadFromDB').click();
+    }
   }
 });
 
