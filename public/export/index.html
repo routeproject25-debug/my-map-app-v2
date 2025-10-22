@@ -1259,6 +1259,14 @@ function parseSnap(snap){
       (d?.approval && 'comment' in d.approval ? (d.approval.comment || '') : '') ||
       (typeof d.comment === 'string' ? d.comment : '');
 
+    // Коротка форма назви: беремо частину до першої «•», щоб уникнути дублювань типу "… • Елеватор • Елеватор"
+    const shortByLabel = (lbl) => {
+      const s = String(lbl||'').trim();
+      if (!s) return '';
+      const i = s.indexOf('•');
+      return i>0 ? s.slice(0, i).trim() : s;
+    };
+
     rows.push({
       id: doc.id,
       routeKey: d.routeKey || '',
@@ -1267,8 +1275,8 @@ function parseSnap(snap){
       toCode: d.toCode||'',
       // Показ назв «Від/До»: спершу беремо з документа маршруту (fromLabel/toLabel),
       // а вже потім фолбеком з довідника за кодом. Так логіст побачить назви навіть без повного довідника.
-      fromName: (d.fromLabel || nameByCode(d.fromCode) || ''),
-      toName:   (d.toLabel   || nameByCode(d.toCode)   || ''),
+      fromName: (shortByLabel(d.fromLabel) || nameByCode(d.fromCode) || ''),
+      toName:   (shortByLabel(d.toLabel)   || nameByCode(d.toCode)   || ''),
       fromUnit: unitByCode(d.fromCode)||'',
       toUnit: unitByCode(d.toCode)||'',
       viaNames: viaArr.join(' • '),
