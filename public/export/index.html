@@ -1265,8 +1265,10 @@ function parseSnap(snap){
 	  hub: d.hub || '',
       fromCode: d.fromCode||'',
       toCode: d.toCode||'',
-      fromName: nameByCode(d.fromCode)||'',
-      toName: nameByCode(d.toCode)||'',
+      // Показ назв «Від/До»: спершу беремо з документа маршруту (fromLabel/toLabel),
+      // а вже потім фолбеком з довідника за кодом. Так логіст побачить назви навіть без повного довідника.
+      fromName: (d.fromLabel || nameByCode(d.fromCode) || ''),
+      toName:   (d.toLabel   || nameByCode(d.toCode)   || ''),
       fromUnit: unitByCode(d.fromCode)||'',
       toUnit: unitByCode(d.toCode)||'',
       viaNames: viaArr.join(' • '),

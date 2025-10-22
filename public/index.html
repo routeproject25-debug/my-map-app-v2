@@ -2627,6 +2627,17 @@ async function deleteFromDB() {
     const sel = document.getElementById('remoteRoutes');
     const id = sel.value;
     if (!id) { alert('Оберіть маршрут у списку'); return; }
+    // Додаткова перевірка доступу за хабом перед видаленням
+    try {
+      const snap = await db.collection('routes').doc(id).get();
+      if (snap.exists) {
+        const data = snap.data() || {};
+        if (!userAllowsHub(data.hub || '')) {
+          alert('⛔ У вас немає доступу до хабу цього маршруту: ' + (data.hub || '—'));
+          return;
+        }
+      }
+    } catch(_) { /* у разі помилки покладаймося на правила безпеки Firestore */ }
     if (!confirm(`Точно видалити маршрут "${id}"?`)) return;
 
     await db.collection('routes').doc(id).delete();
