@@ -3361,7 +3361,12 @@ window.addEventListener('load', async () => {
     DIR_LOADED_ONCE = true;
   }
   const rid = new URLSearchParams(location.search).get('rid');
-  if (rid) { await ensureRoutesLoaded(); await loadRouteById(rid); }
+  if (rid) {
+    // Для логіста ensureRoutesLoaded може впасти на правалах (широкий запит без фільтру по хабах)
+    // Не блокуємо відкриття маршруту за прямим ID — пробуємо завантажити його попри помилку списку
+    try { await ensureRoutesLoaded(); } catch (e) { console.warn('ensureRoutesLoaded skipped:', e?.message||e); }
+    await loadRouteById(rid);
+  }
   requestAnimationFrame(updateLayoutHeights);
 });
 
