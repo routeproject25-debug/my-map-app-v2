@@ -71,10 +71,11 @@
 
 <script>
 
-
 (async function(){
-  // ===== Публічна сторінка: без авторизації =====
+  // ===== Auth gate (redirect to /login.html unless public/guest allowed) =====
   const qs = new URLSearchParams(location.search);
+  const allowGuest = qs.has('guest') || qs.get('public') === '1';
+
   // Чекаємо на завантаження конфігу
   function waitForConfig(){
     return new Promise(resolve => {
@@ -89,7 +90,27 @@
   }
   await waitForConfig();
 
-  // Авторизація не потрібна, сторінка завжди доступна
+  if (!allowGuest) {
+    const CFG = window.APP_CONFIG.firebase;
+    try{
+      const app = firebase.apps?.length ? firebase.app() : firebase.initializeApp(CFG);
+      const auth = firebase.auth();
+      await new Promise((resolve) => {
+        auth.onAuthStateChanged(u => {
+          if (u) resolve();
+          else {
+            const next = encodeURIComponent(location.pathname + location.search);
+            location.replace(`/login.html?next=${next}`);
+          }
+        });
+      });
+    }catch(e){
+      const next = encodeURIComponent(location.pathname + location.search);
+      location.replace(`/login.html?next=${next}`);
+      return;
+    }
+  }
+  // ===== /Auth gate =====
 
   const MAPBOX_TOKEN = qs.get('token') || window.APP_CONFIG.mapboxToken || '';
   const PROFILE = qs.get('profile') || 'driving';
@@ -230,44 +251,6 @@
       map.addSource('route', { type:'geojson', data: routeGeoJSON });
       map.addLayer({ id:'route-line', type:'line', source:'route',
         paint:{ 'line-width':6, 'line-color':'#1d4ed8' } });
-    }
-    // Підсвічування геозон "від" і "до" як у index.html
-    if (routeGeoJSON.geometry && Array.isArray(routeGeoJSON.geometry.coordinates)) {
-      const coords = routeGeoJSON.geometry.coordinates;
-      if (coords.length >= 2 && map.getSource('geozones')) {
-        const start = coords[0];
-        const end = coords[coords.length - 1];
-        // Знайти полігони, що містять ці точки
-        function highlightGeozone(point, layerId, color) {
-          // Фільтр для шару: показати полігон, що містить точку
-          map.setFilter(layerId, ['within', { type: 'Point', coordinates: point }]);
-          map.setPaintProperty(layerId, 'fill-color', color);
-          map.setPaintProperty(layerId, 'fill-opacity', 0.45);
-        }
-        // Якщо шарів ще немає — створити
-        if (!map.getLayer('geozones-hl-from')) {
-          map.addLayer({
-            id: 'geozones-hl-from',
-            type: 'fill',
-            source: 'geozones',
-            filter: ['within', { type: 'Point', coordinates: start }],
-            paint: { 'fill-color': '#3b82f6', 'fill-opacity': 0.45 }
-          });
-        } else {
-          highlightGeozone(start, 'geozones-hl-from', '#3b82f6');
-        }
-        if (!map.getLayer('geozones-hl-to')) {
-          map.addLayer({
-            id: 'geozones-hl-to',
-            type: 'fill',
-            source: 'geozones',
-            filter: ['within', { type: 'Point', coordinates: end }],
-            paint: { 'fill-color': '#f43f5e', 'fill-opacity': 0.45 }
-          });
-        } else {
-          highlightGeozone(end, 'geozones-hl-to', '#f43f5e');
-        }
-      }
     }
     const bbox = turf.bbox(routeGeoJSON);
     map.fitBounds(bbox, { padding:{top:80, right:20, bottom:20, left:20} });
@@ -598,30 +581,28 @@
 
   map.on('style.load', applyUkrainianLabels);
 
-
   map.on('load', async ()=>{
-      // Тільки маршрут і функціонал карти, без tileset-геозон
-      try{
-        const { name, points, manualSegments: segs } = await loadRouteData();
-        document.getElementById('routeTitle').textContent = name;
-        manualSegments = Array.isArray(segs) ? segs : [];
+    try{
+      const { name, points, manualSegments: segs } = await loadRouteData();
+      document.getElementById('routeTitle').textContent = name;
+      manualSegments = Array.isArray(segs) ? segs : [];
 
-        const waypoints = clampWaypoints(points, 25);
-        try {
-          await fetchDirections(waypoints);
-        } catch (e) {
-          if (String(e.message || '').includes('422') && waypoints.length > 2) {
-            await fetchDirections([waypoints[0], waypoints[waypoints.length - 1]]);
-          } else { throw e; }
-        }
+      const waypoints = clampWaypoints(points, 25);
+      try {
+        await fetchDirections(waypoints);
+      } catch (e) {
+        if (String(e.message || '').includes('422') && waypoints.length > 2) {
+          await fetchDirections([waypoints[0], waypoints[waypoints.length - 1]]);
+        } else { throw e; }
+      }
 
-        addRouteToMap();
-        addManualToMap();
-        rebuildSnapFeatures();
+      addRouteToMap();
+      addManualToMap();
+      rebuildSnapFeatures();
 
-        if (AUTO_START) startNav();
-      }catch(e){ console.error(e); alert(e.message || e); }
-    });
+      if (AUTO_START) startNav();
+    }catch(e){ console.error(e); alert(e.message || e); }
+  });
 })();
 </script>
 </body>

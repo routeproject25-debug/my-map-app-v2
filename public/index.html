@@ -2740,7 +2740,8 @@ document.getElementById('clearForm').onclick = clearForm;
 
 // Коли користувач обрав маршрут у селекті — скасовуємо таймер пошуку і очищаємо індикатор,
 // щоб через 3 сек. UI не перезатирався пустим результатом
-remoteRoutesSel.addEventListener('change', () => {
+// Прив'язуємо слухач напряму до елемента, щоб уникнути звернення до змінної до її оголошення
+document.getElementById('remoteRoutes').addEventListener('change', () => {
   try { if (_rsTimer) { clearTimeout(_rsTimer); _rsTimer = null; } } catch {}
   routesSearchQ = '';
   updateRoutesFoundLabel('');
@@ -2776,7 +2777,8 @@ let routesFoundSoFar    = 0;      // лічильник знайдених (по
 function updateRoutesFoundLabel(n, hasMore){
   const el = document.getElementById('routesFound');
   if (!el) return;
-  if (n == null || n === 0){ el.textContent = ''; return; }
+  // Порожній рядок, null/undefined або 0 — прибираємо індикатор
+  if (n === '' || n == null || n === 0){ el.textContent = ''; return; }
   el.textContent = `Знайдено: ${n}${hasMore ? '+' : ''}`;
 }
 
