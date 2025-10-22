@@ -2538,8 +2538,10 @@ function renderRoutesDocs(docs){
       item.addEventListener('mouseleave', () => { item.style.background = 'transparent'; });
       item.addEventListener('mousedown', (ev) => {
         ev.preventDefault();
+        // Вибираємо маршрут, але НЕ завантажуємо автоматично
         sel.value = r.id;
-        document.getElementById('loadFromDB').click();
+        const input = document.getElementById('routeSearch');
+        if (input) input.value = r.label;
         // сховати попап після вибору
         popup.style.display = 'none';
       });
