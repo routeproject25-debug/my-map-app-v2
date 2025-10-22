@@ -2545,8 +2545,16 @@ function renderRoutesDocs(docs){
       });
       frag.appendChild(item);
     });
-    popup.appendChild(frag);
-    popup.style.display = 'block';
+    // перенесемо попап у body (портал) та спозиціонуємо під інпут
+    const bodyPopup = (function(){
+      if (popup.parentElement !== document.body) {
+        try { document.body.appendChild(popup); } catch(_) {}
+      }
+      return popup;
+    })();
+    bodyPopup.appendChild(frag);
+    positionRoutesPopup();
+    bodyPopup.style.display = 'block';
   } catch(_) {}
 }
 // Додає/оновлює опцію у <select id="remoteRoutes"> і одразу її обирає.
@@ -2948,6 +2956,30 @@ let routesSearchLastDoc = null;   // пагінація саме для преф
 let routesSearchDone    = true;
 let routesFoundSoFar    = 0;      // лічильник знайдених (поточний запит)
 
+// ===== Позиціювання попапу підказок поверх усіх контейнерів =====
+function __ensurePopupInBody(){
+  const el = document.getElementById('routesPopup');
+  if (!el) return null;
+  if (el.parentElement !== document.body){
+    try { document.body.appendChild(el); } catch(_) {}
+  }
+  return el;
+}
+function positionRoutesPopup(){
+  const popup = __ensurePopupInBody();
+  const input = document.getElementById('routeSearch');
+  if (!popup || !input) return;
+  const r = input.getBoundingClientRect();
+  popup.style.position = 'fixed';
+  popup.style.left = Math.round(r.left) + 'px';
+  popup.style.top  = Math.round(r.bottom + 4) + 'px';
+  popup.style.width = Math.round(r.width) + 'px';
+  popup.style.maxHeight = '40vh';
+  popup.style.zIndex = '10050'; // вище за панелі
+}
+window.addEventListener('resize', positionRoutesPopup);
+window.addEventListener('scroll', positionRoutesPopup, true);
+
 function updateRoutesFoundLabel(n, hasMore){
   const el = document.getElementById('routesFound');
   if (!el) return;
@@ -3172,7 +3204,10 @@ routeSearch.addEventListener('blur', () => {
 // При фокусі — якщо вже є результати, показати попап
 routeSearch.addEventListener('focus', () => {
   const popup = document.getElementById('routesPopup');
-  if (popup && (window.currentSearchResults||[]).length) popup.style.display = 'block';
+  if (popup && (window.currentSearchResults||[]).length){
+    positionRoutesPopup();
+    popup.style.display = 'block';
+  }
 });
 
 /* Load by ?rid= */
