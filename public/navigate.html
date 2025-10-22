@@ -15,6 +15,9 @@
   <!-- LZ-String (для srcz) -->
   <script src="https://cdn.jsdelivr.net/npm/lz-string@1.5.0/libs/lz-string.min.js"></script>
 
+  <!-- NoSleep.js (fallback для iOS/старих браузерів, якщо Wake Lock API недоступний) -->
+  <script src="https://cdn.jsdelivr.net/npm/nosleep.js@0.12.0/dist/NoSleep.min.js"></script>
+
   <!-- Firebase (auth) -->
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
@@ -29,7 +32,7 @@
     .title { font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
     .stats { display:flex; gap:8px; font-size:14px; color:#111; }
     .pill { background:#f3f4f6; border:1px solid var(--line); padding:4px 8px; border-radius:999px; }
-    .controls { margin-left:auto; display:flex; gap:8px; }
+  .controls { margin-left:auto; display:flex; gap:8px; }
     button { height:40px; padding:0 12px; border-radius:10px; border:1px solid var(--line); background:var(--card); cursor:pointer; font-weight:600; }
     .primary { background:var(--accent); color:#fff; border-color:#1d4ed8; }
     .fab { position:fixed; right:12px; bottom:12px; z-index:10; display:flex; flex-direction:column; gap:8px; }
@@ -59,6 +62,7 @@
       <button id="btnStart" class="primary">Старт</button>
       <button id="btnStop">Стоп</button>
       <button id="btnShare">Поділитися</button>
+      <button id="btnKeepAwake" title="Не гасити екран">Не гасити екран</button>
     </div>
   </div>
 
@@ -181,6 +185,7 @@
   const $toast = document.getElementById('toast');
   const $notice = document.getElementById('notice');
   const $recenter = document.getElementById('btnRecenter');
+  const $keepAwakeBtn = document.getElementById('btnKeepAwake');
 
   let routeGeoJSON = null;
   let manualSegments = [];
@@ -532,6 +537,55 @@
   document.getElementById('btnShare').onclick = shareLink;
   let noticeTimer = null;
 
+  // ===== Утримання екрана активним (Wake Lock + NoSleep fallback) =====
+  const KEEP_AWAKE_KEY = 'NAV_KEEP_AWAKE';
+  let keepAwakePref = (localStorage.getItem(KEEP_AWAKE_KEY) === '1');
+  let wakeLock = null;
+  let noSleep = null;
+
+  function updateKeepAwakeUI(){
+    if (!$keepAwakeBtn) return;
+    $keepAwakeBtn.textContent = keepAwakePref ? 'Екран: не вимикати' : 'Екран: авто';
+    $keepAwakeBtn.title = keepAwakePref ? 'Екран не гаситиметься (натисніть, щоб вимкнути)' : 'Дозволити не гасити екран під час навігації';
+  }
+  updateKeepAwakeUI();
+
+  async function requestWakeLock(){
+    try {
+      if ('wakeLock' in navigator && navigator.wakeLock?.request){
+        wakeLock = await navigator.wakeLock.request('screen');
+        wakeLock.addEventListener('release', () => {
+          // Якщо сторінка знову активна і опція увімкнена — переотримаємо лок
+          if (document.visibilityState === 'visible' && keepAwakePref){
+            requestWakeLock().catch(()=>{});
+          }
+        });
+      } else if (window.NoSleep){
+        if (!noSleep) noSleep = new NoSleep();
+        // У Safari потрібен жест користувача — викликатимемо із кліку Старт/кнопки
+        noSleep.enable();
+      }
+    } catch (e) {
+      console.warn('WakeLock error:', e?.message || e);
+    }
+  }
+  async function releaseWakeLock(){
+    try { if (wakeLock) { await wakeLock.release(); } } catch(_) {}
+    wakeLock = null;
+    try { if (noSleep) { noSleep.disable(); } } catch(_) {}
+  }
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && keepAwakePref) {
+      requestWakeLock().catch(()=>{});
+    }
+  });
+  $keepAwakeBtn.addEventListener('click', async () => {
+    keepAwakePref = !keepAwakePref;
+    localStorage.setItem(KEEP_AWAKE_KEY, keepAwakePref ? '1' : '0');
+    updateKeepAwakeUI();
+    if (keepAwakePref) await requestWakeLock(); else await releaseWakeLock();
+  });
+
   function startNav(){
     if (watchId!=null) return;
     if (!navigator.geolocation){ alert('Геолокація не підтримується браузером'); return; }
@@ -540,6 +594,9 @@
     noticeTimer = setTimeout(()=>{$notice.style.display='none';}, 4000);
 
     followHard = true; autoCenter = true; setFollowUI();
+
+    // Якщо користувач увімкнув "Не гасити екран" — намагаємось увімкнути лок зараз (є жест користувача)
+    if (keepAwakePref) { requestWakeLock().catch(()=>{}); }
 
     watchId = navigator.geolocation.watchPosition(
       onPosition, onPositionError,
