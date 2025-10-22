@@ -138,8 +138,12 @@
   // === GPS smoothing & snap ===
   const GPS_ACCURACY_MAX = 50;
   const SMOOTH_ALPHA_POS = 0.5;
-  const SMOOTH_ALPHA_HD  = 0.6;
+  const SMOOTH_ALPHA_HD  = 0.6; // для компасу/курсу
   const SNAP_MAX_METERS  = 40;
+  // Керування стабільністю камери, коли стоїмо на місці
+  const STATIONARY_SPEED_MPS = 0.7;           // нижче цього — вважаємо, що стоїмо
+  const MIN_MOVE_FOR_HEADING_M = 2.5;         // мінімальний рух, щоб оновлювати курс
+  const BEARING_DEADBAND_DEG = 8;             // «мертва зона» для дрібних коливань
 
   // === Voice timing ===
   const SPEAK_LOOKAHEAD_SEC = 8;
@@ -210,6 +214,7 @@
 
   let filteredPos = null;
   let filteredHeading = null;
+  let lastStableHeading = null; // курс, який передаємо в камеру
 
   let lastTs = null;
   let lastSpeedPos = null;
@@ -359,6 +364,18 @@
     return (bearing+360)%360;
   }
 
+  function normDeg(a){ a%=360; if (a<0) a+=360; return a; }
+  function angleDelta(a,b){
+    if (a==null||b==null) return 0;
+    let d = normDeg(a) - normDeg(b);
+    while (d>180) d-=360; while (d<-180) d+=360; return d;
+  }
+  function lerpAngle(from, to, alpha){
+    if (from==null) return to;
+    const d = angleDelta(to, from);
+    return normDeg(from + d * alpha);
+  }
+
   function updateCamera(centerLL, bearingDeg){
     if (!centerLL) return;
     const opts = {
@@ -435,7 +452,7 @@
   map.on('pitchstart',  ()=> { if (!followHard) autoCenter = false; });
   document.getElementById('btnRecenter').onclick = ()=>{
     followHard = !followHard; autoCenter = followHard; setFollowUI();
-    if (followHard && lastUserPos) updateCamera(lastUserPos, filteredHeading);
+    if (followHard && lastUserPos) updateCamera(lastUserPos, (lastStableHeading ?? filteredHeading));
   };
 
   function getNextStepByLocation(userLocKm){
@@ -479,13 +496,7 @@
 
     const gpsHeading = Number.isFinite(pos.coords.heading) ? pos.coords.heading : null;
     const headingInstant = gpsHeading != null ? gpsHeading : (lastUserPos ? computeHeading(lastUserPos, filteredPos) : null);
-    if (headingInstant != null){
-      filteredHeading = (filteredHeading == null)
-        ? headingInstant
-        : filteredHeading + (headingInstant - filteredHeading) * 0.6;
-    }
-    lastUserPos = filteredPos;
-
+    // Вирахуємо швидкість/рух
     const ts = (typeof pos.timestamp === 'number' ? pos.timestamp : Date.now());
     if (lastSpeedPos && lastTs){
       const dM = turf.distance(turf.point(lastSpeedPos), turf.point(filteredPos), {units:'kilometers'})*1000;
@@ -493,10 +504,25 @@
       const inst = Math.min(dM/dt, 90/3.6);
       speedMps = (1 - 0.5)*speedMps + 0.5*inst;
     }
+    const movedEnough = lastSpeedPos
+      ? turf.distance(turf.point(lastSpeedPos), turf.point(filteredPos), {units:'kilometers'})*1000 > MIN_MOVE_FOR_HEADING_M
+      : false;
+    const isMoving = (speedMps > STATIONARY_SPEED_MPS) && movedEnough;
+
+    if (headingInstant != null && isMoving){
+      filteredHeading = lerpAngle(filteredHeading, headingInstant, SMOOTH_ALPHA_HD);
+      // Оновлюємо стабільний курс лише коли рухаємося помітно
+      if (lastStableHeading == null) lastStableHeading = filteredHeading;
+      const diff = Math.abs(angleDelta(filteredHeading, lastStableHeading));
+      if (diff > BEARING_DEADBAND_DEG) lastStableHeading = filteredHeading;
+    }
+    lastUserPos = filteredPos;
     lastSpeedPos = filteredPos; lastTs = ts;
 
     ensureUserMarker(filteredPos[0], filteredPos[1]);
-    if (followHard || autoCenter) updateCamera(filteredPos, filteredHeading);
+  // Коли стоїмо — тримаємо попередній стабільний курс, щоб камера не "танцювала"
+  const bearingForCamera = lastStableHeading ?? filteredHeading;
+  if (followHard || autoCenter) updateCamera(filteredPos, bearingForCamera);
 
     if (routeGeoJSON){
       const snapKm = turf.nearestPointOnLine(routeGeoJSON, filteredPos, {units:'kilometers'});
