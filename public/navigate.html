@@ -350,12 +350,48 @@
 
   function ensureUserMarker(lng, lat){
     if (!userMarker){
+      // Стрілочка-навігатор як SVG (краща видимість, можна обертати)
       const el = document.createElement('div');
-      el.style.width='18px'; el.style.height='18px'; el.style.borderRadius='50%'; el.style.background='#10b981'; el.style.border='2px solid #fff'; el.style.boxShadow='0 0 0 2px rgba(16,185,129,.4)';
-      userMarker = new mapboxgl.Marker({element:el, rotationAlignment:'map'}).setLngLat([lng, lat]).addTo(map);
+      el.style.width = '40px';
+      el.style.height = '40px';
+      el.style.display = 'grid';
+      el.style.placeItems = 'center';
+      el.style.filter = 'drop-shadow(0 1px 2px rgba(0,0,0,.35))';
+      el.innerHTML = `
+        <svg width="32" height="32" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false">
+          <!-- білий контур для контрасту -->
+          <path d="M32 4 L44 40 L32 33 L20 40 Z" fill="#ffffff" opacity="0.95"/>
+          <!-- сама стрілка -->
+          <path d="M32 6 L42 38 L32 32 L22 38 Z" fill="#10b981"/>
+        </svg>`;
+      // Вирівнюємо як іконку по центру та дозволяємо обертання відносно вʼюпорта
+      userMarker = new mapboxgl.Marker({
+        element: el,
+        anchor: 'center',
+        rotationAlignment: 'viewport', // обертати незалежно від обертання карти
+        pitchAlignment: 'map'
+      }).setLngLat([lng, lat]).addTo(map);
     } else {
       userMarker.setLngLat([lng, lat]);
     }
+  }
+
+  // Обертання маркера за курсом руху (у градусах 0..360)
+  function setUserMarkerHeading(deg){
+    if (!userMarker) return;
+    if (deg==null || Number.isNaN(deg)) return;
+    try { userMarker.setRotation(((deg % 360) + 360) % 360); } catch(_){ /* Mapbox GL v2 підтримує setRotation */ }
+  }
+
+  // Обчислити напрямок лінії (маршруту/ручного сегмента) у точці поблизу LL
+  function bearingAlongLineAtPoint(lineFeature, ll){
+    try{
+      const snap = turf.nearestPointOnLine(lineFeature, ll, {units:'meters'});
+      const idx = Math.max(0, Math.min((snap.properties?.index ?? 0), lineFeature.geometry.coordinates.length - 2));
+      const a = lineFeature.geometry.coordinates[idx];
+      const b = lineFeature.geometry.coordinates[idx+1];
+      return (turf.bearing(turf.point(a), turf.point(b)) + 360) % 360;
+    }catch(_){ return null; }
   }
 
   function computeHeading(prev, curr){
@@ -520,9 +556,21 @@
     lastSpeedPos = filteredPos; lastTs = ts;
 
     ensureUserMarker(filteredPos[0], filteredPos[1]);
-  // Коли стоїмо — тримаємо попередній стабільний курс, щоб камера не "танцювала"
-  const bearingForCamera = lastStableHeading ?? filteredHeading;
-  if (followHard || autoCenter) updateCamera(filteredPos, bearingForCamera);
+
+    // Обчислюємо напрямок для маркера: спершу курс руху, якщо нема — напрямок лінії маршруту попереду
+    let headingForMarker = lastStableHeading ?? filteredHeading;
+    if (headingForMarker == null){
+      const near = nearestOnAnyLine(filteredPos);
+      if (near){
+        const feat = (near.which === 'route') ? routeGeoJSON : snapFeatures[near.idx];
+        headingForMarker = bearingAlongLineAtPoint(feat, filteredPos);
+      }
+    }
+    setUserMarkerHeading(headingForMarker);
+
+    // Коли стоїмо — тримаємо попередній стабільний курс, щоб камера не "танцювала"
+    const bearingForCamera = lastStableHeading ?? filteredHeading;
+    if (followHard || autoCenter) updateCamera(filteredPos, bearingForCamera);
 
     if (routeGeoJSON){
       const snapKm = turf.nearestPointOnLine(routeGeoJSON, filteredPos, {units:'kilometers'});
