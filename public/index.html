@@ -2750,6 +2750,7 @@ document.getElementById('remoteRoutes').addEventListener('change', () => {
   routesSearchQ = '';
   try { document.getElementById('routeSearch').value = ''; } catch {}
   updateRoutesFoundLabel('');
+  lockRoutesSelection();
 });
 
 /* Directory buttons */
@@ -2773,6 +2774,13 @@ document.getElementById('clearLogistsCache').onclick = () => {
 /* ===================== Search helper (оновлено) ===================== */
 const routeSearch       = document.getElementById('routeSearch');
 const remoteRoutesSel   = document.getElementById('remoteRoutes');
+
+// Блокування авто-скидання списку від асинхронних пошуків одразу після вибору в селекті
+let _routesSelectLock = false;
+function lockRoutesSelection(ms = 2500){
+  _routesSelectLock = true;
+  setTimeout(() => { _routesSelectLock = false; }, ms);
+}
 
 let routesSearchQ       = '';
 let routesSearchLastDoc = null;   // пагінація саме для префіксного пошуку
@@ -2807,6 +2815,7 @@ function scoreByPosition(rowNameLower, qLower){
  *  mode: 'reset' | 'next'
  */
 async function searchRoutes(q, mode='reset'){
+  if (_routesSelectLock) return; // не затираємо список одразу після вибору користувачем
   const qLower = String(q||'').trim().toLowerCase();
 
   if (mode === 'reset'){
