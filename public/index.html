@@ -424,7 +424,8 @@
       <input id="routeSearch" type="text" placeholder="🔎 Пошук маршруту..." list="routesList" autocomplete="off" />
       <datalist id="routesList"></datalist>
 
-      <select id="remoteRoutes" style="min-width:260px; margin-top:6px;">
+      <!-- select залишено в DOM для сумісності але приховано: логіка вибору переїхала у пошук + datalist -->
+      <select id="remoteRoutes" style="display:none; min-width:260px; margin-top:6px;">
         <option value="">— вибери маршрут з БД —</option>
       </select>
 
@@ -2419,6 +2420,9 @@ async function ensureRoutesLoaded(){
 function renderRoutesDocs(docs){
   const sel  = document.getElementById('remoteRoutes');
   const list = document.getElementById('routesList');
+  // store current search results for single-form selection
+  window.currentSearchResults = window.currentSearchResults || [];
+  const currentResults = [];
 
   if (sel.options.length === 0) {
     sel.innerHTML = '<option value="">— вибери маршрут з БД —</option>';
@@ -2447,8 +2451,12 @@ function renderRoutesDocs(docs){
 
     const sOpt = document.createElement('option');
     sOpt.value = label; list.appendChild(sOpt);
+    // collect results for single-form use
+    currentResults.push({ id: doc.id, label, data: d });
   });
 
+  // update global search results
+  window.currentSearchResults = currentResults;
   routesLoadedCount = Object.keys(routesLookup).length;
 }
 // Додає/оновлює опцію у <select id="remoteRoutes"> і одразу її обирає.
@@ -2554,6 +2562,11 @@ async function loadFromDB() {
     if (!db) { alert('БД не ініціалізована'); return; }
     const sel = document.getElementById('remoteRoutes');
     let id = sel.value;
+    // If there are current search results, prefer the first one
+    const cur = (window.currentSearchResults || []);
+    if ((!id || id === '') && cur.length) {
+      id = cur[0].id;
+    }
     // Фолбек: якщо в селекті нічого не обрано, але в полі пошуку є точний лейбл — знайдемо id
     if (!id) {
       const label = (document.getElementById('routeSearch')?.value || '').trim();
@@ -2803,6 +2816,7 @@ function resetRoutesUI(){
   document.getElementById('routesList').innerHTML = '';
   routesLoadedCount = 0;
   routesFoundSoFar = 0;
+  window.currentSearchResults = [];
   updateRoutesFoundLabel('');
 }
 
@@ -2973,7 +2987,15 @@ routeSearch.addEventListener('input', () => {
 // Enter = якщо щось знайшли — завантажуємо
 routeSearch.addEventListener('keydown', (e) => {
   if (e.key === 'Enter') {
-    // якщо в списку уже є якісь варіанти — ставимо перший і вантажимо
+    // якщо є результати пошуку — беремо перший і вантажимо його
+    const cur = (window.currentSearchResults || []);
+    if (cur.length) {
+      remoteRoutesSel.value = cur[0].id;
+      document.getElementById('loadFromDB').click();
+      e.preventDefault();
+      return;
+    }
+    // fallback: якщо в селекті уже є якісь варіанти — ставимо перший і вантажимо
     for (const opt of remoteRoutesSel.options) {
       if (opt.value) { remoteRoutesSel.value = opt.value; break; }
     }
