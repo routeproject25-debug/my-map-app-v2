@@ -143,6 +143,45 @@ app.get('/api/debug/env', (_req, res) => {
   res.json({ owner, hasToken, tokenPrefix });
 });
 
+// Telegram: безпечна відправка повідомлення про погодження маршруту
+app.post('/api/telegram/send-approval', async (req, res) => {
+  try{
+    const token  = process.env.TELEGRAM_BOT_TOKEN || process.env.TELEGRAM_TOKEN || '';
+    const chatId = process.env.TELEGRAM_CHAT_ID || process.env.TELEGRAM_CHANNEL_ID || '';
+    if (!token || !chatId){
+      return res.status(200).json({ ok: false, error: 'Telegram не налаштовано (зазначте TELEGRAM_BOT_TOKEN і TELEGRAM_CHAT_ID у .env)' });
+    }
+
+    const body = req.body || {};
+    const routeName = (body.routeName ? String(body.routeName) : 'Маршрут').slice(0, 200);
+    const routeId   = (body.routeId ? String(body.routeId) : '').slice(0, 120);
+    const reviewLink = (body.reviewLink && typeof body.reviewLink === 'string' && body.reviewLink.startsWith('http'))
+      ? body.reviewLink
+      : '';
+
+    // Формуємо HTML-повідомлення
+    let text = `🚦 Маршрут на погодження:\n${routeName}`;
+    if (reviewLink) text += `\n<a href="${reviewLink}">Маршрут</a>`;
+    else if (routeId) text += `\nID: ${routeId}`;
+
+    const url = `https://api.telegram.org/bot${token}/sendMessage`;
+    const params = new URLSearchParams({
+      chat_id: chatId,
+      text,
+      parse_mode: 'HTML'
+    });
+
+    const r = await _fetch(`${url}?${params.toString()}`);
+    const j = await r.json().catch(()=>({}));
+    if (!r.ok || !j || j.ok !== true){
+      return res.status(502).json({ ok:false, error: 'Telegram API error', status: r.status, body: j });
+    }
+    return res.json({ ok: true, message_id: j.result && j.result.message_id });
+  } catch(e){
+    return res.status(502).json({ ok:false, error: String(e && e.message || e) });
+  }
+});
+
 // явні сторінки
 app.get(['/', '/login', '/login.html'], (_req, res) =>
   res.sendFile(path.join(__dirname, 'public', 'login.html'))

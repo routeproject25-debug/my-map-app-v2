@@ -1,7 +1,27 @@
-@'
 {
   "firestore": {
     "indexes": "firestore.indexes.json"
+  },
+  "functions": {
+    "source": "functions"
+  },
+  "hosting": {
+    "public": "public",
+    "ignore": [
+      "firebase.json",
+      "**/.*",
+      "**/node_modules/**"
+    ],
+    "rewrites": [
+      { "source": "/api/telegram/send-approval", "function": "telegramSendApproval" },
+      { "source": "/", "destination": "/login.html" },
+      { "source": "/login", "destination": "/login.html" },
+      { "source": "/index", "destination": "/index.html" },
+      { "source": "/map", "destination": "/index.html" },
+      { "source": "/admin/tilesets", "destination": "/admin/tilesets.html" },
+      { "source": "/export", "destination": "/export/index.html" },
+      { "source": "/import", "destination": "/import/index.html" },
+      { "source": "**", "destination": "/login.html" }
+    ]
   }
 }
-'@ | Set-Content -Encoding utf8 firebase.json

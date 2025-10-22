@@ -1,23 +1,4 @@
-<!-- Telegram notification for approval -->
-<script>
-const telegramToken = "8491491118:AAGjgtnwh4wXLR0C6bQKKAD-w-95_G3tgL0";
-const chatId = "-4864467412";
-
-function sendTelegramApprovalMessage(routeName, routeId) {
-  if (!telegramToken || !chatId) return;
-  const url = `https://api.telegram.org/bot${telegramToken}/sendMessage`;
-  const reviewLink = reviewLinkForId(routeId);
-  // Використовуємо HTML форматування для клікабельного посилання
-  const text = `🚦 Маршрут на погодження:\n${routeName}\n<a href='${reviewLink}'>Маршрут</a>`;
-  fetch(`${url}?chat_id=${chatId}&text=${encodeURIComponent(text)}&parse_mode=HTML`)
-    .then(r => r.json())
-    .then(res => {
-      console.log('Telegram response:', res);
-      if (!res.ok) console.warn('Не вдалося надіслати повідомлення в Telegram:', res);
-    })
-    .catch(e => console.warn('Telegram fetch error:', e));
-}
-</script>
+<!-- Telegram notification is handled server-side to avoid exposing tokens -->
 <!DOCTYPE html>
 <html>
 <head>
@@ -604,6 +585,25 @@ const map = new mapboxgl.Map({ container: 'map', style: currentStyle, center: [2
 function hideSplash(){
   const s = document.getElementById('splash');
   if (s) { s.classList.add('hide'); setTimeout(() => s.remove(), 300); }
+}
+
+// Безпечна відправка повідомлення до Telegram через серверний endpoint
+function sendTelegramApprovalMessage(routeName, routeId){
+  try{
+    const reviewLink = (typeof reviewLinkForId === 'function') ? reviewLinkForId(routeId) : '';
+    fetch('/api/telegram/send-approval', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ routeName, routeId, reviewLink })
+    })
+    .then(r => r.json().catch(()=>({})))
+    .then(res => {
+      if (!res || res.ok !== true) console.warn('Telegram send failed:', res);
+    })
+    .catch(e => console.warn('Telegram request error:', e));
+  } catch(e){
+    console.warn('Telegram send error:', e);
+  }
 }
 
 /* ==== MULTI TILESETS CONFIG (зовнішній файл) ==== */
