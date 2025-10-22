@@ -591,7 +591,11 @@ function hideSplash(){
 function sendTelegramApprovalMessage(routeName, routeId){
   try{
     const reviewLink = (typeof reviewLinkForId === 'function') ? reviewLinkForId(routeId) : '';
-    fetch('/api/telegram/send-approval', {
+    const endpoint = (window.APP_CONFIG && window.APP_CONFIG.telegramEndpoint)
+      ? String(window.APP_CONFIG.telegramEndpoint)
+      : '/api/telegram/send-approval'; // fallback to local/Firebase server if configured
+
+    fetch(endpoint, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ routeName, routeId, reviewLink })

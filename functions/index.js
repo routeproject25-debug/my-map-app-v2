@@ -1,15 +1,20 @@
 // Cloud Function to send Telegram approval message without exposing secrets
 const { onRequest } = require('firebase-functions/v2/https');
+const { defineSecret } = require('firebase-functions/params');
 
-exports.telegramSendApproval = onRequest({ cors: true }, async (req, res) => {
+// Declare secrets (must be set via `firebase functions:secrets:set ...`)
+const TELEGRAM_BOT_TOKEN = defineSecret('TELEGRAM_BOT_TOKEN');
+const TELEGRAM_CHAT_ID = defineSecret('TELEGRAM_CHAT_ID');
+
+exports.telegramSendApproval = onRequest({ cors: true, secrets: [TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID] }, async (req, res) => {
   try {
     if (req.method !== 'POST') {
       res.set('Allow', 'POST');
       return res.status(405).json({ ok: false, error: 'Method Not Allowed' });
     }
 
-    const token = process.env.TELEGRAM_BOT_TOKEN || '';
-    const chatId = process.env.TELEGRAM_CHAT_ID || '';
+    const token = TELEGRAM_BOT_TOKEN.value() || '';
+    const chatId = TELEGRAM_CHAT_ID.value() || '';
     if (!token || !chatId) {
       return res.status(200).json({ ok: false, error: 'Telegram not configured' });
     }

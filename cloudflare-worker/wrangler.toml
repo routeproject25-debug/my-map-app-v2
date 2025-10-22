@@ -1,0 +1,5 @@
+name = "route-telegram-endpoint"
+main = "src/worker.js"
+compatibility_date = "2024-10-01"
+
+# After deploy you'll get a *.workers.dev URL unless you bind a custom domain.

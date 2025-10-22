@@ -10,6 +10,9 @@
       appId: "1:953368824279:web:68d28c2fd40292c13ee392",
       measurementId: "G-B6B2JK7BXE"
     },
-    mapboxToken: "pk.eyJ1Ijoicm91dGUtcHJvamVjdCIsImEiOiJjbWc2YW92dHQwYXAzMmpyMnk0bXVuaWZmIn0.RCbWRVvqx6q9skCB-rv5pA"
+    mapboxToken: "pk.eyJ1Ijoicm91dGUtcHJvamVjdCIsImEiOiJjbWc2YW92dHQwYXAzMmpyMnk0bXVuaWZmIn0.RCbWRVvqx6q9skCB-rv5pA",
+    // Optional: set to your Cloudflare Worker URL + "/send-approval" to send Telegram messages online
+    // Example: "https://route-telegram-endpoint.<account>.workers.dev/send-approval"
+    telegramEndpoint: ""
   });
 })();
