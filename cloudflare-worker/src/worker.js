@@ -1,13 +1,31 @@
+function parseAllowedOrigins(env){
+  // Support ALLOWED_ORIGINS as JSON array or comma-separated string; fallback to ALLOWED_ORIGIN
+  const raw = env.ALLOWED_ORIGINS || env.ALLOWED_ORIGIN || '*';
+  if (raw === '*') return '*';
+  try{
+    const j = JSON.parse(raw);
+    if (Array.isArray(j)) return new Set(j.map(String));
+  }catch(_){ /* not JSON */ }
+  return new Set(String(raw).split(',').map(s=>s.trim()).filter(Boolean));
+}
+
+function buildCorsHeaders(request, allowed){
+  const origin = request.headers.get('Origin') || '';
+  const base = {
+    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+    'Access-Control-Max-Age': '86400',
+  };
+  if (allowed === '*') return { ...base, 'Access-Control-Allow-Origin': '*' };
+  const isAllowed = origin && allowed.has(origin);
+  return { ...base, 'Access-Control-Allow-Origin': isAllowed ? origin : 'null' };
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
-
-    const corsHeaders = {
-      'Access-Control-Allow-Origin': env.ALLOWED_ORIGIN || '*',
-      'Access-Control-Allow-Methods': 'POST, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-      'Access-Control-Max-Age': '86400',
-    };
+    const allowed = parseAllowedOrigins(env);
+    const corsHeaders = buildCorsHeaders(request, allowed);
 
     if (request.method === 'OPTIONS') {
       return new Response(null, { status: 204, headers: corsHeaders });
@@ -24,6 +42,14 @@ export default {
       return new Response(JSON.stringify({ ok: false, error: 'Method Not Allowed' }), {
         status: 405,
         headers: { 'content-type': 'application/json', ...corsHeaders, 'Allow': 'POST, OPTIONS' },
+      });
+    }
+
+    // Enforce origin if a list is configured
+    if (allowed !== '*' && corsHeaders['Access-Control-Allow-Origin'] === 'null'){
+      return new Response(JSON.stringify({ ok:false, error:'Origin not allowed' }), {
+        status: 403,
+        headers: { 'content-type': 'application/json', ...corsHeaders },
       });
     }
 

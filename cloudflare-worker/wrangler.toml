@@ -4,4 +4,5 @@ compatibility_date = "2024-10-01"
 
 # After deploy you'll get a *.workers.dev URL unless you bind a custom domain.
 [vars]
-ALLOWED_ORIGIN = "https://my-map-app-v2.onrender.com"
+# Prefer ALLOWED_ORIGINS as JSON array (or comma-separated string). Example below allows prod + localhost dev.
+ALLOWED_ORIGINS = "[\"https://my-map-app-v2.onrender.com\",\"http://localhost:3000\"]"

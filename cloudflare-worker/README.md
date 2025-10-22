@@ -23,7 +23,7 @@ wrangler secret put TELEGRAM_BOT_TOKEN
 wrangler secret put TELEGRAM_CHAT_ID
 ```
 
-3) (Optional) set allowed origin in wrangler.toml
+3) (Optional) set allowed origins in wrangler.toml
 
 ```toml
 name = "route-telegram-endpoint"
@@ -31,7 +31,8 @@ main = "src/worker.js"
 compatibility_date = "2024-10-01"
 
 [vars]
-ALLOWED_ORIGIN = "*" # or your site URL e.g. https://my-map-app.web.app
+# Allow specific origins (JSON array or comma-separated). Example: prod + localhost
+ALLOWED_ORIGINS = "[\"https://my-site.example\",\"http://localhost:3000\"]"
 ```
 
 4) Deploy
