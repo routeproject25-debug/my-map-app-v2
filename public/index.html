@@ -2549,8 +2549,16 @@ async function loadFromDB() {
   try {
     if (!db) { alert('БД не ініціалізована'); return; }
     const sel = document.getElementById('remoteRoutes');
-    const id = sel.value;
-    if (!id) { alert('Оберіть маршрут у списку'); return; }
+    let id = sel.value;
+    // Фолбек: якщо в селекті нічого не обрано, але в полі пошуку є точний лейбл — знайдемо id
+    if (!id) {
+      const label = (document.getElementById('routeSearch')?.value || '').trim();
+      if (label) {
+        const mapped = routesLookup[label];
+        if (mapped) { id = mapped; sel.value = id; }
+      }
+    }
+    if (!id) { alert('Оберіть маршрут у списку або виберіть зі списку підказок пошуку'); return; }
 
     const docRef = db.collection('routes').doc(id);
     const docSnap = await docRef.get();
@@ -2729,6 +2737,14 @@ document.getElementById('loadAllRoutes').onclick  = () => loadAllRoutes();
 document.getElementById('loadFromDB').onclick = loadFromDB;
 document.getElementById('deleteFromDB').onclick = deleteFromDB;
 document.getElementById('clearForm').onclick = clearForm;
+
+// Коли користувач обрав маршрут у селекті — скасовуємо таймер пошуку і очищаємо індикатор,
+// щоб через 3 сек. UI не перезатирався пустим результатом
+remoteRoutesSel.addEventListener('change', () => {
+  try { if (_rsTimer) { clearTimeout(_rsTimer); _rsTimer = null; } } catch {}
+  routesSearchQ = '';
+  updateRoutesFoundLabel('');
+});
 
 /* Directory buttons */
 document.getElementById('refreshDirectory').onclick = () => loadDirectory(true);
