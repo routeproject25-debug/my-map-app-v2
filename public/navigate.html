@@ -35,8 +35,11 @@
   .controls { margin-left:auto; display:flex; gap:8px; }
     button { height:40px; padding:0 12px; border-radius:10px; border:1px solid var(--line); background:var(--card); cursor:pointer; font-weight:600; }
     .primary { background:var(--accent); color:#fff; border-color:#1d4ed8; }
-    .fab { position:fixed; right:12px; bottom:12px; z-index:10; display:flex; flex-direction:column; gap:8px; }
-    .fab button { background:#fff; width:48px; height:48px; border-radius:12px; box-shadow:0 2px 10px rgba(0,0,0,.15); border:1px solid var(--line); }
+  .fab { position:fixed; right:12px; bottom:calc(env(safe-area-inset-bottom) + 12px); z-index:10040; display:flex; flex-direction:column; gap:8px; align-items:flex-end; }
+  .fab button { background:#fff; width:48px; height:48px; border-radius:12px; box-shadow:0 2px 10px rgba(0,0,0,.15); border:1px solid var(--line); }
+  .fab .fab-menu{ display:none; position:relative; }
+  .fab.open .fab-menu{ display:flex; flex-direction:column; gap:8px; }
+  .fab #fabToggle{ font-size:20px; }
     .toast { position:fixed; left:50%; transform:translateX(-50%); bottom:24px; background:#111; color:#fff; padding:10px 14px; border-radius:10px; display:none; z-index:20; }
     .notice{
       position:fixed; left:12px; right:12px;
@@ -66,8 +69,12 @@
     </div>
   </div>
 
-  <div class="fab">
-    <button id="btnRecenter" title="Стеження: увімкнено">🔒</button>
+  <div class="fab" id="fab">
+    <div class="fab-menu" id="fabMenu">
+      <button id="btnRecenter" title="Стеження: увімкнено">🔒</button>
+      <button id="fabKeepAwake" title="Не гасити екран">💡</button>
+    </div>
+    <button id="fabToggle" title="Дії">⋮</button>
   </div>
 
   <div class="toast" id="toast">Скопійовано</div>
@@ -185,7 +192,11 @@
   const $toast = document.getElementById('toast');
   const $notice = document.getElementById('notice');
   const $recenter = document.getElementById('btnRecenter');
+  const $fab = document.getElementById('fab');
+  const $fabToggle = document.getElementById('fabToggle');
+  const $fabMenu = document.getElementById('fabMenu');
   const $keepAwakeBtn = document.getElementById('btnKeepAwake');
+  const $keepAwakeFab = document.getElementById('fabKeepAwake');
 
   let routeGeoJSON = null;
   let manualSegments = [];
@@ -544,9 +555,14 @@
   let noSleep = null;
 
   function updateKeepAwakeUI(){
-    if (!$keepAwakeBtn) return;
-    $keepAwakeBtn.textContent = keepAwakePref ? 'Екран: не вимикати' : 'Екран: авто';
-    $keepAwakeBtn.title = keepAwakePref ? 'Екран не гаситиметься (натисніть, щоб вимкнути)' : 'Дозволити не гасити екран під час навігації';
+    if ($keepAwakeBtn){
+      $keepAwakeBtn.textContent = keepAwakePref ? 'Екран: не вимикати' : 'Екран: авто';
+      $keepAwakeBtn.title = keepAwakePref ? 'Екран не гаситиметься (натисніть, щоб вимкнути)' : 'Дозволити не гасити екран під час навігації';
+    }
+    if ($keepAwakeFab){
+      $keepAwakeFab.textContent = keepAwakePref ? '💡' : '🌙';
+      $keepAwakeFab.title = keepAwakePref ? 'Екран не гаситиметься' : 'Дозволити не гасити екран';
+    }
   }
   updateKeepAwakeUI();
 
@@ -579,12 +595,28 @@
       requestWakeLock().catch(()=>{});
     }
   });
-  $keepAwakeBtn.addEventListener('click', async () => {
+  async function toggleKeepAwake(){
     keepAwakePref = !keepAwakePref;
     localStorage.setItem(KEEP_AWAKE_KEY, keepAwakePref ? '1' : '0');
     updateKeepAwakeUI();
     if (keepAwakePref) await requestWakeLock(); else await releaseWakeLock();
-  });
+  }
+  if ($keepAwakeBtn) $keepAwakeBtn.addEventListener('click', toggleKeepAwake);
+  if ($keepAwakeFab) $keepAwakeFab.addEventListener('click', toggleKeepAwake);
+
+  // FAB: open/close
+  function closeFabSoon(){ setTimeout(()=>{ if ($fab) $fab.classList.remove('open'); }, 2000); }
+  if ($fabToggle){
+    $fabToggle.addEventListener('click', () => {
+      if ($fab) $fab.classList.toggle('open');
+      if ($fab?.classList.contains('open')) closeFabSoon();
+    });
+  }
+  // Закриваємо при кліку поза меню
+  document.addEventListener('click', (e) => {
+    if (!$fab) return;
+    if (!$fab.contains(e.target)) $fab.classList.remove('open');
+  }, true);
 
   function startNav(){
     if (watchId!=null) return;
