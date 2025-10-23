@@ -353,6 +353,7 @@
   const MAX_SPEED_MPS = 90/3.6;
 
   let snapFeatures = [];
+  let markerHeading = null; // згладжений курс для візуалізації стрілки
 
   let uaVoice = null;
   function pickUkrainianVoice() {
@@ -482,15 +483,15 @@
     if (!userMarker){
       // Стрілочка-навігатор як SVG (краща видимість, можна обертати)
       const el = document.createElement('div');
-  el.style.width = '72px';
-  el.style.height = '72px';
+  el.style.width = '90px';
+  el.style.height = '90px';
       el.style.display = 'grid';
       el.style.placeItems = 'center';
       el.style.position = 'relative';
       el.style.pointerEvents = 'none';
       el.style.filter = 'drop-shadow(0 1px 2px rgba(0,0,0,.35))';
       el.innerHTML = `
-  <svg width="60" height="60" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false">
+  <svg width="75" height="75" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false">
           <!-- білий контур для контрасту -->
           <path d="M32 4 L44 40 L32 33 L20 40 Z" fill="#ffffff" opacity="0.95"/>
           <!-- сама стрілка -->
@@ -523,6 +524,20 @@
       const a = lineFeature.geometry.coordinates[idx];
       const b = lineFeature.geometry.coordinates[idx+1];
       return (turf.bearing(turf.point(a), turf.point(b)) + 360) % 360;
+    }catch(_){ return null; }
+  }
+
+  // Напрямок маршруту (routeGeoJSON) у точці поблизу LL, з використанням відстані вздовж лінії (більш стабільний напрямок)
+  function bearingAlongRouteAtLL(ll){
+    if (!routeGeoJSON) return null;
+    try{
+      const snap = turf.nearestPointOnLine(routeGeoJSON, ll, {units:'kilometers'});
+      const locKm = snap?.properties?.location;
+      if (typeof locKm !== 'number' || !Number.isFinite(locKm)) return null;
+      const delta = Math.max(0.01, Math.min(0.05, Math.max(speedMps*0.02, 0.02))); // 10–50 м залежно від швидкості
+      const p1 = turf.along(routeGeoJSON, Math.max(0, locKm - delta));
+      const p2 = turf.along(routeGeoJSON, Math.min(routeLengthKm, locKm + delta));
+      return (turf.bearing(p1, p2) + 360) % 360;
     }catch(_){ return null; }
   }
 
@@ -694,9 +709,14 @@
       onLine = snap.coord; snappedKind = snap.which;
     }
 
+    // Динамічне згладжування позиції: сильніше прилипання до маршруту на різких поворотах
+    let routeDirHere = null;
+    if (routeGeoJSON) routeDirHere = bearingAlongRouteAtLL(onLine) ?? null;
+    const smoothAlphaPos = (routeDirHere != null && filteredHeading != null && Math.abs(angleDelta(routeDirHere, filteredHeading)) > 30)
+      ? 0.7 : 0.5;
     filteredPos = filteredPos
-      ? [ filteredPos[0] + (onLine[0] - filteredPos[0]) * 0.5,
-          filteredPos[1] + (onLine[1] - filteredPos[1]) * 0.5 ]
+      ? [ filteredPos[0] + (onLine[0] - filteredPos[0]) * smoothAlphaPos,
+          filteredPos[1] + (onLine[1] - filteredPos[1]) * smoothAlphaPos ]
       : onLine;
 
     const gpsHeading = Number.isFinite(pos.coords.heading) ? pos.coords.heading : null;
@@ -740,16 +760,20 @@
 
     ensureUserMarker(filteredPos[0], filteredPos[1]);
 
-    // Обчислюємо напрямок для маркера: спершу курс руху, якщо нема — напрямок лінії маршруту попереду
-    let headingForMarker = lastStableHeading ?? filteredHeading;
-    if (headingForMarker == null){
-      const near = nearestOnAnyLine(filteredPos);
-      if (near){
-        const feat = (near.which === 'route') ? routeGeoJSON : snapFeatures[near.idx];
-        headingForMarker = bearingAlongLineAtPoint(feat, filteredPos);
-      }
+    // Обчислюємо напрямок для маркера: перевага напряму маршруту при великих розбіжностях/на малих швидкостях
+    const near = nearestOnAnyLine(filteredPos);
+    const routeBearing = (near && near.which === 'route') ? (bearingAlongRouteAtLL(filteredPos) ?? null) : null;
+    const lineBearing  = (near && near.which !== 'route') ? (bearingAlongLineAtPoint(snapFeatures[near.idx], filteredPos) ?? null) : null;
+    const pathBearing  = routeBearing ?? lineBearing;
+    let headingForMarker = filteredHeading ?? lastStableHeading ?? pathBearing;
+    if (pathBearing != null){
+      const dev = Math.abs(angleDelta(headingForMarker ?? pathBearing, pathBearing));
+      const preferPath = !isMoving || dev > 35;
+      if (preferPath) headingForMarker = pathBearing;
     }
-    setUserMarkerHeading(headingForMarker);
+    // Згладжуємо окремо візуальний курс маркера, щоб уникати "смикань"
+    markerHeading = lerpAngle(markerHeading, headingForMarker ?? markerHeading, 0.35);
+    setUserMarkerHeading(markerHeading ?? headingForMarker);
 
     // Коли стоїмо — тримаємо попередній стабільний курс, щоб камера не "танцювала"
     const bearingForCamera = lastStableHeading ?? filteredHeading;
