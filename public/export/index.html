@@ -1530,6 +1530,8 @@ async function buildNavigatePayloadById(routeId, prettyName){
 function buildNavigateURLFromPayload(payloadObj){
   const base = `${location.origin}${NAVIGATE_PAGE}`;
   const q = new URLSearchParams();
+  // Додаємо прапорець публічного доступу, щоб navigate.html не вимагав авторизації
+  q.set('public', '1');
   try { const json = JSON.stringify(payloadObj); const srcz = LZString.compressToEncodedURIComponent(json); q.set('srcz', srcz); } catch(e){ console.warn('Compression failed:', e); }
   try { q.set('src', b64encodeUtf8(payloadObj)); } catch(e){}
   return `${base}?${q.toString()}`;
