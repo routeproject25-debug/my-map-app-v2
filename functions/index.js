@@ -135,3 +135,45 @@ exports.saveRoute = onRequest({ cors: true }, async (req, res) => {
     return res.status(500).json({ ok:false, error: String(e && e.message || e) });
   }
 });
+
+// Approve/Reject route (server-side, role: admin|security)
+exports.approveRoute = onRequest({ cors: true }, async (req, res) => {
+  try{
+    if (req.method !== 'POST'){
+      res.set('Allow','POST');
+      return res.status(405).json({ ok:false, error:'Method Not Allowed' });
+    }
+
+    const auth = await verifyAuth(req);
+    const { role } = await getUserAccess(auth.uid);
+    const isReviewer = role === 'admin' || role === 'security';
+    if (!isReviewer) return res.status(403).json({ ok:false, error:'forbidden' });
+
+    const body = req.body || {};
+    const id = String(body.id || '').trim();
+    const decision = String(body.decision || '').toLowerCase(); // 'approved' | 'rejected'
+    const comment = (body.comment == null) ? null : String(body.comment || '');
+    if (!id) return res.status(400).json({ ok:false, error:'Missing id' });
+    if (!['approved','rejected'].includes(decision)) return res.status(400).json({ ok:false, error:'Invalid decision' });
+
+    const db = admin.firestore();
+    const ref = db.collection('routes').doc(id);
+    const nowIso = new Date().toISOString();
+    const payload = {
+      approval: {
+        status: decision,
+        decisionAt: nowIso,
+        decidedByUid: auth.uid,
+        decidedByEmail: auth.email || null,
+        comment: decision === 'rejected' ? (comment || '') : null
+      },
+      updatedAt: nowIso
+    };
+    await ref.set(payload, { merge:true });
+    return res.json({ ok:true, id, status: decision });
+  }catch(e){
+    const code = e && e.code ? String(e.code) : undefined;
+    if (code === 'unauthenticated') return res.status(401).json({ ok:false, error:'unauthenticated' });
+    return res.status(500).json({ ok:false, error: String(e && e.message || e) });
+  }
+});

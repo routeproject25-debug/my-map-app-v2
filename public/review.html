@@ -485,8 +485,9 @@ function drawManualSegments(d){
       alert('Недостатньо прав для цієї дії.');
       return;
     }
-	    const decided = ['approved','rejected'].includes(String(window.__lastStatus||'').toLowerCase());
+    const decided = ['approved','rejected'].includes(String(window.__lastStatus||'').toLowerCase());
     if (decided){ alert('Рішення вже прийнято. Оновіть сторінку.'); return; }
+
     const approveBtn = document.getElementById('approveBtn');
     const rejectBtn  = document.getElementById('rejectBtn');
     approveBtn.disabled = true; rejectBtn.disabled = true;
@@ -494,20 +495,49 @@ function drawManualSegments(d){
     const ref = db.collection('routes').doc(rid);
     const payload = {
       approval: {
-        status: kind, // 'approved' | 'rejected'
-        decisionAt: new Date().toISOString(),   // не міняємо формат (узгоджено з export)
+        status: kind,
+        decisionAt: new Date().toISOString(),
         decidedByUid: user?.uid || null,
         decidedByEmail: user?.email || null,
         comment: kind === 'approved' ? null : (comment || '')
       },
       updatedAt: new Date().toISOString()
     };
-    await ref.set(payload, { merge:true });
+    try{
+      await ref.set(payload, { merge:true });
+    }catch(e){
+      // Якщо заборонено правилами — використовуємо серверний fallback
+      const code = (e && e.code) || (e && e.message) || '';
+      if (String(code).includes('permission') || String(code).includes('denied')){
+        try{
+          const token = await auth.currentUser.getIdToken();
+          const body = { id: rid, decision: kind, comment: (comment || '') };
+          const r = await fetch('/api/routes/approve', {
+            method:'POST', headers:{ 'Content-Type':'application/json', 'Authorization': 'Bearer ' + token }, body: JSON.stringify(body)
+          });
+          if (!r.ok){
+            const txt = await r.text().catch(()=> '');
+            throw new Error('Server approve failed: ' + txt);
+          }
+        }catch(err){
+          console.error('Approve fallback error', err);
+          alert('Не вдалося зберегти рішення: ' + (err?.message || err));
+          approveBtn.disabled = false; rejectBtn.disabled = false;
+          return;
+        }
+      } else {
+        console.error('Approve error', e);
+        alert('Помилка збереження: ' + (e?.message || e));
+        approveBtn.disabled = false; rejectBtn.disabled = false;
+        return;
+      }
+    }
+
     await loadRouteAndRender();
     alert(kind === 'approved' ? 'Погоджено ✅' : 'Відхилено ❌');
     document.getElementById('rejectWrap').style.display = 'none';
     document.getElementById('rejectComment').value = '';
-	approveBtn.disabled = false; rejectBtn.disabled = false;
+    approveBtn.disabled = false; rejectBtn.disabled = false;
   }
 
   // === Нижній onAuthStateChanged: UI та дані, роль уже в window.__userRole ===
