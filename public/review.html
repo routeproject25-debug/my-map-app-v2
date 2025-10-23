@@ -533,7 +533,24 @@ function drawManualSegments(d){
       }
     }
 
-    await loadRouteAndRender();
+    // Оптимістичне оновлення UI: сховати кнопки, оновити чіп статусу, щоб не було відчуття, що нічого не змінилось
+    try{
+      window.__lastStatus = kind;
+      document.getElementById('secButtons').style.display = 'none';
+      document.getElementById('chipStatus').textContent = 'Статус: ' + (kind==='approved' ? 'Погоджено' : 'Відхилено');
+    }catch(_){ }
+
+    // Після запису підвантажуємо документ із сервера з невеликим повтором (щоб дочекатися консистентності)
+    const tryReload = async (tries=3)=>{
+      for (let i=0;i<tries;i++){
+        await loadRouteAndRender();
+        if (String(window.__lastStatus||'').toLowerCase() === String(kind)) return true;
+        await new Promise(r=>setTimeout(r, 300));
+      }
+      return false;
+    };
+    await tryReload(4);
+
     alert(kind === 'approved' ? 'Погоджено ✅' : 'Відхилено ❌');
     document.getElementById('rejectWrap').style.display = 'none';
     document.getElementById('rejectComment').value = '';
