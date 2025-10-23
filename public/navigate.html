@@ -499,23 +499,16 @@
 
   function ensureUserMarker(lng, lat){
     if (!userMarker){
-      // Стрілочка-навігатор як SVG (краща видимість, можна обертати)
+      // Повертаємо простий помаранчевий кружок позиції
       const el = document.createElement('div');
-  el.style.width = '110px';
-  el.style.height = '110px';
-      el.style.display = 'grid';
-      el.style.placeItems = 'center';
-      el.style.position = 'relative';
+      el.style.width = '24px';
+      el.style.height = '24px';
+      el.style.borderRadius = '50%';
+      el.style.background = '#ffffff';
+      el.style.border = '4px solid #f59e0b'; /* orange-500 */
+      el.style.boxShadow = '0 0 0 6px rgba(245,158,11,.22), 0 2px 8px rgba(0,0,0,.25)';
       el.style.pointerEvents = 'none';
-      el.style.filter = 'drop-shadow(0 1px 2px rgba(0,0,0,.35))';
-      el.innerHTML = `
-  <svg width="92" height="92" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false">
-          <!-- білий контур для контрасту -->
-          <path d="M32 3 L46 42 L32 34 L18 42 Z" fill="#ffffff" opacity="0.98"/>
-          <!-- сама стрілка -->
-          <path d="M32 6 L43 38 L32 32 L21 38 Z" fill="#10b981"/>
-        </svg>`;
-      // Вирівнюємо як іконку по центру та дозволяємо обертання відносно вʼюпорта
+      // Вирівнюємо як іконку по центру
       userMarker = new mapboxgl.Marker({
         element: el,
         anchor: 'center',
