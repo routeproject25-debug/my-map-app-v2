@@ -76,6 +76,12 @@
     }
     .turn-badge:active{ cursor:grabbing; }
     .turn-badge .turn-arrow{ width:38px; height:38px; transform-origin:50% 50%; transition: transform .15s ease; }
+    .turn-badge .turn-dist{
+      position:absolute; top:calc(100% + 4px); left:50%; transform:translateX(-50%);
+      background:#fff; color:#111; border:1px solid var(--line); border-radius:10px;
+      padding:2px 6px; font-weight:800; font-size:12px; line-height:1; white-space:nowrap;
+      box-shadow:0 1px 4px rgba(0,0,0,.12); user-select:none;
+    }
   </style>
 </head>
 <body>
@@ -113,6 +119,7 @@
       <path fill="#111827" d="M32 6 L50 26 L38 26 L38 50 L26 50 L26 26 L14 26 Z"/>
     </svg>
     <span id="turnText" style="display:none; font-size:20px; line-height:1">↑</span>
+    <div id="turnDist" class="turn-dist" aria-label="Відстань до маневру" style="display:none">—</div>
   </div>
 
 <script>
@@ -241,6 +248,7 @@
   const $turnBadge = document.getElementById('turnBadge');
   const $turnArrow = $turnBadge ? $turnBadge.querySelector('#turnArrow') : null;
   const $turnText  = $turnBadge ? $turnBadge.querySelector('#turnText') : null;
+  const $turnDist  = $turnBadge ? $turnBadge.querySelector('#turnDist') : null;
 
   // ініціалізація перетягування бейджа швидкості
   const SPEED_POS_KEY = 'NAV_SPEED_BADGE_POS';
@@ -607,6 +615,19 @@
     }
   }
 
+  function formatDistanceShort(m){
+    if (!Number.isFinite(m) || m < 0) return '—';
+    if (m < 1000) return `${Math.round(m)} м`;
+    const km = m / 1000;
+    return `${km.toFixed(km < 10 ? 1 : 0)} км`;
+  }
+  function updateTurnDistance(m){
+    if (!$turnDist) return;
+    if (!Number.isFinite(m)) { $turnDist.style.display='none'; return; }
+    $turnDist.textContent = formatDistanceShort(m);
+    $turnDist.style.display = 'block';
+  }
+
   let spoken = { idx: -1, early: false, now: false };
   function resetSpokenFor(idx){ spoken = { idx, early:false, now:false }; }
 
@@ -806,6 +827,7 @@
         $eta.textContent = `ETA ${secondsToETA(etaSec)}`;
         // Оновлюємо ярличок наступного маневру (плаваючий)
         updateTurnBadge(descriptorForStep(next));
+        updateTurnDistance(next._metersToManeuver);
 
         const lead = Math.min(SPEAK_MAX_DIST, Math.max(SPEAK_MIN_DIST, speedMps * SPEAK_LOOKAHEAD_SEC));
         if (spoken.idx !== next._index) resetSpokenFor(next._index);
@@ -821,6 +843,7 @@
       } else {
         $eta.textContent = 'ETA —';
   updateTurnBadge(null);
+        updateTurnDistance(NaN);
       }
     }
   }
