@@ -30,7 +30,7 @@
     #map { position:fixed; inset:0; }
     .topbar { position:fixed; left:0; right:0; top:0; height:64px; display:flex; align-items:center; gap:12px; padding:8px 12px; background:rgba(255,255,255,.85); backdrop-filter: blur(8px); box-shadow:0 1px 0 var(--line); z-index:10; }
     .title { font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-    .stats { display:flex; gap:8px; font-size:14px; color:#111; }
+  .stats { display:flex; gap:8px; font-size:16px; color:#111; }
     .pill { background:#f3f4f6; border:1px solid var(--line); padding:4px 8px; border-radius:999px; }
   .controls { margin-left:auto; display:flex; gap:8px; }
     button { height:40px; padding:0 12px; border-radius:10px; border:1px solid var(--line); background:var(--card); cursor:pointer; font-weight:600; }
@@ -53,7 +53,7 @@
     @media (max-width: 600px) {
       .topbar { height:auto; flex-wrap:wrap; gap:6px 8px; align-items:flex-start; padding-bottom:8px; }
       .title { order:1; flex:1 1 100%; }
-      .stats { order:2; flex:1 1 100%; gap:6px; font-size:12px; }
+      .stats { order:2; flex:1 1 100%; gap:6px; font-size:14px; }
       .controls { order:3; flex:1 1 100%; display:flex; flex-wrap:wrap; gap:6px; }
       .controls button { flex:1 1 calc(50% - 6px); height:36px; padding:0 8px; font-size:13px; }
     }
@@ -75,11 +75,11 @@
       touch-action:none; cursor:grab; box-shadow:0 2px 8px rgba(0,0,0,.18);
     }
     .turn-badge:active{ cursor:grabbing; }
-    .turn-badge .turn-arrow{ width:38px; height:38px; transform-origin:50% 50%; transition: transform .15s ease; }
+    .turn-badge .turn-arrow{ width:44px; height:44px; transform-origin:50% 50%; transition: transform .15s ease; }
     .turn-badge .turn-dist{
       position:absolute; top:calc(100% + 4px); left:50%; transform:translateX(-50%);
       background:#fff; color:#111; border:1px solid var(--line); border-radius:10px;
-      padding:2px 6px; font-weight:800; font-size:12px; line-height:1; white-space:nowrap;
+      padding:3px 8px; font-weight:800; font-size:16px; line-height:1; white-space:nowrap;
       box-shadow:0 1px 4px rgba(0,0,0,.12); user-select:none;
     }
   </style>
@@ -177,13 +177,13 @@
   const NAV_PITCH_DEG  = 60;
   const NAV_OFFSET_PX  = 180;
   const NAV_MIN_ZOOM   = 13;
-  const CAMERA_DURATION = 350;
+  const CAMERA_DURATION = 400; // трохи довше — плавніше
   const MARKER_ROT_OFFSET = -90; // компенсуємо орієнтацію SVG, щоб стрілка вказувала по курсу
 
   // === GPS smoothing & snap ===
   const GPS_ACCURACY_MAX = 50;
-  const SMOOTH_ALPHA_POS = 0.5;
-  const SMOOTH_ALPHA_HD  = 0.6; // для компасу/курсу
+  const SMOOTH_ALPHA_POS = 0.45; // базове згладжування позиції
+  const SMOOTH_ALPHA_HD  = 0.6;  // для компасу/курсу
   const SNAP_MAX_METERS  = 40;
   // Керування стабільністю камери, коли стоїмо на місці
   const STATIONARY_SPEED_MPS = 0.7;           // нижче цього — вважаємо, що стоїмо
@@ -195,6 +195,7 @@
   const SPEAK_MIN_DIST = 60;
   const SPEAK_MAX_DIST = 800;
   const SPEAK_NOW_DIST = 25;
+  const SPEAK_MIN_GAP_MS = 6000; // мінімальний інтервал між підказками
 
   function b64decodeUtf8(b64){
     const bin = atob(b64); const bytes = new Uint8Array(bin.length);
@@ -361,7 +362,7 @@
   let lastTs = null;
   let lastSpeedPos = null;
   let speedMps = 0;
-  const SPEED_ALPHA = 0.5;
+  const SPEED_ALPHA = 0.35; // швидше підлаштування швидкості
   const MAX_SPEED_MPS = 90/3.6;
 
   let snapFeatures = [];
@@ -377,12 +378,16 @@
   if ('speechSynthesis' in window) {
     pickUkrainianVoice(); window.speechSynthesis.onvoiceschanged = pickUkrainianVoice;
   }
+  let __lastSpeakAt = 0;
   function speak(text){
     try{
       if (!text) return;
+      const now = Date.now();
+      if (now - __lastSpeakAt < SPEAK_MIN_GAP_MS) return; // анти-дублікат
       if (window.speechSynthesis.speaking) window.speechSynthesis.cancel();
       const u = new SpeechSynthesisUtterance(text); u.lang = 'uk-UA';
       if (uaVoice) u.voice = uaVoice; window.speechSynthesis.speak(u);
+      __lastSpeakAt = now;
     }catch(e){}
   }
 
@@ -496,19 +501,19 @@
     if (!userMarker){
       // Стрілочка-навігатор як SVG (краща видимість, можна обертати)
       const el = document.createElement('div');
-  el.style.width = '90px';
-  el.style.height = '90px';
+  el.style.width = '110px';
+  el.style.height = '110px';
       el.style.display = 'grid';
       el.style.placeItems = 'center';
       el.style.position = 'relative';
       el.style.pointerEvents = 'none';
       el.style.filter = 'drop-shadow(0 1px 2px rgba(0,0,0,.35))';
       el.innerHTML = `
-  <svg width="75" height="75" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false">
+  <svg width="92" height="92" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false">
           <!-- білий контур для контрасту -->
-          <path d="M32 4 L44 40 L32 33 L20 40 Z" fill="#ffffff" opacity="0.95"/>
+          <path d="M32 3 L46 42 L32 34 L18 42 Z" fill="#ffffff" opacity="0.98"/>
           <!-- сама стрілка -->
-          <path d="M32 6 L42 38 L32 32 L22 38 Z" fill="#10b981"/>
+          <path d="M32 6 L43 38 L32 32 L21 38 Z" fill="#10b981"/>
         </svg>`;
       // Вирівнюємо як іконку по центру та дозволяємо обертання відносно вʼюпорта
       userMarker = new mapboxgl.Marker({
@@ -575,9 +580,9 @@
   function updateCamera(centerLL, bearingDeg){
     if (!centerLL) return;
     const opts = {
-      center: centerLL, duration: 350, essential: true,
+      center: centerLL, duration: CAMERA_DURATION, essential: true,
       bearing: (bearingDeg!=null && !Number.isNaN(bearingDeg)) ? bearingDeg : map.getBearing(),
-      pitch: 60, offset: [0, 180]
+      pitch: NAV_PITCH_DEG, offset: [0, NAV_OFFSET_PX]
     };
     if (map.getZoom() < 13) opts.zoom = 13;
     map.easeTo(opts);
@@ -760,26 +765,51 @@
     if (snap && snap.dist <= SNAP_MAX_METERS){
       onLine = snap.coord; snappedKind = snap.which;
     }
-
-    // Динамічне згладжування позиції: сильніше прилипання до маршруту на різких поворотах
-    let routeDirHere = null;
-    if (routeGeoJSON) routeDirHere = bearingAlongRouteAtLL(onLine) ?? null;
-    const smoothAlphaPos = (routeDirHere != null && filteredHeading != null && Math.abs(angleDelta(routeDirHere, filteredHeading)) > 30)
-      ? 0.7 : 0.5;
-    filteredPos = filteredPos
-      ? [ filteredPos[0] + (onLine[0] - filteredPos[0]) * smoothAlphaPos,
-          filteredPos[1] + (onLine[1] - filteredPos[1]) * smoothAlphaPos ]
-      : onLine;
+    // Згладжування вздовж маршруту (без «зрізання кутів»)
+    // Якщо прилипаємо до основного маршруту — згладжуємо не координати, а положення вздовж лінії (кілометри)
+    if (!window.__smoothedLocKm) window.__smoothedLocKm = null;
+    if (routeGeoJSON && snappedKind === 'route'){
+      try{
+        const snapKm = turf.nearestPointOnLine(routeGeoJSON, onLine, {units:'kilometers'});
+        let locKm = (snapKm.properties && typeof snapKm.properties.location === 'number') ? snapKm.properties.location : 0;
+        // Обмежуємо координату від 0 до довжини маршруту
+        locKm = Math.max(0, Math.min(routeLengthKm, locKm));
+        const speedNow = Number.isFinite(pos.coords.speed) ? Math.max(0, pos.coords.speed) : (speedMps||0);
+        // Чим швидше рух — тим більша альфа; при повороті також збільшуємо альфу, щоб «наздоганяти» напрям
+        const routeDirHere = bearingAlongRouteAtLL(onLine) ?? null;
+        const hd = filteredHeading ?? routeDirHere ?? 0;
+        const dev = routeDirHere!=null ? Math.abs(angleDelta(hd, routeDirHere)) : 0;
+        const baseA = 0.25 + Math.min(0.45, speedNow*0.08); // 0.25..0.7
+        const alphaLoc = baseA + (dev>30 ? 0.15 : 0);
+        window.__smoothedLocKm = (window.__smoothedLocKm==null) ? locKm : (window.__smoothedLocKm + (locKm - window.__smoothedLocKm) * alphaLoc);
+        const p = turf.along(routeGeoJSON, Math.max(0, Math.min(routeLengthKm, window.__smoothedLocKm)));
+        filteredPos = p.geometry.coordinates;
+      }catch(_){ filteredPos = onLine; }
+    } else {
+      // Інакше — звичайне координатне згладжування
+      let routeDirHere = null;
+      if (routeGeoJSON) routeDirHere = bearingAlongRouteAtLL(onLine) ?? null;
+      const smoothAlphaPos = (routeDirHere != null && filteredHeading != null && Math.abs(angleDelta(routeDirHere, filteredHeading)) > 30)
+        ? 0.7 : SMOOTH_ALPHA_POS;
+      filteredPos = filteredPos
+        ? [ filteredPos[0] + (onLine[0] - filteredPos[0]) * smoothAlphaPos,
+            filteredPos[1] + (onLine[1] - filteredPos[1]) * smoothAlphaPos ]
+        : onLine;
+    }
 
     const gpsHeading = Number.isFinite(pos.coords.heading) ? pos.coords.heading : null;
     const headingInstant = gpsHeading != null ? gpsHeading : (lastUserPos ? computeHeading(lastUserPos, filteredPos) : null);
     // Вирахуємо швидкість/рух
     const ts = (typeof pos.timestamp === 'number' ? pos.timestamp : Date.now());
-    if (lastSpeedPos && lastTs){
+    // Оцінка швидкості: використовуємо GPS speed, якщо доступно; інакше — різницю позицій
+    if (Number.isFinite(pos.coords.speed)){
+      const gpsV = Math.max(0, Math.min(MAX_SPEED_MPS, pos.coords.speed));
+      speedMps = (1 - SPEED_ALPHA)*speedMps + SPEED_ALPHA*gpsV;
+    } else if (lastSpeedPos && lastTs){
       const dM = turf.distance(turf.point(lastSpeedPos), turf.point(filteredPos), {units:'kilometers'})*1000;
-      const dt = Math.max(0.2, (ts - lastTs)/1000);
-      const inst = Math.min(dM/dt, 90/3.6);
-      speedMps = (1 - 0.5)*speedMps + 0.5*inst;
+      const dt = Math.max(0.15, (ts - lastTs)/1000);
+      const inst = Math.min(dM/dt, MAX_SPEED_MPS);
+      speedMps = (1 - SPEED_ALPHA)*speedMps + SPEED_ALPHA*inst;
     }
     // Оновлення плаваючого бейджа швидкості (км/год)
     if ($speedBadge){
@@ -820,11 +850,13 @@
     let headingForMarker = filteredHeading ?? lastStableHeading ?? pathBearing;
     if (pathBearing != null){
       const dev = Math.abs(angleDelta(headingForMarker ?? pathBearing, pathBearing));
-      const preferPath = !isMoving || dev > 35;
+      const preferPath = !isMoving || dev > 30;
+      // Якщо розворот/сильне відхилення — жорстко привʼязуємося до напряму шляху
+      if (dev > 100) headingForMarker = pathBearing;
       if (preferPath) headingForMarker = pathBearing;
     }
     // Згладжуємо окремо візуальний курс маркера, щоб уникати "смикань"
-    markerHeading = lerpAngle(markerHeading, headingForMarker ?? markerHeading, 0.35);
+    markerHeading = lerpAngle(markerHeading, headingForMarker ?? markerHeading, 0.45);
     setUserMarkerHeading(markerHeading ?? headingForMarker);
 
     // Коли стоїмо — тримаємо попередній стабільний курс, щоб камера не "танцювала"
@@ -878,7 +910,9 @@
         const lead = Math.min(SPEAK_MAX_DIST, Math.max(SPEAK_MIN_DIST, speedMps * SPEAK_LOOKAHEAD_SEC));
         if (spoken.idx !== next._index) resetSpokenFor(next._index);
 
-        if (!spoken.early && next._metersToManeuver <= lead && next._metersToManeuver > SPEAK_NOW_DIST){
+        // Не озвучуємо «скоро», якщо «зараз» буде занадто швидко (менше 4 сек)
+        const secsToNow = (speedMps>0.5) ? (next._metersToManeuver / Math.max(speedMps,0.5)) : Infinity;
+        if (!spoken.early && next._metersToManeuver <= lead && next._metersToManeuver > SPEAK_NOW_DIST && secsToNow > 4){
           const t = stepToSpeech(next, 'soon', next._metersToManeuver);
           if (t) { speak(t); spoken.early = true; }
         }
