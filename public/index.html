@@ -242,6 +242,11 @@
 #panel-create #startLineMode.active::after { background:#2563eb; } /* Лінійка(поч.) – синій */
 #panel-create #endLineMode.active::after   { background:#f59e0b; } /* Лінійка(кін.) – помаранчевий */
 
+  /* Маркери лінійок (поч./кін.) */
+  .ruler-marker{ width:12px; height:12px; border-radius:50%; border:2px solid #fff; box-shadow:0 1px 4px rgba(0,0,0,.25); }
+  .ruler-marker.start{ background:#2563eb; }
+  .ruler-marker.end{   background:#22c55e; }
+
   </style>
 </head>
 <body>
@@ -817,6 +822,8 @@ function applyUkrainianLabels(){
 let addMode = false, startLineMode = false, endLineMode = false;
 let insertAfterMode = false;
 let points = [], markers = [], startRuler = [], endRuler = [], rulerLines = [], routeLayers = [];
+// Маркери лінійок (окремо від маркерів маршруту)
+let startRulerMarkers = [], endRulerMarkers = [];
 let selectedMarkerIndex = null;
 
 let activeRuler = null; let lastActiveRuler = null;
@@ -1197,6 +1204,8 @@ hideSplash();            // ⬅️ сховати сплеш, коли стил�
   applyUkrainianLabels();
   updateRoute();
   drawRulers();
+  // відновити маркери лінійок, якщо точки вже існують
+  try { rebuildRulerMarkers(); } catch(_) {}
 
   if (geozonesDataCache) addGeozones(geozonesDataCache);
   // завантажити конфіг tilesets перед додаванням шарів
@@ -1338,7 +1347,7 @@ document.getElementById('popRulerPoint').onclick = () => {
   let did = false;
   if (target === 'start' && startRuler.length) { startRuler.pop(); did = true; }
   if (target === 'end' && endRuler.length) { endRuler.pop(); did = true; }
-  if (did){ drawRulers(); updateRoute(); }
+  if (did){ rebuildRulerMarkers(); drawRulers(); updateRoute(); }
 };
 
 document.getElementById('clearRulers').onclick = () => {
@@ -1350,6 +1359,7 @@ document.getElementById('clearRulers').onclick = () => {
     if (!confirm('Очистити обидві лінійки?')) return;
     startRuler = []; endRuler = [];
   }
+  rebuildRulerMarkers();
   drawRulers(); updateRoute();
 };
 
@@ -1369,8 +1379,8 @@ map.on('click', (e) => {
     points.splice(selectedMarkerIndex + 1, 0, lngLat);
     insertAfterMode = false; rebuildMarkers(); return;
   }
-  if (startLineMode) { startRuler.push(lngLat); setActiveRuler('start'); drawRulers(); updateRoute(); return; }
-  if (endLineMode)   { endRuler.push(lngLat); setActiveRuler('end');   drawRulers(); updateRoute(); return; }
+  if (startLineMode) { startRuler.push(lngLat); setActiveRuler('start'); try{ addRulerMarker('start', lngLat, startRuler.length - 1); }catch(_){} drawRulers(); updateRoute(); return; }
+  if (endLineMode)   { endRuler.push(lngLat); setActiveRuler('end');   try{ addRulerMarker('end',   lngLat, endRuler.length - 1);   }catch(_){} drawRulers(); updateRoute(); return; }
   if (addMode)       { points.push(lngLat); addMarker(lngLat); updateRoute(); }
 });
 
@@ -1400,10 +1410,60 @@ function rebuildMarkers() {
   updateRoute();
 }
 
+// ===== Маркери для лінійок (start/end) =====
+function addRulerMarker(kind, lngLat, index){
+  // kind: 'start' | 'end'
+  const el = document.createElement('div');
+  el.className = `ruler-marker ${kind}`;
+  if (!markersVisible) el.style.display = 'none';
+  const marker = new mapboxgl.Marker({ element: el, draggable: !readOnly })
+    .setLngLat(lngLat)
+    .addTo(map);
+  marker.on('drag', () => {
+    if (readOnly) return;
+    const ll = marker.getLngLat();
+    if (kind === 'start') {
+      if (index >= 0 && index < startRuler.length) startRuler[index] = [ll.lng, ll.lat];
+    } else {
+      if (index >= 0 && index < endRuler.length)   endRuler[index]   = [ll.lng, ll.lat];
+    }
+    drawRulers();
+    // під час перетягування не чіпаємо маршрут; якщо маршруту немає — оновлюємо чіп км
+    if (points.length < 2){
+      const km = calculateRulerDistance(startRuler) + calculateRulerDistance(endRuler);
+      setKmUI(km);
+    }
+  });
+  marker.on('dragend', () => {
+    if (readOnly) return;
+    const ll = marker.getLngLat();
+    if (kind === 'start') {
+      if (index >= 0 && index < startRuler.length) startRuler[index] = [ll.lng, ll.lat];
+    } else {
+      if (index >= 0 && index < endRuler.length)   endRuler[index]   = [ll.lng, ll.lat];
+    }
+    drawRulers();
+    updateRoute(); // перерахунок км + оновлення, якщо є маршрут
+  });
+  if (kind === 'start') startRulerMarkers.push(marker); else endRulerMarkers.push(marker);
+}
+function clearRulerMarkers(){
+  startRulerMarkers.forEach(m => m.remove()); startRulerMarkers = [];
+  endRulerMarkers.forEach(m => m.remove());   endRulerMarkers   = [];
+}
+function rebuildRulerMarkers(){
+  clearRulerMarkers();
+  startRuler.forEach((pt, idx) => addRulerMarker('start', pt, idx));
+  endRuler.forEach((pt, idx)   => addRulerMarker('end',   pt, idx));
+}
+
 let markersVisible = true;
 document.getElementById('toggleMarkers').onclick = () => {
   markersVisible = !markersVisible;
   markers.forEach(m => m.getElement().style.display = markersVisible ? 'block' : 'none');
+  // також керуємо видимістю маркерів лінійок
+  startRulerMarkers.forEach(m => m.getElement().style.display = markersVisible ? 'block' : 'none');
+  endRulerMarkers.forEach(m   => m.getElement().style.display = markersVisible ? 'block' : 'none');
   document.getElementById('toggleMarkers').textContent = markersVisible ? '📍 Приховати точки' : '📍 Показати точки';
 };
 /* ===== Geozones toggle (all related layers) ===== */
