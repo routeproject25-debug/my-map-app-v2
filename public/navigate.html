@@ -106,6 +106,8 @@
     <div class="fab-menu" id="fabMenu">
       <button id="btnRecenter" title="Стеження: увімкнено">🔒</button>
       <button id="fabKeepAwake" title="Не гасити екран">💡</button>
+      <button id="btnEtaMode" title="Режим ETA: план">⏱</button>
+      <button id="btnTraffic" title="Світлофори: викл">🚦</button>
     </div>
     <button id="fabToggle" title="Дії">⋮</button>
   </div>
@@ -249,6 +251,8 @@
   const $turnArrow = $turnBadge ? $turnBadge.querySelector('#turnArrow') : null;
   const $turnText  = $turnBadge ? $turnBadge.querySelector('#turnText') : null;
   const $turnDist  = $turnBadge ? $turnBadge.querySelector('#turnDist') : null;
+  const $btnEtaMode = document.getElementById('btnEtaMode');
+  const $btnTraffic = document.getElementById('btnTraffic');
 
   // ініціалізація перетягування бейджа швидкості
   const SPEED_POS_KEY = 'NAV_SPEED_BADGE_POS';
@@ -629,6 +633,32 @@
     $turnDist.style.display = 'block';
   }
 
+  // Оцінка затримок на світлофорах/маневрах попереду (простий евристичний підхід)
+  function computeTrafficLightPenalty(userLocKm, remainMeters){
+    try{
+      if (!Array.isArray(steps) || steps.length === 0) return 0;
+      const lookaheadM = Math.min(2000, Math.max(500, remainMeters || 0));
+      const toKm = lookaheadM / 1000;
+      let penalty = 0;
+      for (const s of steps){
+        const loc = s._locKm ?? 0; if (loc <= userLocKm) continue; if (loc - userLocKm > toKm) break;
+        const t = String(s.maneuver?.type||'').toLowerCase();
+        const m = String(s.maneuver?.modifier||'').toLowerCase();
+        if (t.includes('roundabout')) { penalty += 12; continue; }
+        if (t === 'merge') { penalty += 8; continue; }
+        if (t === 'arrive') continue;
+        if (t === 'turn' || t === 'end of road' || t === 'fork' || t === 'exit'){
+          penalty += 18;
+          continue;
+        }
+        // деякі інструкції типу 'new name' або 'continue' не додаємо
+      }
+      // Обмеження: не більше 45 с на кожен км попереду
+      const cap = (lookaheadM/1000) * 45;
+      return Math.min(penalty, cap);
+    }catch(_){ return 0; }
+  }
+
   let spoken = { idx: -1, early: false, now: false };
   function resetSpokenFor(idx){ spoken = { idx, early:false, now:false }; }
 
@@ -824,18 +854,23 @@
       $dist.textContent = `${(remainRoute/1000).toFixed(1)} км`;
       const next = getNextStepByLocation(userLocKm);
       if (next){
-        // Плановий ETA від Directions (пропорційно залишковій дистанції)
-        let etaSecRaw = (totalDistance > 0) ? ((remainRoute / totalDistance) * totalDuration) : totalDuration;
-        // Додатково врахуємо поточну швидкість, якщо рухаємося (зважене середнє)
-        if (isMoving && speedMps > 0.5){
-          const etaBySpeed = remainRoute / Math.max(speedMps, 0.1);
-          etaSecRaw = 0.6 * etaSecRaw + 0.4 * etaBySpeed;
-        }
-        // Згладжування, щоб ETA не скакав
-        if (window.__etaSmoothed == null) window.__etaSmoothed = etaSecRaw;
-        window.__etaSmoothed = window.__etaSmoothed + (etaSecRaw - window.__etaSmoothed) * 0.25;
-        const etaSec = Math.max(0, Math.min(24*3600, window.__etaSmoothed));
-        $eta.textContent = `ETA ${secondsToETA(etaSec)}`;
+        // ETA за планом і за поточною швидкістю
+        const etaPlanSec = (totalDistance > 0) ? ((remainRoute / totalDistance) * totalDuration) : totalDuration;
+        const etaSpeedSec = (isMoving && speedMps > 0.5) ? (remainRoute / Math.max(speedMps, 0.1)) : etaPlanSec;
+        // Додаткові затримки (світлофори/маневри), якщо увімкнено
+        let penalty = 0;
+        if (trafficLights) penalty = computeTrafficLightPenalty(userLocKm, remainRoute);
+        let etaSelectedRaw = (etaMode === 'speed') ? etaSpeedSec : etaPlanSec;
+        etaSelectedRaw += penalty;
+        // Згладжування окремо для кожного режиму
+        if (!window.__etaSmoothedPlan) window.__etaSmoothedPlan = etaPlanSec;
+        if (!window.__etaSmoothedSpeed) window.__etaSmoothedSpeed = etaSpeedSec;
+        window.__etaSmoothedPlan = window.__etaSmoothedPlan + (etaPlanSec - window.__etaSmoothedPlan) * 0.25;
+        window.__etaSmoothedSpeed = window.__etaSmoothedSpeed + (etaSpeedSec - window.__etaSmoothedSpeed) * 0.25;
+        const baseSmoothed = (etaMode === 'speed') ? window.__etaSmoothedSpeed : window.__etaSmoothedPlan;
+        const etaSec = Math.max(0, Math.min(24*3600, baseSmoothed + penalty));
+        const mins = Math.round(etaSec/60);
+        $eta.textContent = `ETA ${secondsToETA(etaSec)} • ${mins} хв`;
         // Оновлюємо ярличок наступного маневру (плаваючий)
         updateTurnBadge(descriptorForStep(next));
         updateTurnDistance(next._metersToManeuver);
@@ -883,6 +918,27 @@
     }
   }
   updateKeepAwakeUI();
+  // ETA режим і Світлофори
+  const ETA_MODE_KEY = 'NAV_ETA_MODE'; // 'plan' | 'speed'
+  const TRAFFIC_LIGHTS_KEY = 'NAV_TRAFFIC_LIGHTS'; // '1' | '0'
+  let etaMode = (localStorage.getItem(ETA_MODE_KEY) === 'speed') ? 'speed' : 'plan';
+  let trafficLights = (localStorage.getItem(TRAFFIC_LIGHTS_KEY) === '1');
+  function updateEtaTrafficUI(){
+    if ($btnEtaMode){
+      $btnEtaMode.title = `Режим ETA: ${etaMode === 'plan' ? 'план' : 'швидкість'}`;
+      $btnEtaMode.textContent = '⏱';
+    }
+    if ($btnTraffic){
+      $btnTraffic.title = `Світлофори: ${trafficLights ? 'вкл' : 'викл'}`;
+      $btnTraffic.textContent = '🚦';
+      $btnTraffic.style.opacity = trafficLights ? '1' : '0.6';
+    }
+  }
+  updateEtaTrafficUI();
+  function toggleEtaMode(){ etaMode = (etaMode === 'plan') ? 'speed' : 'plan'; localStorage.setItem(ETA_MODE_KEY, etaMode); updateEtaTrafficUI(); }
+  function toggleTraffic(){ trafficLights = !trafficLights; localStorage.setItem(TRAFFIC_LIGHTS_KEY, trafficLights ? '1':'0'); updateEtaTrafficUI(); }
+  if ($btnEtaMode) $btnEtaMode.addEventListener('click', toggleEtaMode);
+  if ($btnTraffic) $btnTraffic.addEventListener('click', toggleTraffic);
 
   async function requestWakeLock(){
     try {
