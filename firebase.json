@@ -14,6 +14,7 @@
     ],
     "rewrites": [
       { "source": "/api/telegram/send-approval", "function": "telegramSendApproval" },
+      { "source": "/api/routes/save", "function": "saveRoute" },
       { "source": "/", "destination": "/login.html" },
       { "source": "/login", "destination": "/login.html" },
       { "source": "/index", "destination": "/index.html" },

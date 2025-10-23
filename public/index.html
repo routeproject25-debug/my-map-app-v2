@@ -2448,7 +2448,19 @@ async function saveToDB() {
         alert(`✅ Збережено в БД: ${payload.name}\nКод маршруту: ${routeKeySaved}`);
       } catch (errNonAdmin) {
         console.error('save (no routeKeys) failed:', errNonAdmin);
-        throw errNonAdmin;
+        // Fallback: server-side save via Cloud Function for permission issues
+        if (errNonAdmin && (errNonAdmin.code === 'permission-denied' || /insufficient permissions/i.test(String(errNonAdmin.message||'')))){
+          try{
+            await saveRouteViaFunction(docId, updateObj);
+            routeKeySaved = updateObj.routeKey;
+            alert(`✅ Збережено через сервер: ${payload.name}\nКод маршруту: ${routeKeySaved}`);
+          }catch(fnErr){
+            console.error('saveRoute function failed:', fnErr);
+            throw fnErr;
+          }
+        } else {
+          throw errNonAdmin;
+        }
       }
     }
 
@@ -2460,6 +2472,28 @@ async function saveToDB() {
   } catch (err) {
     console.error('❌ Помилка збереження в Firestore:', err);
     alert('❌ Не вдалося зберегти в БД: ' + (err?.message || err));
+  }
+}
+
+// ---- Server-side fallback (HTTPS Cloud Function) ----
+async function saveRouteViaFunction(docId, data){
+  const url = '/api/routes/save';
+  const token = await auth.currentUser.getIdToken();
+  const r = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': 'Bearer ' + token
+    },
+    body: JSON.stringify({ id: docId, data })
+  });
+  const j = await r.json().catch(()=>({}));
+  if (!r.ok || !j || j.ok !== true){
+    throw new Error((j && j.error) || ('HTTP ' + r.status));
+  }
+  // sync possibly generated routeKey back
+  if (j.routeKey && (!data.routeKey || data.routeKey !== j.routeKey)){
+    data.routeKey = j.routeKey;
   }
 }
 
