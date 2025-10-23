@@ -1922,33 +1922,12 @@ btnClearFilters.addEventListener('click', ()=>{
     .forEach(el=>{ el.value=''; });
   reRender();
 });
-// (7) Автоперебудова базового Firestore-запиту при зміні верхніх фільтрів
-const restartQuery = debounce(async () => {
-  try {
-    setBusy(true);
-    await loadFirstPage(true);  // перебудує _baseQuery і перезапустить startLive(...)
-    reRender();
-  } catch (e) {
-    handleFirestoreError(e);
-  } finally {
-    setBusy(false);
-  }
-}, 300);
-
-// Слухаємо поля, які впливають на сам запит до Firestore:
-[
-  'hubFilter',     // ← ДОДАНО
-  'fromName',      // datalist + текст — краще 'input' для живої реакції
-  'toName',        // datalist + текст — краще 'input'
-  'routeType',     // select
-  'dateFrom',      // date
-  'dateTo',        // date
-  'logistFilter'   // datalist + текст — краще 'input'
-].forEach((id) => {
+// Верхні «локальні» фільтри (що застосовуються на клієнті) — лише перемальовують таблицю, без запитів
+const onTopLocalFilterChange = debounce(() => reRender(), 200);
+['unitFilter','distMin','distMax','logistFilter'].forEach((id) => {
   const el = document.getElementById(id);
   if (!el) return;
-  const evt = ['fromName','toName','logistFilter','hubFilter'].includes(id) ? 'input' : 'change';
-  el.addEventListener(evt, restartQuery);
+  el.addEventListener('input', onTopLocalFilterChange);
 });
 
 /* Делегування кліків: Поділитися + Копіювати ID/Код */
