@@ -2407,42 +2407,43 @@ async function saveToDB() {
       }
     } else {
       // Логісти та інші: не торкаємось routeKeys (часто немає прав). Генеруємо локальний routeKey.
+      // Готуємо дані ДО спроби запису, щоб у catch мати готовий payload для фолбеку.
+      const routeRef  = db.collection('routes').doc(docId);
+      const prevSnap  = await routeRef.get();
+      let keepKey = prevSnap.exists ? (prevSnap.data()?.routeKey || null) : null;
+      const localKey = keepKey || (prefix + '-' + randomDigits(10));
+
+      // Інвалідація погодження, якщо відстань змінена
+      let approvalUpdate = null;
+      const prev = prevSnap.exists ? prevSnap.data() : null;
+      if (prev && prev.approval?.status === 'approved'){
+        const oldDist = (typeof prev.distance_km === 'number') ? prev.distance_km : null;
+        const newDist = payload.distance_km;
+        if (oldDist !== null && Math.abs(newDist - oldDist) > 0.01){
+          const rev = (prev.approval.revision || 0) + 1;
+          approvalUpdate = {
+            status: 'draft',
+            revision: rev,
+            comment: `Відстань змінена: було ${oldDist?.toFixed ? oldDist.toFixed(2) : oldDist} км → стало ${newDist?.toFixed ? newDist.toFixed(2) : newDist} км`,
+            submittedAt: null, submittedByUid: null, submittedByEmail: null,
+            decidedByUid: null, decidedByEmail: null, decisionAt: null
+          };
+        }
+      }
+
+      const updateObj = {
+        ...payload,
+        ...indexFields,
+        routeKey: localKey
+      };
+      if (approvalUpdate){
+        updateObj.approval = approvalUpdate;
+        savedApproval = approvalUpdate;
+      } else {
+        savedApproval = prev?.approval || null;
+      }
+
       try {
-        const routeRef  = db.collection('routes').doc(docId);
-        const prevSnap  = await routeRef.get();
-        let keepKey = prevSnap.exists ? (prevSnap.data()?.routeKey || null) : null;
-        const localKey = keepKey || (prefix + '-' + randomDigits(10));
-
-        // Інвалідація погодження, якщо відстань змінена
-        let approvalUpdate = null;
-        const prev = prevSnap.exists ? prevSnap.data() : null;
-        if (prev && prev.approval?.status === 'approved'){
-          const oldDist = (typeof prev.distance_km === 'number') ? prev.distance_km : null;
-          const newDist = payload.distance_km;
-          if (oldDist !== null && Math.abs(newDist - oldDist) > 0.01){
-            const rev = (prev.approval.revision || 0) + 1;
-            approvalUpdate = {
-              status: 'draft',
-              revision: rev,
-              comment: `Відстань змінена: було ${oldDist?.toFixed ? oldDist.toFixed(2) : oldDist} км → стало ${newDist?.toFixed ? newDist.toFixed(2) : newDist} км`,
-              submittedAt: null, submittedByUid: null, submittedByEmail: null,
-              decidedByUid: null, decidedByEmail: null, decisionAt: null
-            };
-          }
-        }
-
-        const updateObj = {
-          ...payload,
-          ...indexFields,
-          routeKey: localKey
-        };
-        if (approvalUpdate){
-          updateObj.approval = approvalUpdate;
-          savedApproval = approvalUpdate;
-        } else {
-          savedApproval = prev?.approval || null;
-        }
-
         await routeRef.set(updateObj, { merge: true });
         routeKeySaved = localKey;
         alert(`✅ Збережено в БД: ${payload.name}\nКод маршруту: ${routeKeySaved}`);
@@ -2474,7 +2475,6 @@ async function saveToDB() {
     alert('❌ Не вдалося зберегти в БД: ' + (err?.message || err));
   }
 }
-
 // ---- Server-side fallback (HTTPS Cloud Function) ----
 async function saveRouteViaFunction(docId, data){
   const url = '/api/routes/save';
