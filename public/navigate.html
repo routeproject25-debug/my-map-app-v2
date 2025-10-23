@@ -362,6 +362,7 @@
 
   let snapFeatures = [];
   let markerHeading = null; // згладжений курс для візуалізації стрілки
+  window.__etaSmoothed = null;
 
   let uaVoice = null;
   function pickUkrainianVoice() {
@@ -823,7 +824,17 @@
       $dist.textContent = `${(remainRoute/1000).toFixed(1)} км`;
       const next = getNextStepByLocation(userLocKm);
       if (next){
-        const etaSec = (remainRoute / (totalDistance/1000)) * totalDuration;
+        // Плановий ETA від Directions (пропорційно залишковій дистанції)
+        let etaSecRaw = (totalDistance > 0) ? ((remainRoute / totalDistance) * totalDuration) : totalDuration;
+        // Додатково врахуємо поточну швидкість, якщо рухаємося (зважене середнє)
+        if (isMoving && speedMps > 0.5){
+          const etaBySpeed = remainRoute / Math.max(speedMps, 0.1);
+          etaSecRaw = 0.6 * etaSecRaw + 0.4 * etaBySpeed;
+        }
+        // Згладжування, щоб ETA не скакав
+        if (window.__etaSmoothed == null) window.__etaSmoothed = etaSecRaw;
+        window.__etaSmoothed = window.__etaSmoothed + (etaSecRaw - window.__etaSmoothed) * 0.25;
+        const etaSec = Math.max(0, Math.min(24*3600, window.__etaSmoothed));
         $eta.textContent = `ETA ${secondsToETA(etaSec)}`;
         // Оновлюємо ярличок наступного маневру (плаваючий)
         updateTurnBadge(descriptorForStep(next));
