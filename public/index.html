@@ -2409,13 +2409,20 @@ async function saveToDB() {
       // Логісти та інші: не торкаємось routeKeys (часто немає прав). Генеруємо локальний routeKey.
       // Готуємо дані ДО спроби запису, щоб у catch мати готовий payload для фолбеку.
       const routeRef  = db.collection('routes').doc(docId);
-      const prevSnap  = await routeRef.get();
-      let keepKey = prevSnap.exists ? (prevSnap.data()?.routeKey || null) : null;
+      let prev = null;
+      try{
+        const prevSnap = await routeRef.get();
+        prev = prevSnap.exists ? (prevSnap.data() || null) : null;
+      }catch(prevErr){
+        console.warn('read prev route failed (will continue with fallback if needed):', prevErr?.message || prevErr);
+        prev = null;
+      }
+      let keepKey = prev && prev.routeKey ? String(prev.routeKey) : null;
       const localKey = keepKey || (prefix + '-' + randomDigits(10));
 
       // Інвалідація погодження, якщо відстань змінена
       let approvalUpdate = null;
-      const prev = prevSnap.exists ? prevSnap.data() : null;
+  // prev визначено вище та безпечно може бути null
       if (prev && prev.approval?.status === 'approved'){
         const oldDist = (typeof prev.distance_km === 'number') ? prev.distance_km : null;
         const newDist = payload.distance_km;
