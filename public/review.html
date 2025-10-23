@@ -512,7 +512,8 @@ function drawManualSegments(d){
         try{
           const token = await auth.currentUser.getIdToken();
           const body = { id: rid, decision: kind, comment: (comment || '') };
-          const r = await fetch('/api/routes/approve', {
+          // 1) Перший варіант — через хостинг rewrite
+          let r = await fetch('/api/routes/approve', {
             method:'POST', headers:{ 'Content-Type':'application/json', 'Authorization': 'Bearer ' + token }, body: JSON.stringify(body)
           });
           if (!r.ok){
@@ -520,15 +521,21 @@ function drawManualSegments(d){
             throw new Error('Server approve failed: ' + txt);
           }
           const ct = (r.headers.get('content-type')||'').toLowerCase();
+          let resp = null;
           if (!ct.includes('application/json')){
-            const txt = await r.text().catch(()=> '');
-            console.error('Approve endpoint returned non-JSON. Likely not deployed/rewritten. Body:', txt.slice(0,200));
-            throw new Error('Ендпоінт /api/routes/approve не знайдено або не задеплойлено (отримано не-JSON відповідь).');
+            // 2) Фолбек напряму на Cloud Functions домен (без хостингу)
+            const proj = (window.APP_CONFIG && window.APP_CONFIG.firebase && window.APP_CONFIG.firebase.projectId) || '';
+            const url2 = proj ? `https://us-central1-${proj}.cloudfunctions.net/approveRoute` : '';
+            if (!url2) throw new Error('Ендпоінт /api/routes/approve не знайдено, і projectId відсутній для прямого виклику.');
+            r = await fetch(url2, { method:'POST', headers:{ 'Content-Type':'application/json', 'Authorization': 'Bearer ' + token }, body: JSON.stringify(body) });
+            if (!r.ok){ const txt2 = await r.text().catch(()=> ''); throw new Error('Server direct approve failed: ' + txt2); }
+            const ct2 = (r.headers.get('content-type')||'').toLowerCase();
+            if (!ct2.includes('application/json')){ const txt2 = await r.text().catch(()=> ''); throw new Error('Пряма функція повернула не-JSON: ' + txt2.slice(0,200)); }
+            resp = await r.json().catch(()=> null);
+          } else {
+            resp = await r.json().catch(()=> null);
           }
-          const resp = await r.json().catch(()=> null);
-          if (!resp || resp.ok !== true){
-            throw new Error('Server approve failed: ' + JSON.stringify(resp));
-          }
+          if (!resp || resp.ok !== true){ throw new Error('Server approve failed: ' + JSON.stringify(resp)); }
         }catch(err){
           console.error('Approve fallback error', err);
           alert('Не вдалося зберегти рішення: ' + (err?.message || err));
