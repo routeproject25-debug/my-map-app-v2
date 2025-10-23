@@ -519,6 +519,16 @@ function drawManualSegments(d){
             const txt = await r.text().catch(()=> '');
             throw new Error('Server approve failed: ' + txt);
           }
+          const ct = (r.headers.get('content-type')||'').toLowerCase();
+          if (!ct.includes('application/json')){
+            const txt = await r.text().catch(()=> '');
+            console.error('Approve endpoint returned non-JSON. Likely not deployed/rewritten. Body:', txt.slice(0,200));
+            throw new Error('Ендпоінт /api/routes/approve не знайдено або не задеплойлено (отримано не-JSON відповідь).');
+          }
+          const resp = await r.json().catch(()=> null);
+          if (!resp || resp.ok !== true){
+            throw new Error('Server approve failed: ' + JSON.stringify(resp));
+          }
         }catch(err){
           console.error('Approve fallback error', err);
           alert('Не вдалося зберегти рішення: ' + (err?.message || err));
