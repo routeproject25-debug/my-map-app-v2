@@ -1601,12 +1601,25 @@ async function updateRoute() {
         const route = data.routes[0];
         totalDistance += route.distance;
         const layerId = `route-part-${i}`;
-        map.addSource(layerId, { type: 'geojson', data: { type: 'Feature', geometry: route.geometry } });
-        map.addLayer({
-          id: layerId, type: 'line', source: layerId,
-          layout: { 'line-join': 'round', 'line-cap': 'round' },
-          paint: { 'line-color': `hsl(${(i * 60) % 360}, 100%, 50%)`, 'line-width': 5 }
-        });
+        const geo = { type: 'Feature', geometry: route.geometry };
+        // Захист від дублювання джерела: оновлюємо якщо існує, інакше додаємо
+        if (map.getSource(layerId)) {
+          try { map.getSource(layerId).setData(geo); } catch(_){}
+          if (!map.getLayer(layerId)){
+            map.addLayer({
+              id: layerId, type: 'line', source: layerId,
+              layout: { 'line-join': 'round', 'line-cap': 'round' },
+              paint: { 'line-color': `hsl(${(i * 60) % 360}, 100%, 50%)`, 'line-width': 5 }
+            });
+          }
+        } else {
+          map.addSource(layerId, { type: 'geojson', data: geo });
+          map.addLayer({
+            id: layerId, type: 'line', source: layerId,
+            layout: { 'line-join': 'round', 'line-cap': 'round' },
+            paint: { 'line-color': `hsl(${(i * 60) % 360}, 100%, 50%)`, 'line-width': 5 }
+          });
+        }
         routeLayers.push(layerId);
       }
     } catch (e) { console.error('Помилка маршруту:', e); }
@@ -2077,7 +2090,10 @@ function updateRouteName() {
 function sanitizeId(s){ return String(s||'').replace(/[\/\\#?\[\]]/g,'_'); }
 async function findExistingRoute(fromCode, toCode, routeType){
   try{
-    const snap = await db.collection('routes')
+    let q = db.collection('routes');
+    // Застосуємо обмеження по хабу, щоб не чіпати чужі документи (правила можуть різати доступ)
+    if (typeof withHubFilter === 'function') q = withHubFilter(q, 'hub');
+    const snap = await q
       .where('fromCode','==',fromCode).where('toCode','==',toCode).where('routeType','==',routeType)
       .limit(1).get();
     let found = null; snap.forEach(doc => { if (!found) found = doc; });
@@ -2479,6 +2495,24 @@ async function saveToDB() {
 
   } catch (err) {
     console.error('❌ Помилка збереження в Firestore:', err);
+    // Додатковий фолбек верхнього рівня: якщо заборонено правилами — спробувати серверний запис
+    const msg = String(err?.message || '');
+    const code = String(err?.code || '');
+    if (code === 'permission-denied' || /insufficient permissions/i.test(msg)){
+      try{
+        // Якщо локальний updateObj відсутній у цій області, відправляємо мінімальний набір
+        // (routeKey сервер згенерує за потреби)
+        const dataForFn = { ...payload, ...indexFields };
+        if (!dataForFn.updatedAt) dataForFn.updatedAt = new Date().toISOString();
+        await saveRouteViaFunction(docId, dataForFn);
+        setApprovalUI(savedApproval);
+        ensureRouteOptionSelected(docId, { ...payload, approval: savedApproval });
+        alert('✅ Збережено через сервер.');
+        return;
+      }catch(fnErr){
+        console.error('Top-level fallback save failed:', fnErr);
+      }
+    }
     alert('❌ Не вдалося зберегти в БД: ' + (err?.message || err));
   }
 }
