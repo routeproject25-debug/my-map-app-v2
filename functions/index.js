@@ -219,40 +219,4 @@ exports.deleteUser = onRequest({ cors: true }, async (req, res) => {
   }
 });
 
-// Enable/Disable user login (admin only)
-exports.setUserDisabled = onRequest({ cors: true }, async (req, res) => {
-  try{
-    if (req.method !== 'POST'){
-      res.set('Allow','POST');
-      return res.status(405).json({ ok:false, error:'Method Not Allowed' });
-    }
-    const authInfo = await verifyAuth(req);
-    const { role } = await getUserAccess(authInfo.uid);
-    if (role !== 'admin') return res.status(403).json({ ok:false, error:'forbidden' });
-
-    const body = req.body || {};
-    const uid = String(body.uid || '').trim();
-    const disabled = !!body.disabled;
-    if (!uid) return res.status(400).json({ ok:false, error:'Missing uid' });
-    if (uid === authInfo.uid) return res.status(400).json({ ok:false, error:'cannot-disable-self' });
-
-    // Update Firebase Auth
-    try { await admin.auth().updateUser(uid, { disabled }); } catch(e) { /* may fail if user doesn't exist */ }
-
-    // Persist flag in Firestore for fast UI/filtering
-    const db = admin.firestore();
-    const uref = db.collection('users').doc(uid);
-    const payload = { authDisabled: disabled };
-    if (disabled) payload.authDisabledAt = new Date().toISOString(); else payload.authDisabledAt = admin.firestore.FieldValue.delete();
-    await uref.set(payload, { merge: true });
-
-    const audit = db.collection('audit').doc();
-    await audit.set({ type:'user_set_disabled', targetUid: uid, disabled, by: authInfo.uid, at: new Date().toISOString() });
-
-    return res.json({ ok:true, uid, disabled });
-  }catch(e){
-    const code = e && e.code ? String(e.code) : undefined;
-    if (code === 'unauthenticated') return res.status(401).json({ ok:false, error:'unauthenticated' });
-    return res.status(500).json({ ok:false, error: String(e && e.message || e) });
-  }
-});
+// (setUserDisabled removed as per request)
