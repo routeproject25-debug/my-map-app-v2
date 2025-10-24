@@ -197,6 +197,12 @@
   const SPEAK_NOW_DIST = 25;
   const SPEAK_MIN_GAP_MS = 6000; // мінімальний інтервал між підказками
 
+  // === Уздовж-маршрутне згладжування (позиція на лінії) ===
+  // 1D alpha-beta фільтр по координаті вздовж маршруту (в кілометрах)
+  const TRACK_ALPHA = 0.25;     // наскільки довіряємо вимірюванню
+  const TRACK_BETA  = 0.05;     // наскільки коригуємо швидкість
+  const MAX_KPS     = 0.05;     // макс. швидкість, км/с (~180 км/год)
+
   function b64decodeUtf8(b64){
     const bin = atob(b64); const bytes = new Uint8Array(bin.length);
     for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
@@ -698,6 +704,62 @@
     return text;
   }
 
+  // ===== 1D трекер вздовж маршруту (locKm) =====
+  const routeTracker = { posKm: null, velKps: 0, lastTs: null };
+  function clampKm(km){ return Math.max(0, Math.min(routeLengthKm || 0, km)); }
+  function rtInit(locKm, ts){
+    routeTracker.posKm = clampKm(locKm);
+    routeTracker.velKps = 0;
+    routeTracker.lastTs = ts;
+    if (!window.__anim) window.__anim = { running:false, currKm: routeTracker.posKm, last: null };
+  }
+  function rtUpdate(locKm, ts){
+    if (locKm==null || !Number.isFinite(locKm)) return;
+    if (routeTracker.posKm==null) { rtInit(locKm, ts); return; }
+    const dt = Math.max(0.05, ((typeof ts==='number'?ts:Date.now()) - (routeTracker.lastTs||ts))/1000);
+    const meas = clampKm(locKm);
+    const r = meas - routeTracker.posKm;          // інновація
+    // alpha-beta: прогноз + корекція
+    routeTracker.posKm = routeTracker.posKm + routeTracker.velKps * dt + TRACK_ALPHA * r;
+    routeTracker.velKps = routeTracker.velKps + (TRACK_BETA * r) / dt;
+    // обмеження
+    if (!Number.isFinite(routeTracker.velKps)) routeTracker.velKps = 0;
+    routeTracker.velKps = Math.max(0, Math.min(MAX_KPS, routeTracker.velKps));
+    routeTracker.posKm = clampKm(routeTracker.posKm);
+    routeTracker.lastTs = (typeof ts==='number'?ts:Date.now());
+  }
+
+  // Анімаційний цикл, що плавно веде маркер/камеру до rt.posKm
+  function ensureAnimLoop(){
+    if (!window.__anim) window.__anim = { running:false, currKm:null, last:null };
+    const A = window.__anim; if (A.running) return;
+    A.running = true; window.__animLoopActive = true;
+    const step = (t)=>{
+      const now = t || performance.now();
+      const dt = A.last ? Math.max(0, (now - A.last)/1000) : 0; A.last = now;
+      const targetKm = (routeTracker.posKm!=null) ? routeTracker.posKm : A.currKm;
+      if (A.currKm==null) A.currKm = targetKm;
+      // Скільки можемо пройти за кадр: залежить від оціненої швидкості, але не менше малого кроку
+      const maxStep = Math.max(0.001, (routeTracker.velKps||0) * dt * 1.6); // ~наздоганяємо, але без стрибків
+      const diff = (targetKm - A.currKm) || 0;
+      const move = Math.sign(diff) * Math.min(Math.abs(diff), maxStep);
+      A.currKm = clampKm((A.currKm||0) + move);
+      // Координати для рендеру
+      if (routeGeoJSON && Number.isFinite(A.currKm)){
+        try{
+          const p = turf.along(routeGeoJSON, A.currKm);
+          const ll = p.geometry.coordinates;
+          ensureUserMarker(ll[0], ll[1]);
+          // Для камери використовуємо стабільний курс з onPosition, центр — анімований
+          const bearingForCamera = lastStableHeading ?? filteredHeading;
+          if (followHard || autoCenter) updateCamera(ll, bearingForCamera);
+        }catch(_){ }
+      }
+      requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
+  }
+
   function nearestOnAnyLine(ll){
     if (!snapFeatures.length) return null;
     let best=null, min=Infinity, which='route', idx=-1;
@@ -761,23 +823,16 @@
     }
     // Згладжування вздовж маршруту (без «зрізання кутів»)
     // Якщо прилипаємо до основного маршруту — згладжуємо не координати, а положення вздовж лінії (кілометри)
-    if (!window.__smoothedLocKm) window.__smoothedLocKm = null;
     if (routeGeoJSON && snappedKind === 'route'){
       try{
         const snapKm = turf.nearestPointOnLine(routeGeoJSON, onLine, {units:'kilometers'});
-        let locKm = (snapKm.properties && typeof snapKm.properties.location === 'number') ? snapKm.properties.location : 0;
-        // Обмежуємо координату від 0 до довжини маршруту
-        locKm = Math.max(0, Math.min(routeLengthKm, locKm));
-        const speedNow = Number.isFinite(pos.coords.speed) ? Math.max(0, pos.coords.speed) : (speedMps||0);
-        // Чим швидше рух — тим більша альфа; при повороті також збільшуємо альфу, щоб «наздоганяти» напрям
-        const routeDirHere = bearingAlongRouteAtLL(onLine) ?? null;
-        const hd = filteredHeading ?? routeDirHere ?? 0;
-        const dev = routeDirHere!=null ? Math.abs(angleDelta(hd, routeDirHere)) : 0;
-        const baseA = 0.25 + Math.min(0.45, speedNow*0.08); // 0.25..0.7
-        const alphaLoc = baseA + (dev>30 ? 0.15 : 0);
-        window.__smoothedLocKm = (window.__smoothedLocKm==null) ? locKm : (window.__smoothedLocKm + (locKm - window.__smoothedLocKm) * alphaLoc);
-        const p = turf.along(routeGeoJSON, Math.max(0, Math.min(routeLengthKm, window.__smoothedLocKm)));
+        const locKm = (snapKm.properties && typeof snapKm.properties.location === 'number') ? snapKm.properties.location : 0;
+        // Оновлюємо трекер уздовж маршруту
+        rtUpdate(locKm, ts);
+        const p = turf.along(routeGeoJSON, routeTracker.posKm ?? locKm);
         filteredPos = p.geometry.coordinates;
+        // Запускаємо плавну анімацію, якщо ще не запущена
+        ensureAnimLoop();
       }catch(_){ filteredPos = onLine; }
     } else {
       // Інакше — звичайне координатне згладжування
@@ -834,7 +889,8 @@
     lastUserPos = filteredPos;
     lastSpeedPos = filteredPos; lastTs = ts;
 
-    ensureUserMarker(filteredPos[0], filteredPos[1]);
+  // Якщо працює анімаційний цикл, рендер позиції виконується в ньому
+  if (!window.__animLoopActive) ensureUserMarker(filteredPos[0], filteredPos[1]);
 
     // Обчислюємо напрямок для маркера: перевага напряму маршруту при великих розбіжностях/на малих швидкостях
     const near = nearestOnAnyLine(filteredPos);
@@ -855,7 +911,7 @@
 
     // Коли стоїмо — тримаємо попередній стабільний курс, щоб камера не "танцювала"
     const bearingForCamera = lastStableHeading ?? filteredHeading;
-    if (followHard || autoCenter) updateCamera(filteredPos, bearingForCamera);
+  if (!window.__animLoopActive && (followHard || autoCenter)) updateCamera(filteredPos, bearingForCamera);
 
     if (routeGeoJSON){
       const snapKm = turf.nearestPointOnLine(routeGeoJSON, filteredPos, {units:'kilometers'});
