@@ -177,3 +177,44 @@ exports.approveRoute = onRequest({ cors: true }, async (req, res) => {
     return res.status(500).json({ ok:false, error: String(e && e.message || e) });
   }
 });
+
+// Delete user (admin only): remove Firestore user doc, optional Auth user, and roles doc
+exports.deleteUser = onRequest({ cors: true }, async (req, res) => {
+  try{
+    if (req.method !== 'POST'){
+      res.set('Allow','POST');
+      return res.status(405).json({ ok:false, error:'Method Not Allowed' });
+    }
+
+    const authInfo = await verifyAuth(req);
+    const { role } = await getUserAccess(authInfo.uid);
+    if (role !== 'admin') return res.status(403).json({ ok:false, error:'forbidden' });
+
+    const body = req.body || {};
+    const uid = String(body.uid || '').trim();
+    const alsoAuth = !!body.deleteAuth;
+    if (!uid) return res.status(400).json({ ok:false, error:'Missing uid' });
+    if (uid === authInfo.uid) return res.status(400).json({ ok:false, error:'cannot-delete-self' });
+
+    const db = admin.firestore();
+    const batch = db.batch();
+    const uref = db.collection('users').doc(uid);
+    batch.delete(uref);
+    const rref = db.collection('roles').doc(uid);
+    batch.delete(rref);
+    const audit = db.collection('audit').doc();
+    batch.set(audit, { type:'user_delete', targetUid: uid, by: authInfo.uid, at: new Date().toISOString(), via:'function' });
+    await batch.commit();
+
+    let authDeleted = false;
+    if (alsoAuth){
+      try { await admin.auth().deleteUser(uid); authDeleted = true; }
+      catch(e){ /* swallow; still consider ok for Firestore */ }
+    }
+    return res.json({ ok:true, uid, authDeleted });
+  }catch(e){
+    const code = e && e.code ? String(e.code) : undefined;
+    if (code === 'unauthenticated') return res.status(401).json({ ok:false, error:'unauthenticated' });
+    return res.status(500).json({ ok:false, error: String(e && e.message || e) });
+  }
+});

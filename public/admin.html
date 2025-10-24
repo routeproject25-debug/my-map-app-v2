@@ -349,6 +349,7 @@ function renderUsers(){
   // повертаємо інтерактивність
   bindRoleChangeHandlers();
   bindHubHandlers();
+  bindDeleteHandlers();
 }
 
 /* події панелі */
@@ -435,6 +436,7 @@ function userRowHTML(id, user){
         </label>
 
         <button class="btn save-hubs" data-id="${id}">💾 Зберегти доступ до хабів</button>
+        <button class="btn btn-delete" data-id="${id}" title="Видалити користувача з бази (та опційно з Auth)">🗑 Видалити</button>
       </div>
 
       <div class="hubs-wrap" style="margin-top:6px;">
@@ -623,6 +625,57 @@ function bindHubHandlers(){
         alert('Не вдалося зберегти доступи: ' + (e?.message || e));
         saveBtn.textContent = '💾 Зберегти доступ до хабів';
         updateSaveBtnState(row); // повернемо актуальний стан
+      }
+    });
+  });
+}
+
+/* ================= Видалення користувачів (адмін) ================= */
+async function apiDeleteUser(uid, deleteAuth){
+  const u = auth.currentUser; if (!u) throw new Error('not-authenticated');
+  const token = await u.getIdToken();
+  const r = await fetch('/api/users/delete', {
+    method: 'POST',
+    headers: { 'Content-Type':'application/json', 'Authorization': 'Bearer ' + token },
+    body: JSON.stringify({ uid, deleteAuth: !!deleteAuth })
+  });
+  const ct = r.headers.get('content-type') || '';
+  const body = ct.includes('application/json') ? (await r.json().catch(()=>({}))) : {};
+  if (r.ok && body && body.ok) return body;
+  const text = !r.ok ? `${r.status}` : 'invalid-response';
+  throw new Error(text);
+}
+
+function bindDeleteHandlers(){
+  document.querySelectorAll('#user-list .user-row .btn-delete').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const row = btn.closest('.user-row');
+      const uid = row?.dataset?.uid;
+      if (!uid) return;
+      if (currentUser && uid === currentUser.uid){ alert('Не можна видалити власний акаунт.'); return; }
+
+      const really = confirm('Видалити користувача з бази (users, roles) та журналу? Дію не можна скасувати.');
+      if (!really) return;
+      const alsoAuth = confirm('Також видалити обліковий запис у Firebase Auth (заборонити логін)? ОК — так, Скасувати — лише з бази.');
+
+      btn.disabled = true; const prevText = btn.textContent; btn.textContent = 'Видалення…';
+      try{
+        try{
+          await apiDeleteUser(uid, alsoAuth);
+        }catch(e){
+          // Fallback: видалення напряму з Firestore (якщо правила дозволяють)
+          await Promise.allSettled([
+            db.collection('users').doc(uid).delete(),
+            db.collection('roles').doc(uid).delete(),
+            db.collection('audit').add({ type:'user_delete', targetUid: uid, by: currentUser ? currentUser.uid : null, at: new Date().toISOString(), via:'client-fallback' })
+          ]);
+        }
+        btn.textContent = '✅ Видалено';
+        setTimeout(()=>{ btn.textContent = prevText; btn.disabled = false; }, 800);
+      }catch(err){
+        console.error(err);
+        alert('Не вдалося видалити користувача: ' + (err.message || err));
+        btn.textContent = prevText; btn.disabled = false;
       }
     });
   });
