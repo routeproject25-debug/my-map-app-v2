@@ -694,8 +694,27 @@ function attachDisableHandler(btn, immediate){
       btn.setAttribute('data-disabled', makeDisabled ? '1' : '0');
       btn.textContent = makeDisabled ? '🔓 Розблокувати' : '🔒 Заблокувати логін';
     }catch(e){
-      console.error(e); alert('Не вдалося змінити стан логіну: ' + (e.message || e));
-      btn.textContent = prev;
+      console.error(e);
+      // Пропонуємо тимчасовий локальний прапорець у Firestore, щоб приховати зі списку
+      if (makeDisabled){
+        const fallback = confirm('Не вдалося змінити стан логіну через сервер. Позначити користувача як заблокованого лише в базі (без блокування в Auth)?');
+        if (fallback){
+          try{
+            await db.collection('users').doc(uid).set({ authDisabled:true, authDisabledAt: new Date().toISOString() }, { merge:true });
+            btn.setAttribute('data-disabled','1');
+            btn.textContent = '🔓 Розблокувати';
+          }catch(err){
+            alert('Не вдалося застосувати локальний прапорець: ' + (err.message || err));
+            btn.textContent = prev;
+          }
+        } else {
+          alert('Не вдалося змінити стан логіну: ' + (e.message || e));
+          btn.textContent = prev;
+        }
+      } else {
+        alert('Не вдалося змінити стан логіну: ' + (e.message || e));
+        btn.textContent = prev;
+      }
     }finally{ btn.disabled = false; }
   };
   if (immediate) return run();
