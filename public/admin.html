@@ -92,6 +92,7 @@ body.compact .user-row b{font-size:14px}
     <option value="name_desc">Ім’я Я→A</option>
     <option value="role_asc">Роль A→Я</option>
   </select>
+  <label class="muted"><input type="checkbox" id="hideDisabled"> ховати заблоковані</label>
   <button class="btn" id="btnCompact" title="Перемкнути компактний режим">🧱 Компактно</button>
   <span class="badge" id="countView">0</span>
 </div>
@@ -174,6 +175,7 @@ const toolbar = {
   hub: document.getElementById('filterHub'),
   onlyPending: document.getElementById('pendingOnly'),
   sortBy: document.getElementById('sortBy'),
+  hideDisabled: document.getElementById('hideDisabled'),
   compact: document.getElementById('btnCompact'),
   count: document.getElementById('countView'),
 };
@@ -186,7 +188,7 @@ const pager = {
 
 let allUsers = [];    // сирі дані з Firestore
 let page = 0;        // номер сторінки
-const F = { q:'', role:'', hub:'', onlyPending:false, sort:'created_desc' };
+const F = { q:'', role:'', hub:'', onlyPending:false, sort:'created_desc', hideDisabled:false };
 
 /* заповнимо селект хабів */
 (function fillHubSelect(){
@@ -248,6 +250,7 @@ function applyFilters(){
   const filtered = allUsers.filter(u => {
     if (F.role && toLower(u.role) !== F.role) return false;
     if (F.onlyPending && toLower(u.role) !== 'pending') return false;
+    if (F.hideDisabled && !!u.authDisabled) return false;
 
     if (F.hub){
       const hubs = Array.isArray(u.allowedHubs) ? u.allowedHubs : [];
@@ -360,6 +363,7 @@ toolbar.role.addEventListener('change', e => { F.role = e.target.value; rerender
 toolbar.hub.addEventListener('change',  e => { F.hub  = e.target.value; rerender(); });
 toolbar.onlyPending.addEventListener('change', e => { F.onlyPending = e.target.checked; rerender(); });
 toolbar.sortBy.addEventListener('change', e => { F.sort = e.target.value; rerender(); });
+toolbar.hideDisabled.addEventListener('change', e => { F.hideDisabled = e.target.checked; rerender(); });
 pager.prev.addEventListener('click', () => { page = Math.max(0, page-1); renderUsers(); });
 pager.next.addEventListener('click', () => { page = page+1; renderUsers(); });
 
@@ -402,6 +406,7 @@ function userRowHTML(id, user){
     : ((role === 'admin' || role === 'security') ? ['*'] : []);
 
   const seeAll = allowedHubs.includes('*') || role === 'admin' || role === 'security';
+  const disabled = !!user.authDisabled;
 
   const hubsHTML = `
     <label>
@@ -436,6 +441,7 @@ function userRowHTML(id, user){
         </label>
 
         <button class="btn save-hubs" data-id="${id}">💾 Зберегти доступ до хабів</button>
+        <button class="btn btn-disable" data-id="${id}" data-disabled="${disabled ? '1' : '0'}" title="Заблокувати/розблокувати логін у Firebase Auth">${disabled ? '🔓 Розблокувати' : '🔒 Заблокувати логін'}</button>
         <button class="btn btn-delete" data-id="${id}" title="Видалити користувача з бази (та опційно з Auth)">🗑 Видалити</button>
       </div>
 
@@ -626,6 +632,43 @@ function bindHubHandlers(){
         saveBtn.textContent = '💾 Зберегти доступ до хабів';
         updateSaveBtnState(row); // повернемо актуальний стан
       }
+    });
+  });
+}
+
+/* ================= Блокування/розблокування логіну ================= */
+async function apiDisableUser(uid, disabled){
+  const u = auth.currentUser; if (!u) throw new Error('not-authenticated');
+  const token = await u.getIdToken();
+  const r = await fetch('/api/users/disable', {
+    method: 'POST',
+    headers: { 'Content-Type':'application/json', 'Authorization': 'Bearer ' + token },
+    body: JSON.stringify({ uid, disabled: !!disabled })
+  });
+  const ct = r.headers.get('content-type') || '';
+  const body = ct.includes('application/json') ? (await r.json().catch(()=>({}))) : {};
+  if (r.ok && body && body.ok) return body;
+  throw new Error(!r.ok ? String(r.status) : 'invalid-response');
+}
+
+function bindDisableHandlers(){
+  document.querySelectorAll('#user-list .user-row .btn-disable').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const row = btn.closest('.user-row'); const uid = row?.dataset?.uid; if (!uid) return;
+      if (currentUser && uid === currentUser.uid){ alert('Не можна заблокувати власний логін.'); return; }
+      const currently = btn.getAttribute('data-disabled') === '1';
+      const makeDisabled = !currently;
+      const conf = confirm(makeDisabled ? 'Заблокувати логін цього користувача?' : 'Розблокувати логін цього користувача?');
+      if (!conf) return;
+      const prev = btn.textContent; btn.disabled = true; btn.textContent = makeDisabled ? 'Блокую…' : 'Розблокую…';
+      try{
+        await apiDisableUser(uid, makeDisabled);
+        btn.setAttribute('data-disabled', makeDisabled ? '1' : '0');
+        btn.textContent = makeDisabled ? '🔓 Розблокувати' : '🔒 Заблокувати логін';
+      }catch(e){
+        console.error(e); alert('Не вдалося змінити стан логіну: ' + (e.message || e));
+        btn.textContent = prev;
+      }finally{ btn.disabled = false; }
     });
   });
 }

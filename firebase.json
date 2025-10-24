@@ -17,6 +17,7 @@
       { "source": "/api/routes/save", "function": "saveRoute" },
       { "source": "/api/routes/approve", "function": "approveRoute" },
       { "source": "/api/users/delete", "function": "deleteUser" },
+  { "source": "/api/users/disable", "function": "setUserDisabled" },
       { "source": "/", "destination": "/login.html" },
       { "source": "/login", "destination": "/login.html" },
       { "source": "/index", "destination": "/index.html" },
