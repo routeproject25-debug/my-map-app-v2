@@ -66,6 +66,12 @@ body.compact .user-row b{font-size:14px}
   transform: rotate(90deg);
 }
 .section.collapsed h3.group-h .arrow{ transform: rotate(0deg); }
+
+/* ── Toast ───────────────────────────────────────── */
+.toast{position:fixed;top:12px;left:50%;transform:translateX(-50%);z-index:9999;display:none;padding:10px 14px;border-radius:10px;color:#fff;box-shadow:0 4px 14px rgba(0,0,0,.18);font-size:14px}
+.toast.success{background:#10b981;border:1px solid #059669}
+.toast.error{background:#ef4444;border:1px solid #b91c1c}
+.toast.info{background:#111827;border:1px solid #0f172a}
   </style>
 </head>
 <body>
@@ -115,6 +121,7 @@ body.compact .user-row b{font-size:14px}
 
   <p id="status">Завантаження...</p>
   <div id="user-list"></div>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
 
   <script>
 /* ================= Firebase init ================= */
@@ -129,6 +136,15 @@ if (!CFG) {
 }
 const db   = firebase.firestore();
 const auth = firebase.auth();
+
+/* ================= Toast helper ================= */
+const $toast = document.getElementById('toast');
+function showToast(msg, kind='info', ms=1800){
+  if (!$toast) return; $toast.textContent = String(msg||'');
+  $toast.className = 'toast ' + (kind||'info');
+  $toast.style.display = 'block';
+  clearTimeout(showToast._t); showToast._t = setTimeout(()=>{ $toast.style.display='none'; }, ms);
+}
 
 /* ================= DOM посилання ================= */
 const loginURL  = '/login.html?next=' + encodeURIComponent(location.pathname + location.search);
@@ -693,6 +709,7 @@ function attachDisableHandler(btn, immediate){
       await apiDisableUser(uid, makeDisabled);
       btn.setAttribute('data-disabled', makeDisabled ? '1' : '0');
       btn.textContent = makeDisabled ? '🔓 Розблокувати' : '🔒 Заблокувати логін';
+      showToast(makeDisabled ? '✅ Заблоковано' : '✅ Розблоковано', 'success');
     }catch(e){
       console.error(e);
       // Пропонуємо тимчасовий локальний прапорець у Firestore, щоб приховати зі списку
@@ -703,16 +720,17 @@ function attachDisableHandler(btn, immediate){
             await db.collection('users').doc(uid).set({ authDisabled:true, authDisabledAt: new Date().toISOString() }, { merge:true });
             btn.setAttribute('data-disabled','1');
             btn.textContent = '🔓 Розблокувати';
+            showToast('✅ Позначено як заблокованого (лише база)', 'success');
           }catch(err){
-            alert('Не вдалося застосувати локальний прапорець: ' + (err.message || err));
+            showToast('❌ Не вдалося застосувати локальний прапорець: ' + (err.message || err), 'error', 2400);
             btn.textContent = prev;
           }
         } else {
-          alert('Не вдалося змінити стан логіну: ' + (e.message || e));
+          showToast('❌ Не вдалося змінити стан логіну: ' + (e.message || e), 'error', 2400);
           btn.textContent = prev;
         }
       } else {
-        alert('Не вдалося змінити стан логіну: ' + (e.message || e));
+        showToast('❌ Не вдалося змінити стан логіну: ' + (e.message || e), 'error', 2400);
         btn.textContent = prev;
       }
     }finally{ btn.disabled = false; }
