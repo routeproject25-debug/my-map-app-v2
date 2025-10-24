@@ -641,15 +641,31 @@ function bindHubHandlers(){
 async function apiDisableUser(uid, disabled){
   const u = auth.currentUser; if (!u) throw new Error('not-authenticated');
   const token = await u.getIdToken();
-  const r = await fetch('/api/users/disable', {
+  // 1) пробуємо через хостинг-розпис (Firebase Hosting rewrite)
+  try{
+    const r = await fetch('/api/users/disable', {
+      method: 'POST',
+      headers: { 'Content-Type':'application/json', 'Authorization': 'Bearer ' + token },
+      body: JSON.stringify({ uid, disabled: !!disabled })
+    });
+    const ct = r.headers.get('content-type') || '';
+    const body = ct.includes('application/json') ? (await r.json().catch(()=>({}))) : {};
+    if (r.ok && body && body.ok) return body;
+    // Якщо повернуло HTML/текст або не OK — спробуємо прямий URL функції нижче
+  }catch(_){ }
+  // 2) прямий URL до Cloud Functions
+  const projectId = (window.APP_CONFIG && window.APP_CONFIG.firebase && window.APP_CONFIG.firebase.projectId) || '';
+  if (!projectId) throw new Error('invalid-response');
+  const direct = `https://us-central1-${projectId}.cloudfunctions.net/setUserDisabled`;
+  const r2 = await fetch(direct, {
     method: 'POST',
     headers: { 'Content-Type':'application/json', 'Authorization': 'Bearer ' + token },
     body: JSON.stringify({ uid, disabled: !!disabled })
   });
-  const ct = r.headers.get('content-type') || '';
-  const body = ct.includes('application/json') ? (await r.json().catch(()=>({}))) : {};
-  if (r.ok && body && body.ok) return body;
-  throw new Error(!r.ok ? String(r.status) : 'invalid-response');
+  const ct2 = r2.headers.get('content-type') || '';
+  const body2 = ct2.includes('application/json') ? (await r2.json().catch(()=>({}))) : {};
+  if (r2.ok && body2 && body2.ok) return body2;
+  throw new Error(!r2.ok ? String(r2.status) : 'invalid-response');
 }
 
 function bindDisableHandlers(){
