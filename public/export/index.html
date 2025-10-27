@@ -524,7 +524,7 @@
     <th><input id="f_toCode" type="text" placeholder="пошук…" list="fToCodesList"></th>
     <th><input id="f_fromName" type="text" placeholder="пошук…" list="fFromNamesList"></th>
     <th><input id="f_toName" type="text" placeholder="пошук…" list="fToNamesList"></th>
-    <th><input id="f_via" type="text" placeholder="проміжні…"></th>
+  <th><input id="f_via" type="text" placeholder="проміжні…" list="fViaList"></th>
     <th>
       <div class="range">
         <input id="f_distMin" type="number" step="0.001" placeholder="мін.">
@@ -548,15 +548,15 @@
         <option>Очікує</option>
       </select>
     </th>
-    <th><input id="f_comment" type="text" placeholder="коментар…"></th>
+  <th><input id="f_comment" type="text" placeholder="коментар…" list="fCommentsList"></th>
     <th>
       <div class="range">
         <input id="f_dateFrom" type="date">
         <input id="f_dateTo" type="date">
       </div>
     </th>
-    <th><input id="f_routeKey" type="text" placeholder="пошук…"></th>
-    <th><input id="f_id" type="text" placeholder="пошук…"></th>
+  <th><input id="f_routeKey" type="text" placeholder="пошук…" list="fRouteKeysList"></th>
+  <th><input id="f_id" type="text" placeholder="пошук…" list="fIdsList"></th>
     <th></th>  <!-- для "Карта" -->
     <th></th>  <!-- для "Погодження" -->
     <th></th>  <!-- для "Навігатор" -->
@@ -573,6 +573,10 @@
         <datalist id="fFromNamesList"></datalist>
         <datalist id="fToNamesList"></datalist>
         <datalist id="fLogistsList"></datalist>
+        <datalist id="fViaList"></datalist>
+        <datalist id="fCommentsList"></datalist>
+        <datalist id="fRouteKeysList"></datalist>
+        <datalist id="fIdsList"></datalist>
       </div>
     </div>
   </div>
@@ -1479,6 +1483,13 @@ function updateColumnFilterLists(rows){
   const tNames = uniqSorted(rows.map(r => r.toName));
   const logs   = uniqSorted(rows.map(r => r.logisticName));
   const stats  = uniqSorted(rows.map(r => r.statusLabel));
+  // Розбиваємо проміжні пункти на окремі назви
+  const viaRaw = rows.map(r => r.viaNames || '').filter(Boolean);
+  const viaParts = uniqSorted(viaRaw.flatMap(s => String(s).split(',').map(x => x.trim()).filter(Boolean)));
+  const comments = uniqSorted(rows.map(r => r.rejectComment));
+  const routeKeys = uniqSorted(rows.map(r => r.routeKey));
+  const ids = uniqSorted(rows.map(r => r.id));
+  const types = uniqSorted(rows.map(r => r.type));
 
   setDatalistOptions('fHubsList', hubs);
   setDatalistOptions('fFromCodesList', fCodes);
@@ -1486,9 +1497,15 @@ function updateColumnFilterLists(rows){
   setDatalistOptions('fFromNamesList', fNames);
   setDatalistOptions('fToNamesList', tNames);
   setDatalistOptions('fLogistsList', logs);
+  setDatalistOptions('fViaList', viaParts);
+  setDatalistOptions('fCommentsList', comments);
+  setDatalistOptions('fRouteKeysList', routeKeys);
+  setDatalistOptions('fIdsList', ids);
 
   // Обмежити опції статусу лише тими, що присутні в таблиці (плюс порожній)
   if (stats.length){ rebuildSelectOptions('f_status', stats); }
+  // Те саме для типів маршрутів
+  if (types.length){ rebuildSelectOptions('f_type', types); }
 }
 
 /* ---------- Сортування обчислення ---------- */
