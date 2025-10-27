@@ -519,11 +519,11 @@
 
   <!-- Рядок фільтрів (без змін по суті) -->
   <tr class="filters">
-    <th><input id="f_hub" type="text" placeholder="пошук…"></th>
-    <th><input id="f_fromCode" type="text" placeholder="пошук…"></th>
-    <th><input id="f_toCode" type="text" placeholder="пошук…"></th>
-    <th><input id="f_fromName" type="text" placeholder="пошук…" list="directoryList"></th>
-    <th><input id="f_toName" type="text" placeholder="пошук…" list="directoryList"></th>
+    <th><input id="f_hub" type="text" placeholder="пошук…" list="fHubsList"></th>
+    <th><input id="f_fromCode" type="text" placeholder="пошук…" list="fFromCodesList"></th>
+    <th><input id="f_toCode" type="text" placeholder="пошук…" list="fToCodesList"></th>
+    <th><input id="f_fromName" type="text" placeholder="пошук…" list="fFromNamesList"></th>
+    <th><input id="f_toName" type="text" placeholder="пошук…" list="fToNamesList"></th>
     <th><input id="f_via" type="text" placeholder="проміжні…"></th>
     <th>
       <div class="range">
@@ -539,7 +539,7 @@
         <option value="Альтернативний2">Альтернативний2</option>
       </select>
     </th>
-    <th><input id="f_logist" type="text" placeholder="логіст…" list="logistsList"></th>
+    <th><input id="f_logist" type="text" placeholder="логіст…" list="fLogistsList"></th>
     <th>
       <select id="f_status">
         <option value=""></option>
@@ -566,6 +566,13 @@
 </thead>
           <tbody></tbody>
         </table>
+        <!-- Динамічні списки підказок для фільтрів у шапці таблиці (оновлюються за видимими рядками) -->
+        <datalist id="fHubsList"></datalist>
+        <datalist id="fFromCodesList"></datalist>
+        <datalist id="fToCodesList"></datalist>
+        <datalist id="fFromNamesList"></datalist>
+        <datalist id="fToNamesList"></datalist>
+        <datalist id="fLogistsList"></datalist>
       </div>
     </div>
   </div>
@@ -1439,6 +1446,51 @@ function applyTableFilters(rows){
   });
 }
 
+/* ---------- Оновлення підказок у фільтрах шапки (лише зі значень у поточній таблиці) ---------- */
+function uniqSorted(arr){
+  try{
+    return Array.from(new Set((arr || []).map(v => String(v || '').trim()).filter(v => v))).sort((a,b)=>a.localeCompare(b,'uk'));
+  }catch{
+    return [];
+  }
+}
+
+function setDatalistOptions(listId, values){
+  const list = document.getElementById(listId);
+  if (!list) return;
+  const opts = (values || []).map(v => `<option value="${v}"></option>`).join('');
+  list.innerHTML = opts;
+}
+
+function rebuildSelectOptions(selectId, values){
+  const sel = document.getElementById(selectId);
+  if (!sel) return;
+  const prev = sel.value;
+  const uniq = uniqSorted(values || []);
+  sel.innerHTML = [''].concat(uniq).map(v => v === '' ? '<option value=""></option>' : `<option>${v}</option>`).join('');
+  if (uniq.includes(prev)) sel.value = prev; else sel.value = '';
+}
+
+function updateColumnFilterLists(rows){
+  const hubs   = uniqSorted(rows.map(r => r.hub));
+  const fCodes = uniqSorted(rows.map(r => r.fromCode));
+  const tCodes = uniqSorted(rows.map(r => r.toCode));
+  const fNames = uniqSorted(rows.map(r => r.fromName));
+  const tNames = uniqSorted(rows.map(r => r.toName));
+  const logs   = uniqSorted(rows.map(r => r.logisticName));
+  const stats  = uniqSorted(rows.map(r => r.statusLabel));
+
+  setDatalistOptions('fHubsList', hubs);
+  setDatalistOptions('fFromCodesList', fCodes);
+  setDatalistOptions('fToCodesList', tCodes);
+  setDatalistOptions('fFromNamesList', fNames);
+  setDatalistOptions('fToNamesList', tNames);
+  setDatalistOptions('fLogistsList', logs);
+
+  // Обмежити опції статусу лише тими, що присутні в таблиці (плюс порожній)
+  if (stats.length){ rebuildSelectOptions('f_status', stats); }
+}
+
 /* ---------- Сортування обчислення ---------- */
 function compareRows(a,b,key){
   const dir = sortState.dir;
@@ -1839,6 +1891,8 @@ function handleFirestoreError(e){
 function reRender(){
   let rows = applyTopFilters(allRows);
   rows = applyTableFilters(rows);
+  // Оновлюємо підказки у шапці за поточним набором рядків
+  updateColumnFilterLists(rows);
   rows = sortRows(rows);
   renderTable(rows);
   applyColumnVisibility();
