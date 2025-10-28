@@ -2286,7 +2286,8 @@ const arrFrom = (pts) => {
         routeData.logisticName || (routeData.logisticId ? getLogistNameById(routeData.logisticId) : '');
 
 
-      rebuildMarkers(); drawRulers(); updateRoute();
+      // Відновити маркери лінійок одразу після завантаження
+      rebuildMarkers(); rebuildRulerMarkers(); drawRulers(); updateRoute();
       if (points.length > 0) map.flyTo({ center: points[0], zoom: 12 });
       alert('Маршрут успішно завантажено з файлу!');
     } catch (err) { alert('Помилка при завантаженні: ' + err.message); }
@@ -2895,7 +2896,8 @@ async function loadFromDB() {
 registerDirEntry(data.fromCode, data.fromLabel || document.getElementById('fromName').value);
 registerDirEntry(data.toCode,   data.toLabel   || document.getElementById('toName').value);
 
-    rebuildMarkers(); drawRulers(); updateRoute();
+    // Показати маркери лінійок без додаткових кліків
+    rebuildMarkers(); rebuildRulerMarkers(); drawRulers(); updateRoute();
 	updateHighlights();
     if (points.length > 0) map.flyTo({ center: points[0], zoom: 12 });
     alert('Маршрут завантажено з БД: ' + id + (data.routeKey ? `\nКод: ${data.routeKey}` : ''));
@@ -3379,7 +3381,8 @@ async function loadRouteById(rid) {
     endRuler   = fromObjPoints(data.endRuler || []);
     registerDirEntry(data.fromCode, data.fromLabel || document.getElementById('fromName').value);
     registerDirEntry(data.toCode,   data.toLabel   || document.getElementById('toName').value);
-    rebuildMarkers(); drawRulers(); updateRoute();
+    // Одразу відобразити маркери лінійок, якщо вони є в документі
+    rebuildMarkers(); rebuildRulerMarkers(); drawRulers(); updateRoute();
     if (points.length) {
       const b = new mapboxgl.LngLatBounds(points[0], points[0]);
       for (const p of points) b.extend(p);
