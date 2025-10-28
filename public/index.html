@@ -1355,7 +1355,12 @@ document.getElementById('clearRulers').onclick = () => {
   if (activeRuler === 'start') { startRuler = []; }
   else if (activeRuler === 'end') { endRuler = []; }
   else {
-    if (!startRuler.length && !endRuler.length) return;
+    // Якщо обидві лінійки вже порожні — все одно прибираємо залишкові маркери
+    if (!startRuler.length && !endRuler.length) {
+      try { clearRulerMarkers(); } catch(_) {}
+      drawRulers(); updateRoute();
+      return;
+    }
     if (!confirm('Очистити обидві лінійки?')) return;
     startRuler = []; endRuler = [];
   }
@@ -3396,8 +3401,16 @@ function clearForm() {
   document.getElementById('routeName').value = '';
   document.getElementById('logistInput').value = '';
   setKmUI(0);
+  // Скидаємо дані
   points = []; startRuler = []; endRuler = [];
-  rebuildMarkers(); drawRulers(); updateRoute();
+  // Прибираємо ВСІ маркери (маршруту і лінійок)
+  try { rebuildMarkers(); } catch(_) {}
+  try { clearRulerMarkers(); } catch(_) {}
+  // Скасовуємо активні режими і вибір індексу
+  addMode = false; startLineMode = false; endLineMode = false; insertAfterMode = false;
+  setActiveRuler(null); lastActiveRuler = null; selectedMarkerIndex = null;
+  // Перемалювати лінії/км
+  drawRulers(); updateRoute();
   document.getElementById('remoteRoutes').value = '';
 
   // ⬇️ додай цю строку
