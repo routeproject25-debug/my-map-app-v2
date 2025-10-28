@@ -132,6 +132,23 @@
   .mapboxgl-canvas{z-index:0!important}
   .mapboxgl-control-container{z-index:1!important}
   .mapboxgl-marker{z-index:2!important}
+  /* Стилі для дока перемикання стилю карти (нижній лівий кут) */
+  .style-dock{
+    position:fixed;
+    left:8px; bottom:8px; z-index:3500;
+    display:flex; align-items:center; gap:6px;
+    background:var(--card); border:1px solid var(--line);
+    border-radius:12px; padding:6px 8px;
+    box-shadow:0 2px 12px rgba(0,0,0,.12);
+  }
+  .style-dock select{
+    border:1px solid var(--line); border-radius:10px;
+    padding:6px 8px; font-size:13px; background:#fff; color:#111;
+  }
+  .style-dock .mapbox-brand{
+    font-size:11px; color:#6b7280; border-left:1px dashed var(--line);
+    padding-left:8px;
+  }
 
   #logistsMsg{display:none;font-size:12px;color:#b91c1c;margin-top:4px}
   
@@ -377,8 +394,8 @@
 
     <small class="muted">У БД зберігаються <b>коди</b> “Від/До” + підписи. Назва маршруту генерується з актуальних назв довідника.</small>
 
-    <!-- Стиль карти (залишив у створенні) -->
-    <details>
+    <!-- Стиль карти (перенесено у нижній лівий кут; цей блок приховано) -->
+    <details style="display:none">
       <summary><b>Стиль карти</b></summary>
       <div id="styleSelector" style="margin-top:10px;">
         <label for="mapStyle">Стиль карти:</label>
@@ -483,6 +500,22 @@
   <button class="dock-btn active" data-panel="panel-create">✏️ Створення</button>
   <button class="dock-btn" data-panel="panel-load">📚 База</button>
   <button class="dock-btn" data-panel="panel-approve">✅ Погодження</button>
+</div>
+
+<!-- Перемикач стилю карти (нижній лівий кут) -->
+<div id="styleDock" class="style-dock" title="Стиль карти">
+  <select id="mapStyleDock">
+    <option value="mapbox://styles/mapbox/streets-v12">Streets</option>
+    <option value="mapbox://styles/mapbox/satellite-v9">Satellite</option>
+    <option value="mapbox://styles/mapbox/satellite-streets-v12">Satellite Streets</option>
+    <option value="mapbox://styles/mapbox/outdoors-v12">Outdoors</option>
+    <option value="mapbox://styles/mapbox/light-v11">Light</option>
+    <option value="mapbox://styles/mapbox/dark-v11">Dark</option>
+    <option value="mapbox://styles/mapbox/navigation-day-v1">Navigation Day</option>
+    <option value="mapbox://styles/mapbox/navigation-night-v1">Navigation Night</option>
+  </select>
+  <div class="mapbox-brand">mapbox</div>
+  
 </div>
 
 <div id="contextMenu">
@@ -1223,9 +1256,23 @@ hideSplash();            // ⬅️ сховати сплеш, коли стил�
   setGeozonesVisibility(geozonesVisible);
 });
 
+function setMapStyle(val){
+  try{
+    if (!val || val === currentStyle) return;
+    currentStyle = val;
+    map.setStyle(currentStyle);
+    // синхронізуємо обидва селекти без події
+    const s1 = document.getElementById('mapStyle');
+    const s2 = document.getElementById('mapStyleDock');
+    if (s1 && s1.value !== val) s1.value = val;
+    if (s2 && s2.value !== val) s2.value = val;
+  }catch(_){ }
+}
 document.getElementById('mapStyle').addEventListener('change', function() {
-  currentStyle = this.value;
-  map.setStyle(currentStyle);
+  setMapStyle(this.value);
+});
+document.getElementById('mapStyleDock').addEventListener('change', function(){
+  setMapStyle(this.value);
 });
 
 /* ==== POPUP (повний паспорт поля) ==== */
