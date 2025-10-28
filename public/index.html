@@ -316,14 +316,17 @@
         <button id="toggleGeozones" class="btn xs">🗺 Приховати геозони</button>
       </div>
 
-      <div class="btn-row">
-        <button id="saveRoute" class="btn xs">💾 Route JSON</button>
-        <button id="loadRoute" class="btn xs">📂 Завантажити JSON</button>
-        <button id="saveRouteKml" class="btn xs">💾 Route KML</button>
-        <button id="loadRouteKml" class="btn xs">📂 Завантажити KML</button>
-        <input type="file" id="fileInput" accept=".json" style="display:none;">
-        <input type="file" id="fileInputKml" accept=".kml,.xml" style="display:none;">
-      </div>
+      <details id="fileIoSection" style="margin-top:4px;">
+        <summary><b>📁 Файли (JSON/KML)</b></summary>
+        <div class="btn-row" style="margin-top:6px;">
+          <button id="saveRoute" class="btn xs">💾 Route JSON</button>
+          <button id="loadRoute" class="btn xs">📂 Завантажити JSON</button>
+          <button id="saveRouteKml" class="btn xs">💾 Route KML</button>
+          <button id="loadRouteKml" class="btn xs">📂 Завантажити KML</button>
+          <input type="file" id="fileInput" accept=".json" style="display:none;">
+          <input type="file" id="fileInputKml" accept=".kml,.xml" style="display:none;">
+        </div>
+      </details>
 
       <div class="km-chip">
         точки: <span id="countRoute">0</span> •
