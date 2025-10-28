@@ -446,6 +446,8 @@
           <button id="btnRefresh" class="btn" disabled>🔄 Оновити базу</button>
           <button id="btnExportJson" class="btn">JSON (видимі)</button>
           <button id="btnExportJsonAll" class="btn ghost" title="Довантажить усі сторінки і збереже в JSON">JSON (усі сторінки)</button>
+          <button id="btnExportKml" class="btn">KML (видимі)</button>
+          <button id="btnExportKmlAll" class="btn ghost" title="Довантажить усі сторінки і збереже в KML">KML (усі сторінки)</button>
           <span class="muted">Порожні фільтри = не обмежувати. Якщо Firestore попросить індекс — створіть, за посиланням із консолі.</span>
         </div>
 
@@ -878,6 +880,46 @@ function downloadJson(objOrArray, filename){
   setTimeout(()=> URL.revokeObjectURL(a.href), 5000);
 }
 
+/* ---------- KML helpers ---------- */
+function kmlEsc(s){ return String(s||'').replace(/[&<>]/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c])); }
+function kmlCoords(arr){ return (arr||[]).map(([lng,lat])=>`${lng},${lat},0`).join(' '); }
+function buildKmlForRoute(raw, title){
+  const name = kmlEsc(title || 'Маршрут');
+  const pts = normalizePoints(raw?.points) || normalizePoints(raw?.coordinates) || normalizePoints(raw?.route) || normalizePoints(raw?.geojson) || normalizePoints(raw?.geometry);
+  const startR = normalizePoints(raw?.startRuler);
+  const endR   = normalizePoints(raw?.endRuler);
+  const segs   = normalizeSegments(raw);
+  const out = [];
+  out.push('<?xml version="1.0" encoding="UTF-8"?>');
+  out.push('<kml xmlns="http://www.opengis.net/kml/2.2"><Document>');
+  out.push(`<name>${name}</name>`);
+  if (pts && pts.length>=2){
+    out.push('<Placemark><name>Route</name><LineString><tessellate>1</tessellate><coordinates>');
+    out.push(kmlCoords(pts));
+    out.push('</coordinates></LineString></Placemark>');
+  }
+  if (Array.isArray(startR) && startR.length>=2){
+    out.push('<Placemark><name>Ruler start</name><LineString><tessellate>1</tessellate><coordinates>');
+    out.push(kmlCoords(startR));
+    out.push('</coordinates></LineString></Placemark>');
+  }
+  if (Array.isArray(endR) && endR.length>=2){
+    out.push('<Placemark><name>Ruler end</name><LineString><tessellate>1</tessellate><coordinates>');
+    out.push(kmlCoords(endR));
+    out.push('</coordinates></LineString></Placemark>');
+  }
+  if (Array.isArray(segs)){
+    segs.forEach((s, i)=>{
+      if (!s || s.length<2) return;
+      out.push(`<Placemark><name>Segment ${i+1}</name><LineString><tessellate>1</tessellate><coordinates>`);
+      out.push(kmlCoords(s));
+      out.push('</coordinates></LineString></Placemark>');
+    });
+  }
+  out.push('</Document></kml>');
+  return out.join('');
+}
+
 /* ===== Верхній липкий скрол: синхронізація з .table-wrap ===== */
 let _xScroller = null, _xInner = null, _xBound = false, _xRO = null;
 
@@ -1022,6 +1064,36 @@ async function exportJsonZipFromRows(rows){
     (meta) => { try { statusEl.textContent = `Архівується… ${meta.percent.toFixed(1)}%`; } catch(_) {} }
   );
 
+  downloadBlob(blob, zipName);
+  try { statusEl.textContent = 'Готово'; } catch(_) {}
+}
+
+/*
+ * Експорт: кожен маршрут окремим KML у ZIP
+ */
+async function exportKmlZipFromRows(rows){
+  if (!rows || !rows.length){ alert('Немає рядків для експорту.'); return; }
+  const zip = new JSZip();
+  const folder = zip.folder('routes');
+
+  const ts = new Date();
+  const pad = n => String(n).padStart(2,'0');
+  const zipName = `routes_kml_${ts.getFullYear()}${pad(ts.getMonth()+1)}${pad(ts.getDate())}_${pad(ts.getHours())}${pad(ts.getMinutes())}.zip`;
+
+  let i = 0;
+  for (const r of rows){
+    const raw = r.raw || {};
+    const pretty = `${r.fromName || ''} → ${r.toName || ''}`.trim();
+    const base = safeName(`route_${r.routeKey ? r.routeKey + '_' : ''}${r.id || ''}_${pretty || ''}`) || `route_${i+1}`;
+    const kml = buildKmlForRoute(raw, pretty || r.routeKey || r.id || 'Маршрут');
+    folder.file(`${base}.kml`, kml);
+    if (++i % 200 === 0) await new Promise(requestAnimationFrame);
+  }
+
+  const blob = await zip.generateAsync(
+    { type: 'blob', compression: 'DEFLATE', compressionOptions: { level: 6 } },
+    (meta) => { try { statusEl.textContent = `Архівується… ${meta.percent.toFixed(1)}%`; } catch(_) {} }
+  );
   downloadBlob(blob, zipName);
   try { statusEl.textContent = 'Готово'; } catch(_) {}
 }
@@ -2276,6 +2348,32 @@ btnExportJsonAll.addEventListener('click', async ()=>{
     rows = applyTableFilters(rows);
     rows = sortRows(rows);
     await exportJsonZipFromRows(rows);        // <-- замість exportJsonFromRows
+  }catch(e){ handleFirestoreError(e); }
+  finally{ setBusy(false); }
+});
+
+// Нові кнопки: KML (видимі/усі)
+document.getElementById('btnExportKml').addEventListener('click', async ()=>{
+  try{
+    setBusy(true);
+    if (!allRows.length){ await loadFirstPage(false); }
+    let rows = applyTopFilters(allRows);
+    rows = applyTableFilters(rows);
+    rows = sortRows(rows);
+    await exportKmlZipFromRows(rows);
+  }catch(e){ handleFirestoreError(e); }
+  finally{ setBusy(false); }
+});
+
+document.getElementById('btnExportKmlAll').addEventListener('click', async ()=>{
+  try{
+    setBusy(true);
+    if (!allRows.length){ await loadFirstPage(false); }
+    while(_hasMore){ await loadNextPage(); }
+    let rows = applyTopFilters(allRows);
+    rows = applyTableFilters(rows);
+    rows = sortRows(rows);
+    await exportKmlZipFromRows(rows);
   }catch(e){ handleFirestoreError(e); }
   finally{ setBusy(false); }
 });

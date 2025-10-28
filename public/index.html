@@ -301,8 +301,11 @@
 
       <div class="btn-row">
         <button id="saveRoute" class="btn xs">💾 Route JSON</button>
-        <button id="loadRoute" class="btn xs">📂 Завантажити</button>
+        <button id="loadRoute" class="btn xs">📂 Завантажити JSON</button>
+        <button id="saveRouteKml" class="btn xs">💾 Route KML</button>
+        <button id="loadRouteKml" class="btn xs">📂 Завантажити KML</button>
         <input type="file" id="fileInput" accept=".json" style="display:none;">
+        <input type="file" id="fileInputKml" accept=".kml,.xml" style="display:none;">
       </div>
 
       <div class="km-chip">
@@ -2294,6 +2297,92 @@ const arrFrom = (pts) => {
   };
   reader.readAsText(file);
 };
+
+/* ===== KML save/load ===== */
+function kmlEsc(s){ return String(s||'').replace(/[&<>]/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c])); }
+function kmlCoords(arr){ return (arr||[]).map(([lng,lat])=>`${lng},${lat},0`).join(' '); }
+function buildCurrentRouteKml(){
+  const name = (document.getElementById('routeName')?.value || 'Маршрут');
+  const parts = [];
+  parts.push('<?xml version="1.0" encoding="UTF-8"?>');
+  parts.push('<kml xmlns="http://www.opengis.net/kml/2.2"><Document>');
+  parts.push(`<name>${kmlEsc(name)}</name>`);
+  // основний маршрут
+  if (points.length >= 2){
+    parts.push('<Placemark>');
+    parts.push(`<name>${kmlEsc('Route')}</name>`);
+    parts.push('<LineString><tessellate>1</tessellate><coordinates>');
+    parts.push(kmlCoords(points));
+    parts.push('</coordinates></LineString></Placemark>');
+  }
+  // лінійки
+  if (startRuler.length >= 2){
+    parts.push('<Placemark>');
+    parts.push('<name>Ruler start</name>');
+    parts.push('<LineString><tessellate>1</tessellate><coordinates>');
+    parts.push(kmlCoords(startRuler));
+    parts.push('</coordinates></LineString></Placemark>');
+  }
+  if (endRuler.length >= 2){
+    parts.push('<Placemark>');
+    parts.push('<name>Ruler end</name>');
+    parts.push('<LineString><tessellate>1</tessellate><coordinates>');
+    parts.push(kmlCoords(endRuler));
+    parts.push('</coordinates></LineString></Placemark>');
+  }
+  parts.push('</Document></kml>');
+  return parts.join('');
+}
+document.getElementById('saveRouteKml').onclick = () => {
+  if (readOnly) { alert('⛔ Недостатньо прав'); return; }
+  const kml = buildCurrentRouteKml();
+  const safe = (document.getElementById('routeName')?.value || 'route').replace(/[\/:*?"<>|\[\]#]/g,'_');
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([kml], { type:'application/vnd.google-earth.kml+xml' }));
+  a.download = `route_${safe}.kml`;
+  a.click();
+  setTimeout(()=> URL.revokeObjectURL(a.href), 3000);
+};
+
+document.getElementById('loadRouteKml').onclick = () => {
+  if (readOnly) { alert('⛔ Недостатньо прав'); return; }
+  const fi = document.getElementById('fileInputKml');
+  fi.value = null; fi.click();
+};
+
+document.getElementById('fileInputKml').addEventListener('change', (ev)=>{
+  if (readOnly) return;
+  const file = ev.target.files && ev.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    try{
+      const xml = String(e.target.result || '');
+      const doc = new DOMParser().parseFromString(xml, 'text/xml');
+      const ls = doc.getElementsByTagName('LineString');
+      const lines = [];
+      for (let i=0;i<ls.length;i++){
+        const coordsEl = ls[i].getElementsByTagName('coordinates')[0];
+        const txt = coordsEl ? coordsEl.textContent : '';
+        const nums = txt.trim().split(/[\s\n\r]+/).map(p=>p.trim()).filter(Boolean);
+        const arr = [];
+        for (const t of nums){
+          const parts = t.split(',').map(Number);
+          if (parts.length>=2 && isFinite(parts[0]) && isFinite(parts[1])) arr.push([parts[0], parts[1]]);
+        }
+        if (arr.length>=2) lines.push(arr);
+      }
+      if (!lines.length){ alert('KML не містить LineString з координатами.'); return; }
+      // головна лінія — перша; додаткові в лінійки
+      points = lines[0];
+      startRuler = lines[1] || [];
+      endRuler   = lines[2] || [];
+      rebuildMarkers(); rebuildRulerMarkers(); drawRulers(); updateRoute();
+      alert('KML завантажено.');
+    }catch(err){ alert('Помилка читання KML: ' + (err?.message || err)); }
+  };
+  reader.readAsText(file);
+});
 
 /* ================= NEW routeKey helpers ================= */
 function firstLetter(str){
