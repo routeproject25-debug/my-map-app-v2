@@ -1583,6 +1583,13 @@ async function findSimilarRoutes(){
   emptyEl.style.display = 'none';
   modal.classList.add('show');
 
+  // Нормалізація введення: беремо лише буквені токени (укр/лат), відкидаємо цифри (типу "025/00")
+  const tokenize = (s) => (String(s||'').toLowerCase().match(/[a-zа-щьюяєіїґ]+/gi) || []).filter(w=>w.length>=3);
+  const fTokens = tokenize(fLower);
+  const tTokens = tokenize(tLower);
+  const bothSidesProvided = fTokens.length>0 && tTokens.length>0;
+  const containsTokens = (hay, tokens) => tokens.every(tok => String(hay||'').includes(tok));
+
   const seen = new Set();
   const addDocs = (snap, acc) => {
     snap.forEach(doc => { if (!seen.has(doc.id)) { acc.push(doc); seen.add(doc.id); } });
@@ -1623,27 +1630,30 @@ async function findSimilarRoutes(){
     const res = await Promise.allSettled(queries);
     res.forEach(r => { if (r.status==='fulfilled') addDocs(r.value, acc); });
 
-    // Ранжування: 0 — містить обидва токени у прямому порядку, 1 — у зворотному, 2 — один токен, 9 — інше
-    const contains = (s, q) => (String(s||'').includes(String(q||'')));
-    const score = (d) => {
-      const x = d.data()||{};
-      const fL = (x.fromLabelLower||'');
-      const tL = (x.toLabelLower||'');
-      const fwd = (fLower && contains(fL, fLower)) && (tLower && contains(tL, tLower));
-      const rev = (fLower && contains(tL, fLower)) && (tLower && contains(fL, tLower));
-      if (fwd) return 0;
-      if (rev) return 1;
-      const one = (fLower && (contains(fL, fLower) || contains(tL, fLower))) || (tLower && (contains(fL, tLower) || contains(tL, tLower)));
-      return one ? 2 : 9;
-    };
-    acc.sort((a,b)=> score(a)-score(b));
+    // Оцінюємо кандидати за збігом усіх токенів: прямий (0), зворотній (1), частковий (2), інше (9)
+    const scored = acc.map(d => {
+      const x = d.data()||{}; const fL = (x.fromLabelLower||''); const tL = (x.toLabelLower||'');
+      const fwd = containsTokens(fL, fTokens) && containsTokens(tL, tTokens);
+      const rev = containsTokens(tL, fTokens) && containsTokens(fL, tTokens);
+      let s = 9;
+      if (fwd) s = 0; else if (rev) s = 1; else {
+        const one = (fTokens.length && (containsTokens(fL, fTokens) || containsTokens(tL, fTokens))) ||
+                    (tTokens.length && (containsTokens(fL, tTokens) || containsTokens(tL, tTokens)));
+        s = one ? 2 : 9;
+      }
+      return {doc:d, score:s, fwd, rev};
+    });
+
+    // Якщо вказано обидві сторони — залишаємо тільки повні збіги
+    const filtered = bothSidesProvided ? scored.filter(r => r.fwd || r.rev) : scored.filter(r => r.score < 9);
+    filtered.sort((a,b)=> a.score - b.score);
 
     // Рендер у модалку
-    listEl.innerHTML = '';
-    if (acc.length === 0){ emptyEl.style.display = 'block'; return; }
+  listEl.innerHTML = '';
+  if (filtered.length === 0){ emptyEl.style.display = 'block'; return; }
 
     const frag = document.createDocumentFragment();
-    acc.slice(0, 30).forEach(doc => {
+    filtered.slice(0, 30).forEach(({doc}) => {
       const d = doc.data() || {};
       const row = document.createElement('div');
       row.style.display = 'grid';
