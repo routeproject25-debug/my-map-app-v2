@@ -1219,60 +1219,108 @@ HL_LABEL_IDS_TO.forEach(id   => { if (map.getLayer(id)) map.setFilter(id, toFilt
   fitToHighlights();
 }
 
-// Повертає представницьку точку (центроїд) для вибраного поля "from" або "to"
+// Допоміжне: взяти репрезентативну точку з геометрії фічі
+function __featureToPoint(f){
+  if (!f) return null;
+  const geom = f.geometry || {};
+  try{
+    if (window.turf && (geom.type === 'Polygon' || geom.type === 'MultiPolygon')){
+      return turf.centerOfMass(f).geometry.coordinates;
+    }
+  }catch(_){ }
+  try{
+    if (geom.type === 'Polygon'){
+      const c = geom.coordinates?.[0]?.[0];
+      if (Array.isArray(c) && typeof c[0] === 'number') return c;
+    }
+    if (geom.type === 'MultiPolygon'){
+      const c = geom.coordinates?.[0]?.[0]?.[0];
+      if (Array.isArray(c) && typeof c[0] === 'number') return c;
+    }
+    if (geom.type === 'LineString'){
+      const arr = geom.coordinates || [];
+      const mid = Math.floor(arr.length/2);
+      if (Array.isArray(arr[mid]) && typeof arr[mid][0] === 'number') return arr[mid];
+    }
+    if (geom.type === 'MultiLineString'){
+      const arr = geom.coordinates?.[0] || [];
+      const mid = Math.floor(arr.length/2);
+      if (Array.isArray(arr[mid]) && typeof arr[mid][0] === 'number') return arr[mid];
+    }
+    if (geom.type === 'Point'){
+      const c = geom.coordinates;
+      if (Array.isArray(c) && typeof c[0] === 'number') return c;
+    }
+  }catch(_){ }
+  try{ const b = turf.bbox(f); return [(b[0]+b[2])/2,(b[1]+b[3])/2]; }catch(_){ }
+  return null;
+}
+
+// Повертає представницьку точку (центр/край/найближчий геокод) для вибраного поля "from" або "to"
 async function getSelectionCentroid(kind){
-  const layers = kind === 'from' ? HL_IDS_FROM : HL_IDS_TO;
-  if (!layers || !layers.length) return null;
-  // Спроба: запросити відрендерені фічі з хайлайт-шарів
-  const grab = () => {
+  const isFrom = kind === 'from';
+  const name = isFrom ? getPureNameFromInput('fromName') : getPureNameFromInput('toName');
+  const code = isFrom ? getCodeByInput('fromName')      : getCodeByInput('toName');
+  const filter = buildNameCodeFilter(name, code);
+
+  // 1) Спроба: фічі з хайлайт-шарів (відрендерені)
+  const layers = isFrom ? HL_IDS_FROM : HL_IDS_TO;
+  const grabRendered = () => {
     for (const id of layers){
       if (!map.getLayer(id)) continue;
       const feats = map.queryRenderedFeatures({ layers: [id] });
       if (feats && feats.length){
-        const f = feats[0];
-        const geom = f.geometry || {};
-        // 1) Спроба центр мас
-        try{
-          if (window.turf && (geom.type === 'Polygon' || geom.type === 'MultiPolygon')){
-            return turf.centerOfMass(f).geometry.coordinates;
-          }
-        }catch(_){/* ignore */}
-        // 2) Фолбек: точка на краю (перша вершина зовнішнього кільця)
-        try{
-          if (geom.type === 'Polygon'){
-            const c = geom.coordinates?.[0]?.[0];
-            if (Array.isArray(c) && typeof c[0] === 'number') return c;
-          }
-          if (geom.type === 'MultiPolygon'){
-            const c = geom.coordinates?.[0]?.[0]?.[0];
-            if (Array.isArray(c) && typeof c[0] === 'number') return c;
-          }
-          if (geom.type === 'LineString'){
-            const arr = geom.coordinates || [];
-            const mid = Math.floor(arr.length/2);
-            if (Array.isArray(arr[mid]) && typeof arr[mid][0] === 'number') return arr[mid];
-          }
-          if (geom.type === 'MultiLineString'){
-            const arr = geom.coordinates?.[0] || [];
-            const mid = Math.floor(arr.length/2);
-            if (Array.isArray(arr[mid]) && typeof arr[mid][0] === 'number') return arr[mid];
-          }
-          if (geom.type === 'Point'){
-            const c = geom.coordinates;
-            if (Array.isArray(c) && typeof c[0] === 'number') return c;
-          }
-        }catch(_){/* ignore */}
-        // 3) Останній фолбек: центр bbox
-        try{ const b = turf.bbox(f); return [(b[0]+b[2])/2,(b[1]+b[3])/2]; }catch(_){ }
+        const p = __featureToPoint(feats[0]);
+        if (p) return p;
       }
     }
     return null;
   };
-  // Після fitToHighlights карти фічі можуть зʼявитися — зачекаємо трохи кадр-анімації
-  let pt = grab();
+  let pt = grabRendered();
   if (pt) return pt;
-  await new Promise(r => setTimeout(r, 250));
-  return grab();
+
+  // 2) Спроба: напряму із джерел tilesets (querySourceFeatures з тим же фільтром)
+  try{
+    for (const ts of TILESETS){
+      const srcId = `geozones-tileset-${ts.key}`;
+      if (!map.getSource(srcId)) continue;
+      const feats = map.querySourceFeatures(srcId, { sourceLayer: ts.layer, filter });
+      if (feats && feats.length){
+        const p = __featureToPoint(feats[0]);
+        if (p) return p;
+      }
+    }
+  }catch(_){ }
+
+  // 3) Спроба: локальний GeoJSON зі Storage, якщо підвантажений
+  try{
+    if (geozonesDataCache && Array.isArray(geozonesDataCache.features)){
+      const match = (props) => {
+        const hasCode = code && CODE_KEYS.some(k => String(props?.[k]||'').trim() === String(code));
+        if (hasCode) return true;
+        const nm = (name||'').trim().toLowerCase();
+        if (!nm) return false;
+        return NAME_KEYS.some(k => String(props?.[k]||'').trim().toLowerCase() === nm);
+      };
+      const f = geozonesDataCache.features.find(ft => match(ft.properties||{}));
+      if (f){
+        const p = __featureToPoint(f);
+        if (p) return p;
+      }
+    }
+  }catch(_){ }
+
+  // 4) Останній шанс: геокодуємо назву населеного пункту (Mapbox Geocoding)
+  try{
+    if (name){
+      const rows = await suggestPlaces(name);
+      if (rows && rows[0] && Array.isArray(rows[0].center)){
+        return rows[0].center;
+      }
+    }
+  }catch(_){ }
+
+  return null;
 }
 
 // Побудувати авто-маршрут: від центроїдів Від/До, з 2 проміжними точками для редагування
@@ -4071,20 +4119,6 @@ const onFromToChange = () => {
   updateRouteName();
   updateHighlights();                 // оновлюємо фільтри підсвітки
   setGeozonesVisibility(geozonesVisible); // і одразу застосовуємо "розумну" видимість
-
-  // Якщо обидва значення заповнені і ще не було точок — запропонувати автопобудову
-  try{
-    const f = getCodeByInput('fromName');
-    const t = getCodeByInput('toName');
-    const key = (f||'') + '|' + (t||'');
-    if (f && t && points.length === 0 && key && key !== __lastAutoPromptKey){
-      __lastAutoPromptKey = key;
-      const fromLabel = makeDirLabelByCode(f) || document.getElementById('fromName').value;
-      const toLabel   = makeDirLabelByCode(t) || document.getElementById('toName').value;
-      const ask = confirm(`Прокласти маршрут автоматично між:\n${fromLabel}\n→ ${toLabel}?`);
-      if (ask){ autoRouteFromInputs({ addMidpoints: 2 }); }
-    }
-  }catch(_){/* ignore */}
 };
 
 // реагуємо і на input (коли ти стираєш текст), і на change (коли поле втратило фокус)
