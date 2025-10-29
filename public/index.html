@@ -867,6 +867,8 @@ let selectedMarkerIndex = null;
 
 // ——— Авто-маршрут: щоб не дратувати користувача повторними питаннями для тієї ж пари — кешуємо
 let __lastAutoPromptKey = '';
+// Дозволити геокодинг як останній фолбек? За замовчуванням вимкнено, щоб не стрибати в інші регіони
+const ALLOW_GEOCODE_FALLBACK = false;
 
 let activeRuler = null; let lastActiveRuler = null;
 function setActiveRuler(which){ activeRuler = which; if (which) lastActiveRuler = which; }
@@ -1312,7 +1314,7 @@ async function getSelectionCentroid(kind){
 
   // 4) Останній шанс: геокодуємо назву населеного пункту (Mapbox Geocoding)
   try{
-    if (name){
+    if (ALLOW_GEOCODE_FALLBACK && name){
       const rows = await suggestPlaces(name);
       if (rows && rows[0] && Array.isArray(rows[0].center)){
         return rows[0].center;
@@ -1340,7 +1342,7 @@ async function autoRouteFromInputs(options={}){
   const fromPt = await getSelectionCentroid('from');
   const toPt   = await getSelectionCentroid('to');
   if (!fromPt || !toPt){
-    alert('Не вдалося визначити центр вибраних полів. Спробуйте збільшити масштаб і повторити.');
+    alert('Не вдалося визначити розташування вибраних геозон.\n\nПорада: увімкніть/наблизьте геозони або поставте старт/фініш вручну (клік по карті), або скористайтеся полем «Пошук…» нижче зліва.');
     return;
   }
 
