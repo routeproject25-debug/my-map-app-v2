@@ -145,6 +145,11 @@
     border:1px solid var(--line); border-radius:10px;
     padding:6px 8px; font-size:13px; background:#fff; color:#111;
   }
+  .style-dock input[type="text"]{
+    border:1px solid var(--line); border-radius:10px;
+    padding:6px 8px; font-size:13px; background:#fff; color:#111;
+    width:180px;
+  }
   .style-dock .mapbox-brand{
     font-size:11px; color:#6b7280; border-left:1px dashed var(--line);
     padding-left:8px;
@@ -509,6 +514,8 @@
     <option value="mapbox://styles/mapbox/satellite-streets-v12">Satellite Streets</option>
     <option value="mapbox://styles/mapbox/outdoors-v12">Outdoors</option>
   </select>
+  <input id="placeSearch" type="text" list="placeList" placeholder="Пошук…" autocomplete="off" />
+  <datalist id="placeList"></datalist>
   <div class="mapbox-brand">mapbox</div>
   
 </div>
@@ -1269,6 +1276,82 @@ document.getElementById('mapStyle').addEventListener('change', function() {
 document.getElementById('mapStyleDock').addEventListener('change', function(){
   setMapStyle(this.value);
 });
+
+/* ==== Bottom-left place search (Mapbox Geocoding) ==== */
+let __placeSearchTimer = null;
+let __placeResults = [];
+async function suggestPlaces(q){
+  try{
+    const token = mapboxgl.accessToken || '';
+    if (!token) return [];
+    const url = new URL('https://api.mapbox.com/geocoding/v5/mapbox.places/' + encodeURIComponent(q) + '.json');
+    url.searchParams.set('access_token', token);
+    url.searchParams.set('autocomplete', 'true');
+    url.searchParams.set('language', 'uk');
+    url.searchParams.set('limit', '7');
+    url.searchParams.set('types', 'place,locality,neighborhood');
+    // Обмежимо за замовчуванням Україною; за потреби можна прибрати
+    url.searchParams.set('country', 'ua');
+    try{
+      const c = map.getCenter();
+      url.searchParams.set('proximity', c.lng + ',' + c.lat);
+    }catch(_){ }
+    const res = await fetch(url.toString());
+    const data = await res.json();
+    const feats = Array.isArray(data?.features) ? data.features : [];
+    return feats.map(f => ({ id:f.id, name:f.text_uk || f.text || '', full:f.place_name_uk || f.place_name || '', center:f.center }));
+  }catch(_){ return []; }
+}
+function fillPlaceDatalist(rows){
+  const list = document.getElementById('placeList');
+  if (!list) return;
+  list.innerHTML = '';
+  rows.forEach(r => {
+    const opt = document.createElement('option');
+    opt.value = r.full || r.name;
+    list.appendChild(opt);
+  });
+}
+function flyToPlaceFromInput(){
+  const input = document.getElementById('placeSearch');
+  const q = (input?.value || '').trim();
+  if (!q) return;
+  // Пробуємо знайти точний збіг серед останніх підказок
+  let target = __placeResults.find(r => (r.full || r.name) === q);
+  const use = async () => {
+    if (target && Array.isArray(target.center)){
+      try{ map.flyTo({ center: target.center, zoom: Math.max(map.getZoom()||0, 11), essential:true }); }catch(_){ }
+      return true;
+    }
+    return false;
+  };
+  use().then(async ok => {
+    if (ok) return;
+    // Якщо не знайшли — зробимо одноразовий геокодинг і використаємо перший результат
+    const rows = await suggestPlaces(q);
+    __placeResults = rows;
+    if (rows.length && Array.isArray(rows[0].center)){
+      try{ map.flyTo({ center: rows[0].center, zoom: Math.max(map.getZoom()||0, 11), essential:true }); }catch(_){ }
+    }
+  });
+}
+const placeInput = document.getElementById('placeSearch');
+if (placeInput){
+  placeInput.addEventListener('input', () => {
+    const q = placeInput.value.trim();
+    if (__placeSearchTimer) clearTimeout(__placeSearchTimer);
+    if (q.length < 2){ fillPlaceDatalist([]); __placeResults = []; return; }
+    __placeSearchTimer = setTimeout(async () => {
+      const rows = await suggestPlaces(q);
+      __placeResults = rows;
+      fillPlaceDatalist(rows);
+    }, 450);
+  });
+  placeInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); flyToPlaceFromInput(); }
+  });
+  placeInput.addEventListener('change', flyToPlaceFromInput);
+}
 
 /* ==== POPUP (повний паспорт поля) ==== */
 const popup = new mapboxgl.Popup({
