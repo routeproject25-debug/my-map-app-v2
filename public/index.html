@@ -1318,9 +1318,21 @@ function flyToPlaceFromInput(){
   if (!q) return;
   // Пробуємо знайти точний збіг серед останніх підказок
   let target = __placeResults.find(r => (r.full || r.name) === q);
+  // Допоміжна: сховати підказки після вибору, щоб нічого не накладалось на мапу
+  const closePlaceSuggestions = () => {
+    try {
+      // Зняти фокус — нативний datalist закривається при blur
+      if (input) input.blur();
+      // Прибрати варіанти, щоб не «підсвічувались» після навігації
+      fillPlaceDatalist([]);
+    } catch(_) {}
+  };
+
   const use = async () => {
     if (target && Array.isArray(target.center)){
       try{ map.flyTo({ center: target.center, zoom: Math.max(map.getZoom()||0, 11), essential:true }); }catch(_){ }
+      // Закриваємо список одразу після переходу
+      closePlaceSuggestions();
       return true;
     }
     return false;
@@ -1332,6 +1344,7 @@ function flyToPlaceFromInput(){
     __placeResults = rows;
     if (rows.length && Array.isArray(rows[0].center)){
       try{ map.flyTo({ center: rows[0].center, zoom: Math.max(map.getZoom()||0, 11), essential:true }); }catch(_){ }
+      closePlaceSuggestions();
     }
   });
 }
@@ -1349,6 +1362,10 @@ if (placeInput){
   });
   placeInput.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') { e.preventDefault(); flyToPlaceFromInput(); }
+    if (e.key === 'Escape') { // швидко сховати підказки
+      fillPlaceDatalist([]);
+      placeInput.blur();
+    }
   });
   placeInput.addEventListener('change', flyToPlaceFromInput);
 }
