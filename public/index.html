@@ -1230,15 +1230,40 @@ async function getSelectionCentroid(kind){
       const feats = map.queryRenderedFeatures({ layers: [id] });
       if (feats && feats.length){
         const f = feats[0];
+        const geom = f.geometry || {};
+        // 1) Спроба центр мас
         try{
-          if (window.turf && (f.geometry?.type === 'Polygon' || f.geometry?.type === 'MultiPolygon')){
+          if (window.turf && (geom.type === 'Polygon' || geom.type === 'MultiPolygon')){
             return turf.centerOfMass(f).geometry.coordinates;
           }
         }catch(_){/* ignore */}
-        // фолбек: bbox-центр або центр події
+        // 2) Фолбек: точка на краю (перша вершина зовнішнього кільця)
+        try{
+          if (geom.type === 'Polygon'){
+            const c = geom.coordinates?.[0]?.[0];
+            if (Array.isArray(c) && typeof c[0] === 'number') return c;
+          }
+          if (geom.type === 'MultiPolygon'){
+            const c = geom.coordinates?.[0]?.[0]?.[0];
+            if (Array.isArray(c) && typeof c[0] === 'number') return c;
+          }
+          if (geom.type === 'LineString'){
+            const arr = geom.coordinates || [];
+            const mid = Math.floor(arr.length/2);
+            if (Array.isArray(arr[mid]) && typeof arr[mid][0] === 'number') return arr[mid];
+          }
+          if (geom.type === 'MultiLineString'){
+            const arr = geom.coordinates?.[0] || [];
+            const mid = Math.floor(arr.length/2);
+            if (Array.isArray(arr[mid]) && typeof arr[mid][0] === 'number') return arr[mid];
+          }
+          if (geom.type === 'Point'){
+            const c = geom.coordinates;
+            if (Array.isArray(c) && typeof c[0] === 'number') return c;
+          }
+        }catch(_){/* ignore */}
+        // 3) Останній фолбек: центр bbox
         try{ const b = turf.bbox(f); return [(b[0]+b[2])/2,(b[1]+b[3])/2]; }catch(_){ }
-        const c = f.geometry?.coordinates;
-        if (Array.isArray(c) && typeof c[0] === 'number') return c;
       }
     }
     return null;
