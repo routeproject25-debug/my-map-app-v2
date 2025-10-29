@@ -315,6 +315,7 @@
 
       <div class="btn-row">
         <button id="clearRoute" class="btn xs">Очист. марш.</button>
+        <button id="autoRouteBtn" class="btn xs" title="Автоматично побудувати маршрут між Від і До та додати 2 точки для редагування">⚡ Авто-марш.</button>
         <button id="popRulerPoint" class="btn xs" title="Видалити останню точку активної лінійки">← Остання точка (лін.)</button>
         <button id="clearRulers" class="btn xs" title="Очистити активну лінійку, або обидві якщо режим лінійки вимкнено">Очист. лін.</button>
         <button id="toggleMarkers" class="btn xs">📍 Точки</button>
@@ -864,6 +865,9 @@ let points = [], markers = [], startRuler = [], endRuler = [], rulerLines = [], 
 let startRulerMarkers = [], endRulerMarkers = [];
 let selectedMarkerIndex = null;
 
+// ——— Авто-маршрут: щоб не дратувати користувача повторними питаннями для тієї ж пари — кешуємо
+let __lastAutoPromptKey = '';
+
 let activeRuler = null; let lastActiveRuler = null;
 function setActiveRuler(which){ activeRuler = which; if (which) lastActiveRuler = which; }
 
@@ -1215,6 +1219,91 @@ HL_LABEL_IDS_TO.forEach(id   => { if (map.getLayer(id)) map.setFilter(id, toFilt
   fitToHighlights();
 }
 
+// Повертає представницьку точку (центроїд) для вибраного поля "from" або "to"
+async function getSelectionCentroid(kind){
+  const layers = kind === 'from' ? HL_IDS_FROM : HL_IDS_TO;
+  if (!layers || !layers.length) return null;
+  // Спроба: запросити відрендерені фічі з хайлайт-шарів
+  const grab = () => {
+    for (const id of layers){
+      if (!map.getLayer(id)) continue;
+      const feats = map.queryRenderedFeatures({ layers: [id] });
+      if (feats && feats.length){
+        const f = feats[0];
+        try{
+          if (window.turf && (f.geometry?.type === 'Polygon' || f.geometry?.type === 'MultiPolygon')){
+            return turf.centerOfMass(f).geometry.coordinates;
+          }
+        }catch(_){/* ignore */}
+        // фолбек: bbox-центр або центр події
+        try{ const b = turf.bbox(f); return [(b[0]+b[2])/2,(b[1]+b[3])/2]; }catch(_){ }
+        const c = f.geometry?.coordinates;
+        if (Array.isArray(c) && typeof c[0] === 'number') return c;
+      }
+    }
+    return null;
+  };
+  // Після fitToHighlights карти фічі можуть зʼявитися — зачекаємо трохи кадр-анімації
+  let pt = grab();
+  if (pt) return pt;
+  await new Promise(r => setTimeout(r, 250));
+  return grab();
+}
+
+// Побудувати авто-маршрут: від центроїдів Від/До, з 2 проміжними точками для редагування
+async function autoRouteFromInputs(options={}){
+  const addMidpoints = options.addMidpoints ?? 2; // скільки внутрішніх точок поставити
+  const fromCode = getCodeByInput('fromName');
+  const toCode   = getCodeByInput('toName');
+  if (!fromCode || !toCode){
+    alert('Оберіть "Від" та "До" зі списку довідника.');
+    return;
+  }
+
+  // Переконаємось, що хайлайти виставлені і карта підʼїхала
+  updateHighlights();
+  fitToHighlights();
+
+  const fromPt = await getSelectionCentroid('from');
+  const toPt   = await getSelectionCentroid('to');
+  if (!fromPt || !toPt){
+    alert('Не вдалося визначити центр вибраних полів. Спробуйте збільшити масштаб і повторити.');
+    return;
+  }
+
+  // Спроба отримати лінію маршруту від Mapbox Directions, щоб вибрати внутрішні точки по траєкторії
+  let mids = [];
+  try{
+    const coordsStr = `${fromPt[0]},${fromPt[1]};${toPt[0]},${toPt[1]}`;
+    const url = `https://api.mapbox.com/directions/v5/mapbox/driving/${coordsStr}?geometries=geojson&overview=full&continue_straight=true&access_token=${mapboxgl.accessToken}`;
+    const res = await fetch(url);
+    const data = await res.json();
+    const line = data?.routes?.[0]?.geometry;
+    if (line && window.turf && typeof turf.length === 'function'){
+      const len = turf.length(line, { units:'kilometers' });
+      const k = Math.max(0, Math.min(addMidpoints, 4)); // максимум 4
+      for (let i=1; i<=k; i++){
+        const d = len * (i/(k+1));
+        const p = turf.along(line, d, { units:'kilometers' });
+        if (p && p.geometry && Array.isArray(p.geometry.coordinates)){
+          mids.push(p.geometry.coordinates);
+        }
+      }
+    }
+  }catch(_){/* тихо ігноруємо — зробимо просту лінію */}
+
+  // Записуємо основні точки маршруту
+  points = [fromPt, ...mids, toPt];
+  rebuildMarkers();
+  updateRoute();
+  // Перейдемо, щоб було видно всю лінію
+  try{
+    const b = new mapboxgl.LngLatBounds(points[0], points[0]);
+    for (const p of points) b.extend(p);
+    map.fitBounds(b, { padding: 60, maxZoom: 14 });
+  }catch(_){ }
+}
+
 function fitToHighlights(){
   try{
     const ids = [...HL_IDS_FROM, ...HL_IDS_TO].filter(id => map.getLayer(id));
@@ -1517,6 +1606,12 @@ document.getElementById('clearRoute').onclick = () => {
   if (readOnly) return;
   points = []; markers.forEach(m => m.remove()); markers = [];
   clearRouteLayers(); updateRoute();
+};
+
+// Кнопка «Авто-марш.»
+document.getElementById('autoRouteBtn').onclick = async () => {
+  if (readOnly) return;
+  await autoRouteFromInputs({ addMidpoints: 2 });
 };
 
 /* ===== Map click ===== */
@@ -3951,6 +4046,20 @@ const onFromToChange = () => {
   updateRouteName();
   updateHighlights();                 // оновлюємо фільтри підсвітки
   setGeozonesVisibility(geozonesVisible); // і одразу застосовуємо "розумну" видимість
+
+  // Якщо обидва значення заповнені і ще не було точок — запропонувати автопобудову
+  try{
+    const f = getCodeByInput('fromName');
+    const t = getCodeByInput('toName');
+    const key = (f||'') + '|' + (t||'');
+    if (f && t && points.length === 0 && key && key !== __lastAutoPromptKey){
+      __lastAutoPromptKey = key;
+      const fromLabel = makeDirLabelByCode(f) || document.getElementById('fromName').value;
+      const toLabel   = makeDirLabelByCode(t) || document.getElementById('toName').value;
+      const ask = confirm(`Прокласти маршрут автоматично між:\n${fromLabel}\n→ ${toLabel}?`);
+      if (ask){ autoRouteFromInputs({ addMidpoints: 2 }); }
+    }
+  }catch(_){/* ignore */}
 };
 
 // реагуємо і на input (коли ти стираєш текст), і на change (коли поле втратило фокус)
