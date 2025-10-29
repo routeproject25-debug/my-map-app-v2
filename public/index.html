@@ -315,6 +315,7 @@
 
       <div class="btn-row">
         <button id="clearRoute" class="btn xs">Очист. марш.</button>
+        <button id="findSimilarBtn" class="btn xs" title="Знайти схожі маршрути в БД за вибраними Від/До">🔎 Схожі (Від/До)</button>
         <button id="popRulerPoint" class="btn xs" title="Видалити останню точку активної лінійки">← Остання точка (лін.)</button>
         <button id="clearRulers" class="btn xs" title="Очистити активну лінійку, або обидві якщо режим лінійки вимкнено">Очист. лін.</button>
         <button id="toggleMarkers" class="btn xs">📍 Точки</button>
@@ -538,6 +539,21 @@
     </div>
   </div>
 </div>
+
+<!-- Modal: Схожі маршрути -->
+<div id="similarModal" class="modal" aria-hidden="true">
+  <div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="similarTitle">
+    <div id="similarTitle" class="modal-title">Схожі маршрути</div>
+    <div class="modal-body">
+      <div id="similarList" style="display:flex;flex-direction:column;gap:6px;max-height:50vh;overflow:auto"></div>
+      <div id="similarEmpty" style="display:none;color:#6b7280">Нічого не знайдено. Спробуйте змінити Від/До.</div>
+    </div>
+    <div class="modal-actions">
+      <button id="similarClose" class="btn">Закрити</button>
+      <button id="similarClearPreview" class="btn" style="display:none">Прибрати попередній</button>
+    </div>
+  </div>
+  </div>
 
 <!-- AUTH GUARD (cache-first, без приховування сторінки) -->
 <script>
@@ -1519,6 +1535,162 @@ document.getElementById('clearRoute').onclick = () => {
   points = []; markers.forEach(m => m.remove()); markers = [];
   clearRouteLayers(); updateRoute();
 };
+
+/* ===== Схожі маршрути (за Від/До) ===== */
+let previewLayerId = null;
+function clearPreviewRoute(){
+  try{
+    if (previewLayerId){
+      if (map.getLayer(previewLayerId)) map.removeLayer(previewLayerId);
+      if (map.getSource(previewLayerId)) map.removeSource(previewLayerId);
+    }
+  }catch(_){ }
+  previewLayerId = null;
+  const btn = document.getElementById('similarClearPreview');
+  if (btn) btn.style.display = 'none';
+}
+function showPreviewRoute(coords){
+  clearPreviewRoute();
+  if (!Array.isArray(coords) || coords.length < 2) return;
+  previewLayerId = 'similar-preview';
+  const geo = { type:'Feature', geometry:{ type:'LineString', coordinates: coords } };
+  map.addSource(previewLayerId, { type:'geojson', data: geo });
+  map.addLayer({
+    id: previewLayerId,
+    type: 'line', source: previewLayerId,
+    layout: { 'line-join': 'round', 'line-cap': 'round' },
+    paint: { 'line-color': '#0ea5e9', 'line-width': 4, 'line-dasharray': [1,2] }
+  });
+  const btn = document.getElementById('similarClearPreview');
+  if (btn) btn.style.display = 'inline-block';
+}
+
+async function findSimilarRoutes(){
+  const fromNameRaw = getPureNameFromInput('fromName');
+  const toNameRaw   = getPureNameFromInput('toName');
+  const fromName = (fromNameRaw||'').trim();
+  const toName   = (toNameRaw||'').trim();
+  const fLower   = fromName.toLowerCase();
+  const tLower   = toName.toLowerCase();
+  if (!fLower && !tLower){
+    alert('Введіть “Від” і/або “До” для пошуку схожих маршрутів по назві.');
+    return;
+  }
+  const listEl = document.getElementById('similarList');
+  const emptyEl= document.getElementById('similarEmpty');
+  const modal  = document.getElementById('similarModal');
+  listEl.innerHTML = '<div class="muted">Пошук…</div>';
+  emptyEl.style.display = 'none';
+  modal.classList.add('show');
+
+  const seen = new Set();
+  const addDocs = (snap, acc) => {
+    snap.forEach(doc => { if (!seen.has(doc.id)) { acc.push(doc); seen.add(doc.id); } });
+  };
+  const queries = [];
+  try{
+    let qBase = db.collection('routes');
+    qBase = withHubFilter(qBase, 'hub');
+    const acc = [];
+
+    // 1) N-grams пошук по назвах (стійкий contains)
+  let gramsF = fLower ? trigrams(fLower) : [];
+  let gramsT = tLower ? trigrams(tLower) : [];
+  // Firestore array-contains-any приймає обмежену кількість значень — урізаємо до 10
+  if (gramsF.length > 10) gramsF = gramsF.slice(0,10);
+  if (gramsT.length > 10) gramsT = gramsT.slice(0,10);
+    const pushQ = (qb) => queries.push(qb.limit(50).get({source:'default'}));
+
+    if (gramsF.length){
+      pushQ(qBase.where('fromNgrams', 'array-contains-any', gramsF));
+      pushQ(qBase.where('toNgrams',   'array-contains-any', gramsF)); // для зворотного напряму
+    }
+    if (gramsT.length){
+      pushQ(qBase.where('toNgrams',   'array-contains-any', gramsT));
+      pushQ(qBase.where('fromNgrams', 'array-contains-any', gramsT)); // для зворотного напряму
+    }
+
+    // 2) Префікс як додатковий (швидкий) канал
+    const pref = (field, val) => {
+      if (!val) return;
+      let q = db.collection('routes').orderBy(field).startAt(val).endBefore(val + '\uf8ff').limit(50);
+      q = withHubFilter(q, 'hub');
+      queries.push(q.get({source:'default'}));
+    };
+    pref('fromLabelLower', fLower);
+    pref('toLabelLower',   tLower);
+
+    const res = await Promise.allSettled(queries);
+    res.forEach(r => { if (r.status==='fulfilled') addDocs(r.value, acc); });
+
+    // Ранжування: 0 — містить обидва токени у прямому порядку, 1 — у зворотному, 2 — один токен, 9 — інше
+    const contains = (s, q) => (String(s||'').includes(String(q||'')));
+    const score = (d) => {
+      const x = d.data()||{};
+      const fL = (x.fromLabelLower||'');
+      const tL = (x.toLabelLower||'');
+      const fwd = (fLower && contains(fL, fLower)) && (tLower && contains(tL, tLower));
+      const rev = (fLower && contains(tL, fLower)) && (tLower && contains(fL, tLower));
+      if (fwd) return 0;
+      if (rev) return 1;
+      const one = (fLower && (contains(fL, fLower) || contains(tL, fLower))) || (tLower && (contains(fL, tLower) || contains(tL, tLower)));
+      return one ? 2 : 9;
+    };
+    acc.sort((a,b)=> score(a)-score(b));
+
+    // Рендер у модалку
+    listEl.innerHTML = '';
+    if (acc.length === 0){ emptyEl.style.display = 'block'; return; }
+
+    const frag = document.createDocumentFragment();
+    acc.slice(0, 30).forEach(doc => {
+      const d = doc.data() || {};
+      const row = document.createElement('div');
+      row.style.display = 'grid';
+      row.style.gridTemplateColumns = '1fr auto auto';
+      row.style.gap = '6px';
+      row.style.alignItems = 'center';
+      const title = document.createElement('div');
+  title.textContent = formatRouteTitle(d);
+      title.title = title.textContent;
+      const btnPrev = document.createElement('button');
+      btnPrev.className = 'btn xs'; btnPrev.textContent = '👁 Попередній';
+      btnPrev.onclick = () => {
+        const coords = fromObjPoints(d.points||[]);
+        showPreviewRoute(coords);
+        try{
+          if (coords.length){ const b = new mapboxgl.LngLatBounds(coords[0], coords[0]); coords.forEach(p=>b.extend(p)); map.fitBounds(b, { padding: 50, maxZoom: 14 }); }
+        }catch(_){ }
+      };
+      const btnApply = document.createElement('button');
+      btnApply.className = 'btn xs'; btnApply.textContent = '✅ Накласти';
+      btnApply.onclick = () => {
+        // Не чіпаємо поля Від/До — лише точки маршруту та лінійки
+        points     = fromObjPoints(d.points||[]);
+        startRuler = fromObjPoints(d.startRuler||[]);
+        endRuler   = fromObjPoints(d.endRuler||[]);
+        rebuildMarkers(); rebuildRulerMarkers(); drawRulers(); updateRoute();
+        clearPreviewRoute();
+        modal.classList.remove('show');
+      };
+      row.appendChild(title); row.appendChild(btnPrev); row.appendChild(btnApply);
+      frag.appendChild(row);
+    });
+    listEl.appendChild(frag);
+  }catch(e){
+    console.error('similar search error:', e);
+    listEl.innerHTML = '<div style="color:#b91c1c">Помилка пошуку.</div>';
+  }
+}
+
+document.getElementById('findSimilarBtn').onclick = () => {
+  if (!db){ alert('База даних не ініціалізована'); return; }
+  findSimilarRoutes();
+};
+document.getElementById('similarClose').onclick = () => {
+  document.getElementById('similarModal').classList.remove('show');
+};
+document.getElementById('similarClearPreview').onclick = () => clearPreviewRoute();
 
 /* ===== Map click ===== */
 map.on('click', (e) => {
