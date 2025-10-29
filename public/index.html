@@ -315,7 +315,6 @@
 
       <div class="btn-row">
         <button id="clearRoute" class="btn xs">Очист. марш.</button>
-        <button id="autoRouteBtn" class="btn xs" title="Автоматично побудувати маршрут між Від і До та додати 2 точки для редагування">⚡ Авто-марш.</button>
         <button id="popRulerPoint" class="btn xs" title="Видалити останню точку активної лінійки">← Остання точка (лін.)</button>
         <button id="clearRulers" class="btn xs" title="Очистити активну лінійку, або обидві якщо режим лінійки вимкнено">Очист. лін.</button>
         <button id="toggleMarkers" class="btn xs">📍 Точки</button>
@@ -865,10 +864,6 @@ let points = [], markers = [], startRuler = [], endRuler = [], rulerLines = [], 
 let startRulerMarkers = [], endRulerMarkers = [];
 let selectedMarkerIndex = null;
 
-// ——— Авто-маршрут: щоб не дратувати користувача повторними питаннями для тієї ж пари — кешуємо
-let __lastAutoPromptKey = '';
-// Дозволити геокодинг як останній фолбек? За замовчуванням вимкнено, щоб не стрибати в інші регіони
-const ALLOW_GEOCODE_FALLBACK = false;
 
 let activeRuler = null; let lastActiveRuler = null;
 function setActiveRuler(which){ activeRuler = which; if (which) lastActiveRuler = which; }
@@ -1221,193 +1216,6 @@ HL_LABEL_IDS_TO.forEach(id   => { if (map.getLayer(id)) map.setFilter(id, toFilt
   fitToHighlights();
 }
 
-// Допоміжне: взяти репрезентативну точку з геометрії фічі
-function __featureToPoint(f){
-  if (!f) return null;
-  const geom = f.geometry || {};
-  try{
-    if (window.turf && (geom.type === 'Polygon' || geom.type === 'MultiPolygon')){
-      return turf.centerOfMass(f).geometry.coordinates;
-    }
-  }catch(_){ }
-  try{
-    if (geom.type === 'Polygon'){
-      const c = geom.coordinates?.[0]?.[0];
-      if (Array.isArray(c) && typeof c[0] === 'number') return c;
-    }
-    if (geom.type === 'MultiPolygon'){
-      const c = geom.coordinates?.[0]?.[0]?.[0];
-      if (Array.isArray(c) && typeof c[0] === 'number') return c;
-    }
-    if (geom.type === 'LineString'){
-      const arr = geom.coordinates || [];
-      const mid = Math.floor(arr.length/2);
-      if (Array.isArray(arr[mid]) && typeof arr[mid][0] === 'number') return arr[mid];
-    }
-    if (geom.type === 'MultiLineString'){
-      const arr = geom.coordinates?.[0] || [];
-      const mid = Math.floor(arr.length/2);
-      if (Array.isArray(arr[mid]) && typeof arr[mid][0] === 'number') return arr[mid];
-    }
-    if (geom.type === 'Point'){
-      const c = geom.coordinates;
-      if (Array.isArray(c) && typeof c[0] === 'number') return c;
-    }
-  }catch(_){ }
-  try{ const b = turf.bbox(f); return [(b[0]+b[2])/2,(b[1]+b[3])/2]; }catch(_){ }
-  return null;
-}
-
-// Повертає представницьку точку (центр/край/найближчий геокод) для вибраного поля "from" або "to"
-async function getSelectionCentroid(kind){
-  const isFrom = kind === 'from';
-  const name = isFrom ? getPureNameFromInput('fromName') : getPureNameFromInput('toName');
-  const code = isFrom ? getCodeByInput('fromName')      : getCodeByInput('toName');
-  const filter = buildNameCodeFilter(name, code);
-
-  // 1) Спроба: фічі з хайлайт-шарів (відрендерені)
-  const layers = isFrom ? HL_IDS_FROM : HL_IDS_TO;
-  const grabRendered = () => {
-    for (const id of layers){
-      if (!map.getLayer(id)) continue;
-      const feats = map.queryRenderedFeatures({ layers: [id] });
-      if (feats && feats.length){
-        const p = __featureToPoint(feats[0]);
-        if (p) return p;
-      }
-    }
-    return null;
-  };
-  let pt = grabRendered();
-  if (pt) return pt;
-
-  // 2) Спроба: напряму із джерел tilesets (querySourceFeatures з тим же фільтром)
-  try{
-    for (const ts of TILESETS){
-      const srcId = `geozones-tileset-${ts.key}`;
-      if (!map.getSource(srcId)) continue;
-      const feats = map.querySourceFeatures(srcId, { sourceLayer: ts.layer, filter });
-      if (feats && feats.length){
-        const p = __featureToPoint(feats[0]);
-        if (p) return p;
-      }
-
-      // Якщо точного збігу не сталося (через різні поля/типи), спробуємо ручний підбір по всіх фічах шару
-      const all = map.querySourceFeatures(srcId, { sourceLayer: ts.layer });
-      if (all && all.length){
-        const norm = (v) => String(v ?? '').trim().toLowerCase();
-        const codeNorm = norm(code);
-        const nameNorm = norm(name);
-        const NAME_KEYS_EXT = ['Name','name','Назва','Назва поля','name_uk','name:uk','name_ua','name:ua','_label','label','title','NAME','NAME_UA','Name_UA'];
-        const CODE_KEYS_EXT = ['Code','code','Код','id','ID','fid','FID','objectid','OBJECTID','OBJECTID_1'];
-        const scoreFeat = (ft) => {
-          const p = ft.properties || {};
-          // 0 — ідеальний збіг коду
-          for (const k of CODE_KEYS_EXT){ if (norm(p[k]) === codeNorm && codeNorm) return 0; }
-          // 1 — точний збіг назви
-          for (const k of NAME_KEYS_EXT){ if (norm(p[k]) === nameNorm && nameNorm) return 1; }
-          // 2 — назва містить запит
-          for (const k of NAME_KEYS_EXT){ if (nameNorm && norm(p[k]).includes(nameNorm)) return 2; }
-          return 9; // невідомо
-        };
-        let best = null; let bestScore = 9;
-        for (const ft of all){
-          const s = scoreFeat(ft);
-          if (s < bestScore){ best = ft; bestScore = s; if (s === 0) break; }
-        }
-        if (best){
-          const p = __featureToPoint(best);
-          if (p) return p;
-        }
-      }
-    }
-  }catch(_){ }
-
-  // 3) Спроба: локальний GeoJSON зі Storage, якщо підвантажений
-  try{
-    if (geozonesDataCache && Array.isArray(geozonesDataCache.features)){
-      const match = (props) => {
-        const hasCode = code && CODE_KEYS.some(k => String(props?.[k]||'').trim() === String(code));
-        if (hasCode) return true;
-        const nm = (name||'').trim().toLowerCase();
-        if (!nm) return false;
-        return NAME_KEYS.some(k => String(props?.[k]||'').trim().toLowerCase() === nm);
-      };
-      const f = geozonesDataCache.features.find(ft => match(ft.properties||{}));
-      if (f){
-        const p = __featureToPoint(f);
-        if (p) return p;
-      }
-    }
-  }catch(_){ }
-
-  // 4) Останній шанс: геокодуємо назву населеного пункту (Mapbox Geocoding)
-  try{
-    if (ALLOW_GEOCODE_FALLBACK && name){
-      const rows = await suggestPlaces(name);
-      if (rows && rows[0] && Array.isArray(rows[0].center)){
-        return rows[0].center;
-      }
-    }
-  }catch(_){ }
-
-  return null;
-}
-
-// Побудувати авто-маршрут: від центроїдів Від/До, з 2 проміжними точками для редагування
-async function autoRouteFromInputs(options={}){
-  const addMidpoints = options.addMidpoints ?? 2; // скільки внутрішніх точок поставити
-  const fromCode = getCodeByInput('fromName');
-  const toCode   = getCodeByInput('toName');
-  if (!fromCode || !toCode){
-    alert('Оберіть "Від" та "До" зі списку довідника.');
-    return;
-  }
-
-  // Переконаємось, що хайлайти виставлені і карта підʼїхала
-  updateHighlights();
-  fitToHighlights();
-
-  const fromPt = await getSelectionCentroid('from');
-  const toPt   = await getSelectionCentroid('to');
-  if (!fromPt || !toPt){
-    alert('Не вдалося визначити розташування вибраних геозон.\n\nПорада: увімкніть/наблизьте геозони або поставте старт/фініш вручну (клік по карті), або скористайтеся полем «Пошук…» нижче зліва.');
-    return;
-  }
-
-  // Спроба отримати лінію маршруту від Mapbox Directions, щоб вибрати внутрішні точки по траєкторії
-  let mids = [];
-  try{
-    const coordsStr = `${fromPt[0]},${fromPt[1]};${toPt[0]},${toPt[1]}`;
-    const url = `https://api.mapbox.com/directions/v5/mapbox/driving/${coordsStr}?geometries=geojson&overview=full&continue_straight=true&access_token=${mapboxgl.accessToken}`;
-    const res = await fetch(url);
-    const data = await res.json();
-    const line = data?.routes?.[0]?.geometry;
-    if (line && window.turf && typeof turf.length === 'function'){
-      const len = turf.length(line, { units:'kilometers' });
-      const k = Math.max(0, Math.min(addMidpoints, 4)); // максимум 4
-      for (let i=1; i<=k; i++){
-        const d = len * (i/(k+1));
-        const p = turf.along(line, d, { units:'kilometers' });
-        if (p && p.geometry && Array.isArray(p.geometry.coordinates)){
-          mids.push(p.geometry.coordinates);
-        }
-      }
-    }
-  }catch(_){/* тихо ігноруємо — зробимо просту лінію */}
-
-  // Записуємо основні точки маршруту
-  points = [fromPt, ...mids, toPt];
-  rebuildMarkers();
-  updateRoute();
-  // Перейдемо, щоб було видно всю лінію
-  try{
-    const b = new mapboxgl.LngLatBounds(points[0], points[0]);
-    for (const p of points) b.extend(p);
-    map.fitBounds(b, { padding: 60, maxZoom: 14 });
-  }catch(_){ }
-}
-
 function fitToHighlights(){
   try{
     const ids = [...HL_IDS_FROM, ...HL_IDS_TO].filter(id => map.getLayer(id));
@@ -1710,12 +1518,6 @@ document.getElementById('clearRoute').onclick = () => {
   if (readOnly) return;
   points = []; markers.forEach(m => m.remove()); markers = [];
   clearRouteLayers(); updateRoute();
-};
-
-// Кнопка «Авто-марш.»
-document.getElementById('autoRouteBtn').onclick = async () => {
-  if (readOnly) return;
-  await autoRouteFromInputs({ addMidpoints: 2 });
 };
 
 /* ===== Map click ===== */
