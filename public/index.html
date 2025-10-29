@@ -1291,6 +1291,35 @@ async function getSelectionCentroid(kind){
         const p = __featureToPoint(feats[0]);
         if (p) return p;
       }
+
+      // Якщо точного збігу не сталося (через різні поля/типи), спробуємо ручний підбір по всіх фічах шару
+      const all = map.querySourceFeatures(srcId, { sourceLayer: ts.layer });
+      if (all && all.length){
+        const norm = (v) => String(v ?? '').trim().toLowerCase();
+        const codeNorm = norm(code);
+        const nameNorm = norm(name);
+        const NAME_KEYS_EXT = ['Name','name','Назва','Назва поля','name_uk','name:uk','name_ua','name:ua','_label','label','title','NAME','NAME_UA','Name_UA'];
+        const CODE_KEYS_EXT = ['Code','code','Код','id','ID','fid','FID','objectid','OBJECTID','OBJECTID_1'];
+        const scoreFeat = (ft) => {
+          const p = ft.properties || {};
+          // 0 — ідеальний збіг коду
+          for (const k of CODE_KEYS_EXT){ if (norm(p[k]) === codeNorm && codeNorm) return 0; }
+          // 1 — точний збіг назви
+          for (const k of NAME_KEYS_EXT){ if (norm(p[k]) === nameNorm && nameNorm) return 1; }
+          // 2 — назва містить запит
+          for (const k of NAME_KEYS_EXT){ if (nameNorm && norm(p[k]).includes(nameNorm)) return 2; }
+          return 9; // невідомо
+        };
+        let best = null; let bestScore = 9;
+        for (const ft of all){
+          const s = scoreFeat(ft);
+          if (s < bestScore){ best = ft; bestScore = s; if (s === 0) break; }
+        }
+        if (best){
+          const p = __featureToPoint(best);
+          if (p) return p;
+        }
+      }
     }
   }catch(_){ }
 
