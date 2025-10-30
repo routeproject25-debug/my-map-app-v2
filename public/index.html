@@ -267,7 +267,8 @@
   /* Маркери лінійок (поч./кін.) */
   .ruler-marker{ width:12px; height:12px; border-radius:50%; border:2px solid #fff; box-shadow:0 1px 4px rgba(0,0,0,.25); }
   .ruler-marker.start{ background:#2563eb; }
-  .ruler-marker.end{   background:#22c55e; }
+  /* Кінцева лінійка: маркер помаранчевий */
+  .ruler-marker.end{   background:#f59e0b; }
 
   </style>
 </head>
@@ -1961,7 +1962,8 @@ function drawRulers() {
   rulerLines.forEach(id => { if (map.getLayer(id)) map.removeLayer(id); if (map.getSource(id)) map.removeSource(id); });
   rulerLines = [];
   drawRulerSegment(startRuler, 'start', '#0066ff');
-  drawRulerSegment(endRuler, 'end', '#33cc33');
+  // Кінцева лінійка: помаранчева
+  drawRulerSegment(endRuler, 'end', '#f59e0b');
 }
 function drawRulerSegment(ruler, prefix, color) {
   for (let i = 0; i < ruler.length - 1; i++) {
