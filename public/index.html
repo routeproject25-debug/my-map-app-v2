@@ -2035,6 +2035,34 @@ function splitIntoChunks(array, chunkSize) {
   }
   return chunks;
 }
+
+// ==== Допоміжне: визначити, чи наступна точка вимагає розвороту (майже 180°) ====
+function _toRad(d){ return d * Math.PI / 180; }
+function _toDeg(r){ return r * 180 / Math.PI; }
+function bearingDeg(a, b){
+  // Геодезичний азимут a->b (WGS84, наближено)
+  const [lon1, lat1] = a; const [lon2, lat2] = b;
+  const φ1 = _toRad(lat1), φ2 = _toRad(lat2);
+  const Δλ = _toRad(lon2 - lon1);
+  const y = Math.sin(Δλ) * Math.cos(φ2);
+  const x = Math.cos(φ1)*Math.sin(φ2) - Math.sin(φ1)*Math.cos(φ2)*Math.cos(Δλ);
+  let θ = Math.atan2(y, x); // -π..π
+  let deg = (_toDeg(θ) + 360) % 360; // 0..360
+  return deg;
+}
+function angleDiffDeg(a, b){
+  let d = Math.abs(a - b) % 360;
+  return d > 180 ? 360 - d : d; // 0..180
+}
+function detectUTurn(seq){
+  // true, якщо останній поворот ≈ розворот (кут > 150°)
+  if (!Array.isArray(seq) || seq.length < 3) return false;
+  const n = seq.length;
+  const h1 = bearingDeg(seq[n-3], seq[n-2]);
+  const h2 = bearingDeg(seq[n-2], seq[n-1]);
+  const diff = angleDiffDeg(h1, h2);
+  return diff >= 150; // поріг можна підкрутити
+}
 function clearRouteLayers() {
   routeLayers.forEach(id => {
     if (map.getLayer(id)) map.removeLayer(id);
@@ -2054,7 +2082,12 @@ async function updateRoute() {
   for (let i = 0; i < chunks.length; i++) {
     const chunk = chunks[i];
     const coordsStr = chunk.map(p => p.join(',')).join(';');
-    const url = `https://api.mapbox.com/directions/v5/mapbox/driving/${coordsStr}?geometries=geojson&overview=full&continue_straight=true&access_token=${mapboxgl.accessToken}`;
+    // Дозволяємо розвороти біля проміжних точок, якщо користувач ставить точку "назад"
+    const allowUTurn = detectUTurn(chunk);
+    const continueStraight = allowUTurn ? 'false' : 'true';
+    const url = `https://api.mapbox.com/directions/v5/mapbox/driving/${coordsStr}`+
+                `?geometries=geojson&overview=full&continue_straight=${continueStraight}`+
+                `&access_token=${mapboxgl.accessToken}`;
     try {
       const res = await fetch(url);
       const data = await res.json();
