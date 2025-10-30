@@ -402,6 +402,15 @@
       </div>
     </div>
 
+    <!-- Прив'язка до дороги (радіус) -->
+    <div class="row" style="margin-top:6px;">
+      <div style="grid-column:1 / -1">
+        <label for="snapRadius"><b>Підключення до дороги (радіус), м</b>: <span id="snapRadiusVal">0</span></label>
+        <input id="snapRadius" type="range" min="0" max="300" step="10" value="0">
+        <small class="muted">Коли точки стоять у полі, збільш цей радіус — і маршрут підтягнеться до найближчої дороги. При 0 — вимкнено. Додатково показуються пунктирні відрізки від точки до дороги.</small>
+      </div>
+    </div>
+
     <small class="muted">У БД зберігаються <b>коди</b> “Від/До” + підписи. Назва маршруту генерується з актуальних назв довідника.</small>
 
     <!-- Стиль карти (перенесено у нижній лівий кут; цей блок приховано) -->
@@ -876,6 +885,14 @@ function applyUkrainianLabels(){
 let addMode = false, startLineMode = false, endLineMode = false;
 let insertAfterMode = false;
 let points = [], markers = [], startRuler = [], endRuler = [], rulerLines = [], routeLayers = [];
+let offroadLayers = [];
+// Радіус прив'язки до дороги (м). 0 = вимкнено.  Зберігаємо в localStorage.
+let SNAP_RADIUS_M = (() => {
+  try {
+    const v = parseInt(localStorage.getItem('snapRadiusM') || '0', 10);
+    return Number.isFinite(v) ? Math.max(0, Math.min(300, v)) : 0;
+  } catch(_) { return 0; }
+})();
 // Маркери лінійок (окремо від маркерів маршруту)
 let startRulerMarkers = [], endRulerMarkers = [];
 let selectedMarkerIndex = null;
@@ -2042,19 +2059,74 @@ function clearRouteLayers() {
   });
   routeLayers = [];
 }
+function clearOffroadConnectors(){
+  try {
+    offroadLayers.forEach(id => {
+      if (map.getLayer(id)) map.removeLayer(id);
+      if (map.getSource(id)) map.removeSource(id);
+    });
+  } catch(_) {}
+  offroadLayers = [];
+}
+function drawOffroadConnector(id, fromCoord, toCoord){
+  try {
+    const srcData = {
+      type: 'Feature',
+      geometry: { type: 'LineString', coordinates: [fromCoord, toCoord] }
+    };
+    if (map.getSource(id)) {
+      map.getSource(id).setData(srcData);
+    } else {
+      map.addSource(id, { type: 'geojson', data: srcData });
+    }
+    if (!map.getLayer(id)) {
+      map.addLayer({
+        id,
+        type: 'line',
+        source: id,
+        layout: { 'line-join': 'round', 'line-cap': 'round' },
+        paint: {
+          'line-color': '#8a8a8a',
+          'line-width': 2,
+          'line-dasharray': [1.5, 1.5]
+        }
+      });
+    }
+    if (!offroadLayers.includes(id)) offroadLayers.push(id);
+  } catch(e) { console.warn('offroad connector error:', e); }
+}
+function ensureOffroadBelowRoutes(){
+  try {
+    if (!routeLayers.length) return;
+    const beforeId = routeLayers[0];
+    offroadLayers.forEach(id => {
+      if (map.getLayer(id)) {
+        try { map.moveLayer(id, beforeId); } catch(_) {}
+      }
+    });
+  } catch(_) {}
+}
 async function updateRoute() {
   if (points.length < 2) {
     setKmUI(calculateRulerDistance(startRuler) + calculateRulerDistance(endRuler));
-    updateCounters(); clearRouteLayers(); return;
+    updateCounters(); clearRouteLayers(); clearOffroadConnectors(); return;
   }
   const chunks = splitIntoChunks(points, 20);
   let totalDistance = 0;
   clearRouteLayers();
+  clearOffroadConnectors();
+  let snappedStart = null, snappedEnd = null;
 
   for (let i = 0; i < chunks.length; i++) {
     const chunk = chunks[i];
     const coordsStr = chunk.map(p => p.join(',')).join(';');
-    const url = `https://api.mapbox.com/directions/v5/mapbox/driving/${coordsStr}?geometries=geojson&overview=full&continue_straight=true&access_token=${mapboxgl.accessToken}`;
+    let params = 'geometries=geojson&overview=full&continue_straight=true';
+    if (SNAP_RADIUS_M > 0) {
+      const app = new Array(chunk.length).fill('unrestricted').join(';');
+      const rad = new Array(chunk.length).fill(String(SNAP_RADIUS_M)).join(';');
+      params += `&approaches=${app}&radiuses=${rad}`;
+    }
+    const url = `https://api.mapbox.com/directions/v5/mapbox/driving/${coordsStr}?${params}&access_token=${mapboxgl.accessToken}`;
     try {
       const res = await fetch(url);
       const data = await res.json();
@@ -2063,6 +2135,12 @@ async function updateRoute() {
         totalDistance += route.distance;
         const layerId = `route-part-${i}`;
         const geo = { type: 'Feature', geometry: route.geometry };
+        // Запам'ятати «притягнуті» координати для старт/фініш
+        try {
+          const coords = (route.geometry && route.geometry.coordinates) || [];
+          if (!snappedStart && i === 0 && coords.length) snappedStart = coords[0];
+          if (i === chunks.length - 1 && coords.length) snappedEnd = coords[coords.length - 1];
+        } catch(_) {}
         // Захист від дублювання джерела: оновлюємо якщо існує, інакше додаємо
         if (map.getSource(layerId)) {
           try { map.getSource(layerId).setData(geo); } catch(_){}
@@ -2091,6 +2169,21 @@ async function updateRoute() {
   updateCounters();
   // Після оновлення маршрутів повертаємо дорожню сітку під них
   try { ensureRoadGridBelowRoutes(); } catch(_) {}
+  // Намалювати офроуд-конектори, якщо радіус > 0 і доступний turf
+  try {
+    if (SNAP_RADIUS_M > 0 && snappedStart && snappedEnd && Array.isArray(points) && points.length) {
+      const hasTurf = typeof turf !== 'undefined' && turf && typeof turf.point === 'function' && typeof turf.distance === 'function';
+      let dStartKm = 0, dEndKm = 0;
+      if (hasTurf) {
+        dStartKm = turf.distance(turf.point(points[0]), turf.point(snappedStart), { units: 'kilometers' });
+        dEndKm   = turf.distance(turf.point(points[points.length - 1]), turf.point(snappedEnd), { units: 'kilometers' });
+      }
+      // поріг ~20 м
+      if (dStartKm > 0.02) drawOffroadConnector('offroad-start', points[0], snappedStart);
+      if (dEndKm   > 0.02) drawOffroadConnector('offroad-end',   points[points.length - 1], snappedEnd);
+      ensureOffroadBelowRoutes();
+    }
+  } catch(e) { console.warn('offroad connectors failed:', e); }
 }
 
 /* turf */
@@ -3546,6 +3639,27 @@ document.getElementById('loadAllRoutes').onclick  = () => loadAllRoutes();
 document.getElementById('loadFromDB').onclick = loadFromDB;
 document.getElementById('deleteFromDB').onclick = deleteFromDB;
 document.getElementById('clearForm').onclick = clearForm;
+
+// Snap radius slider binding
+(function(){
+  const slider = document.getElementById('snapRadius');
+  const val    = document.getElementById('snapRadiusVal');
+  if (!slider || !val) return;
+  // init from global SNAP_RADIUS_M
+  try { slider.value = String(SNAP_RADIUS_M); } catch(_){}
+  val.textContent = String(SNAP_RADIUS_M);
+  const onChange = () => {
+    const v = parseInt(slider.value || '0', 10);
+    const clamped = Number.isFinite(v) ? Math.max(0, Math.min(300, v)) : 0;
+    SNAP_RADIUS_M = clamped;
+    val.textContent = String(clamped);
+    try { localStorage.setItem('snapRadiusM', String(clamped)); } catch(_){}
+    // перерахувати маршрут, якщо є точки
+    try { if (points && points.length >= 2) updateRoute(); } catch(_){ }
+  };
+  slider.addEventListener('input', onChange);
+  slider.addEventListener('change', onChange);
+})();
 
 // Коли користувач обрав маршрут у селекті — скасовуємо таймер пошуку і очищаємо індикатор,
 // щоб через 3 сек. UI не перезатирався пустим результатом
