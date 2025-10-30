@@ -402,6 +402,15 @@
       </div>
     </div>
 
+    <!-- Параметри маршрутизації (підхоплення до дороги) -->
+    <div class="row" style="margin-top:8px;align-items:center;">
+      <div style="grid-column:1 / -1">
+        <label for="snapRadius">Підхоплення до дороги (радіус), м: <b><span id="snapRadiusVal">2000</span></b></label>
+        <input id="snapRadius" type="range" min="0" max="5000" step="50" value="2000" style="width:100%">
+        <small class="muted">Збільште, якщо ставите точки в полі/на відстані від дороги. 0 = без підхоплення.</small>
+      </div>
+    </div>
+
     <small class="muted">У БД зберігаються <b>коди</b> “Від/До” + підписи. Назва маршруту генерується з актуальних назв довідника.</small>
 
     <!-- Стиль карти (перенесено у нижній лівий кут; цей блок приховано) -->
@@ -876,6 +885,46 @@ function applyUkrainianLabels(){
 let addMode = false, startLineMode = false, endLineMode = false;
 let insertAfterMode = false;
 let points = [], markers = [], startRuler = [], endRuler = [], rulerLines = [], routeLayers = [];
+// Радіус підхоплення до дороги для Directions (в метрах) — зберігаємо у localStorage
+let SNAP_RADIUS_M = (function(){
+  try { const v = Number(localStorage.getItem('snapRadiusM')); return Number.isFinite(v) ? v : 2000; } catch(_) { return 2000; }
+})();
+
+// Офроуд-конектори: візуалізують відрізок від нашої точки до місця прилягання траси до дороги
+let offroadLayers = [];
+function clearOffroadLayers(){
+  try {
+    offroadLayers.forEach(id => {
+      if (map.getLayer(id)) map.removeLayer(id);
+      if (map.getSource(id)) map.removeSource(id);
+    });
+  } catch(_) {}
+  offroadLayers = [];
+}
+function drawOffroadConnectors(snappedStart, snappedEnd){
+  clearOffroadLayers();
+  const add = (id, a, b) => {
+    if (!Array.isArray(a) || !Array.isArray(b)) return;
+    // якщо відхилення < 20 м — не малюємо
+    const d = (window.turf && turf.distance)
+      ? turf.distance(turf.point(a), turf.point(b), { units:'kilometers' }) * 1000
+      : Math.hypot(a[0]-b[0], a[1]-b[1]) * 111000;
+    if (d < 20) return;
+    const geo = { type:'Feature', geometry:{ type:'LineString', coordinates:[a,b] } };
+    map.addSource(id, { type:'geojson', data: geo });
+    map.addLayer({
+      id, type:'line', source:id,
+      layout:{ 'line-join':'round', 'line-cap':'round' },
+      paint:{ 'line-color':'#64748b', 'line-width': 2, 'line-dasharray': [2, 1], 'line-opacity': 0.9 }
+    });
+    try{
+      if (routeLayers.length && map.getLayer(routeLayers[0])){ map.moveLayer(id, routeLayers[0]); }
+    }catch(_){ }
+    offroadLayers.push(id);
+  };
+  if (points.length) add('offroad-start', points[0], snappedStart);
+  if (points.length) add('offroad-end',   points[points.length-1], snappedEnd);
+}
 // Маркери лінійок (окремо від маркерів маршруту)
 let startRulerMarkers = [], endRulerMarkers = [];
 let selectedMarkerIndex = null;
@@ -2045,22 +2094,36 @@ function clearRouteLayers() {
 async function updateRoute() {
   if (points.length < 2) {
     setKmUI(calculateRulerDistance(startRuler) + calculateRulerDistance(endRuler));
-    updateCounters(); clearRouteLayers(); return;
+    updateCounters(); clearRouteLayers(); clearOffroadLayers(); return;
   }
   const chunks = splitIntoChunks(points, 20);
   let totalDistance = 0;
   clearRouteLayers();
+  clearOffroadLayers();
+
+  // Фактичні точки прилягання траси до дороги
+  let snappedStart = null;
+  let snappedEnd   = null;
 
   for (let i = 0; i < chunks.length; i++) {
     const chunk = chunks[i];
     const coordsStr = chunk.map(p => p.join(',')).join(';');
-    const url = `https://api.mapbox.com/directions/v5/mapbox/driving/${coordsStr}?geometries=geojson&overview=full&continue_straight=true&access_token=${mapboxgl.accessToken}`;
+    // Дозволяємо підхоплення точок далеко від дороги; approaches=unrestricted дає більшу свободу
+    const radiuses   = new Array(chunk.length).fill(Math.max(0, Number(SNAP_RADIUS_M)||0)).join(';');
+    const approaches = new Array(chunk.length).fill('unrestricted').join(';');
+    const url = `https://api.mapbox.com/directions/v5/mapbox/driving/${coordsStr}`+
+                `?geometries=geojson&overview=full&continue_straight=true`+
+                `&approaches=${approaches}&radiuses=${radiuses}`+
+                `&access_token=${mapboxgl.accessToken}`;
     try {
       const res = await fetch(url);
       const data = await res.json();
       if (data.routes && data.routes[0]) {
         const route = data.routes[0];
         totalDistance += route.distance;
+        // Зберегти першу/останню координати фактичної траси
+        if (i === 0 && route.geometry?.coordinates?.length){ snappedStart = route.geometry.coordinates[0]; }
+        if (i === chunks.length-1 && route.geometry?.coordinates?.length){ const arr = route.geometry.coordinates; snappedEnd = arr[arr.length-1]; }
         const layerId = `route-part-${i}`;
         const geo = { type: 'Feature', geometry: route.geometry };
         // Захист від дублювання джерела: оновлюємо якщо існує, інакше додаємо
@@ -2085,6 +2148,9 @@ async function updateRoute() {
       }
     } catch (e) { console.error('Помилка маршруту:', e); }
   }
+
+  // Домалювати офроуд-конектори на старті/фініші, якщо є відхилення від дороги
+  try { drawOffroadConnectors(snappedStart, snappedEnd); } catch(_){ }
 
   totalDistance = (totalDistance / 1000) + calculateRulerDistance(startRuler) + calculateRulerDistance(endRuler);
   setKmUI(totalDistance);
@@ -3579,6 +3645,19 @@ document.getElementById('clearLogistsCache').onclick = () => {
 /* ===================== Search helper (оновлено) ===================== */
 const routeSearch       = document.getElementById('routeSearch');
 const remoteRoutesSel   = document.getElementById('remoteRoutes');
+// Бігунок радіуса підхоплення
+const snapSlider        = document.getElementById('snapRadius');
+const snapValEl         = document.getElementById('snapRadiusVal');
+if (snapSlider){
+  try { snapSlider.value = String(SNAP_RADIUS_M); } catch(_){ }
+  if (snapValEl) snapValEl.textContent = String(SNAP_RADIUS_M);
+  snapSlider.addEventListener('input', () => {
+    const v = Number(snapSlider.value) || 0;
+    SNAP_RADIUS_M = Math.max(0, Math.min(5000, v));
+    if (snapValEl) snapValEl.textContent = String(SNAP_RADIUS_M);
+    try { localStorage.setItem('snapRadiusM', String(SNAP_RADIUS_M)); } catch(_){ }
+  });
+}
 
 // Блокування авто-скидання списку від асинхронних пошуків одразу після вибору в селекті
 let _routesSelectLock = false;
