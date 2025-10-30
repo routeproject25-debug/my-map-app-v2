@@ -1914,7 +1914,7 @@ function addRoadGridLayer(){
         layout: { 'line-join':'round', 'line-cap':'round', 'visibility': roadGridVisible ? 'visible' : 'none' },
         paint: {
           'line-color': '#1d4ed8',
-          // Прив'язка видимості до зума: до ~10 не видно, далі плавно з'являється
+          // Прив'язка видимості до зума: до ~10 не видно, далі плавно з'являється лінії
           'line-opacity': ['interpolate',['linear'],['zoom'], 0, 0, 9.5, 0, 10, 0.25, 12, 0.4, 14, 0.6, 16, 0.75],
           // Трішки товстіша лінія
           'line-width': ['interpolate',['linear'],['zoom'], 5, 0.22, 10, 0.35, 12, 0.55, 14, 0.8]
