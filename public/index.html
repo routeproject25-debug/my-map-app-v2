@@ -320,6 +320,7 @@
         <button id="clearRulers" class="btn xs" title="Очистити активну лінійку, або обидві якщо режим лінійки вимкнено">Очист. лін.</button>
         <button id="toggleMarkers" class="btn xs">📍 Точки</button>
         <button id="toggleGeozones" class="btn xs">🗺 Приховати геозони</button>
+        <button id="toggleRoadGrid" class="btn xs" title="Показати/приховати сітку доріг">🛣 Показати сітку доріг</button>
       </div>
 
       <details id="fileIoSection" style="margin-top:4px;">
@@ -1273,6 +1274,9 @@ hideSplash();            // ⬅️ сховати сплеш, коли стил�
   bindHighlightHoverHandlers();
   updateHighlights();
   setGeozonesVisibility(geozonesVisible);
+
+  // Дорожня сітка після зміни стилю
+  try { addRoadGridLayer(); setRoadGridVisibility(roadGridVisible); } catch(_) {}
 });
 
 function setMapStyle(val){
@@ -1888,6 +1892,70 @@ document.getElementById('toggleGeozones').onclick = () => {
 // Ініціалізуємо напис на кнопці при завантаженні
 updateGeozonesToggleLabel();
 
+/* ==== Дорожня сітка (тонка синя суцільна лінія) ==== */
+let roadGridVisible = true; // за замовчуванням увімкнено, але прозорість прив'язана до зуму
+const ROAD_SRC_ID = 'road-grid-src';
+const ROAD_LAYER_ID = 'road-grid';
+
+function addRoadGridLayer(){
+  try{
+    if (!map.getSource(ROAD_SRC_ID)){
+      map.addSource(ROAD_SRC_ID, { type: 'vector', url: 'mapbox://mapbox.mapbox-streets-v8' });
+    }
+    if (!map.getLayer(ROAD_LAYER_ID)){
+      map.addLayer({
+        id: ROAD_LAYER_ID,
+        type: 'line',
+        source: ROAD_SRC_ID,
+        'source-layer': 'road',
+        filter: ['in', ['get','class'], ['literal', [
+          'motorway','trunk','primary','secondary','tertiary','street','street_limited','service','link','track'
+        ]]],
+        layout: { 'line-join':'round', 'line-cap':'round', 'visibility': roadGridVisible ? 'visible' : 'none' },
+        paint: {
+          'line-color': '#1d4ed8',
+          // Прив'язка видимості до зума: до ~10 не видно, далі плавно з'являється
+          'line-opacity': ['interpolate',['linear'],['zoom'], 0, 0, 9.5, 0, 10, 0.25, 12, 0.4, 14, 0.6, 16, 0.75],
+          'line-width': ['interpolate',['linear'],['zoom'], 5, 0.15, 10, 0.25, 12, 0.4, 14, 0.6]
+        }
+      });
+    }
+    ensureRoadGridBelowRoutes();
+    updateRoadGridToggleLabel();
+  }catch(e){ console.warn('road grid add error:', e); }
+}
+
+function ensureRoadGridBelowRoutes(){
+  try{
+    if (!map.getLayer(ROAD_LAYER_ID)) return;
+    if (routeLayers && routeLayers.length && map.getLayer(routeLayers[0])){
+      map.moveLayer(ROAD_LAYER_ID, routeLayers[0]);
+    }
+  }catch(_){ }
+}
+
+function setRoadGridVisibility(v){
+  roadGridVisible = !!v;
+  try{
+    if (map.getLayer(ROAD_LAYER_ID)){
+      map.setLayoutProperty(ROAD_LAYER_ID, 'visibility', roadGridVisible ? 'visible' : 'none');
+    }
+  }catch(_){ }
+  updateRoadGridToggleLabel();
+}
+
+function updateRoadGridToggleLabel(){
+  const b = document.getElementById('toggleRoadGrid');
+  if (!b) return;
+  b.textContent = roadGridVisible ? '🛣 Приховати сітку доріг' : '🛣 Показати сітку доріг';
+}
+
+const __roadBtn = document.getElementById('toggleRoadGrid');
+if (__roadBtn){
+  __roadBtn.onclick = () => setRoadGridVisibility(!roadGridVisible);
+  updateRoadGridToggleLabel();
+}
+
 /* ===== Rulers (draw + distance) ===== */
 function drawRulers() {
   rulerLines.forEach(id => { if (map.getLayer(id)) map.removeLayer(id); if (map.getSource(id)) map.removeSource(id); });
@@ -2021,6 +2089,8 @@ async function updateRoute() {
   totalDistance = (totalDistance / 1000) + calculateRulerDistance(startRuler) + calculateRulerDistance(endRuler);
   setKmUI(totalDistance);
   updateCounters();
+  // Після оновлення маршрутів повертаємо дорожню сітку під них
+  try { ensureRoadGridBelowRoutes(); } catch(_) {}
 }
 
 /* turf */
