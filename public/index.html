@@ -773,9 +773,8 @@ function showPanel(id){
   // Коли відкриваємо панель "База" — підвантажити список маршрутів заздалегідь,
   // щоб перший клік по селекту відкривався одразу без "стрибка" ширини
   try {
-    if (id === 'panel-load' && typeof ensureRoutesLoaded === 'function' && !routesInitLoaded){
-      ensureRoutesLoaded();
-    }
+    // Ліниве завантаження: більше НЕ вантажимо автоматично при відкритті панелі.
+    // Список підтягнемо лише при фокусі в поле пошуку або при введенні (див. нижче).
   } catch(_){}
   // дрібний ресайз карти після анімації
   requestAnimationFrame(()=>{ try{ map.resize(); }catch(_){ } });
@@ -3181,8 +3180,16 @@ function renderRoutesDocs(docs){
       return popup;
     })();
     bodyPopup.appendChild(frag);
-    positionRoutesPopup();
-    bodyPopup.style.display = 'block';
+    // Показуємо список лише якщо користувач у фокусі поля пошуку або вже щось ввів
+    const input = document.getElementById('routeSearch');
+    const hasFocus = (document.activeElement === input);
+    const hasQuery = (input && input.value && input.value.trim().length > 0);
+    if (hasFocus || hasQuery){
+      positionRoutesPopup();
+      bodyPopup.style.display = 'block';
+    } else {
+      bodyPopup.style.display = 'none';
+    }
   } catch(_) {}
 }
 // Додає/оновлює опцію у <select id="remoteRoutes"> і одразу її обирає.
@@ -3786,10 +3793,13 @@ async function searchRoutes(q, mode='reset'){
 /* ——— ЗВ’ЯЗУВАННЯ UI ——— */
 
 // Автопідвантаження тепер відбувається, коли відкривають панель "База" (див. showPanel).
+// Оновлено: відключено автопідвантаження — робимо ліниве при першому фокусі/введенні в поле пошуку.
 
 // debounce, щоб не спамити Firestore під час друку
 let _rsTimer = null;
 routeSearch.addEventListener('input', () => {
+  // Ліниве підвантаження базового списку перед першим пошуком
+  if (!routesInitLoaded){ routesInitLoaded = true; refreshRoutesList('reset'); }
   if (_rsTimer) clearTimeout(_rsTimer);
   // Запускаємо пошук через 1 секунду після того, як користувач перестав друкувати
   _rsTimer = setTimeout(() => searchRoutes(routeSearch.value, 'reset'), 1000);
@@ -3832,6 +3842,8 @@ routeSearch.addEventListener('blur', () => {
 });
 // При фокусі — якщо вже є результати, показати попап
 routeSearch.addEventListener('focus', () => {
+  // Ліниве підвантаження при першому фокусі
+  if (!routesInitLoaded){ routesInitLoaded = true; refreshRoutesList('reset'); }
   const popup = document.getElementById('routesPopup');
   if (popup && (window.currentSearchResults||[]).length){
     positionRoutesPopup();
