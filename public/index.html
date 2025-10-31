@@ -309,17 +309,20 @@
     z-index:3400;
     background:var(--card); border:1px solid var(--line); border-radius:12px;
     box-shadow:0 2px 12px rgba(0,0,0,.12);
-    padding:10px;
+    padding:6px;
   }
-  .entry-dock .route-toolbar{ display:flex; gap:8px; align-items:flex-end; flex-wrap:wrap; }
+  .entry-dock .route-toolbar{ display:flex; gap:6px; align-items:flex-end; flex-wrap:wrap; }
   .entry-dock .route-toolbar .field{ min-width:160px; }
   .entry-dock .route-toolbar .field.w220{ min-width:220px; }
   .entry-dock .route-toolbar .field.w240{ min-width:240px; }
   .entry-dock .route-toolbar .field.w260{ min-width:260px; }
   .entry-dock .route-toolbar .field.w160{ min-width:160px; }
-  .entry-dock .route-toolbar label{ font-size:12px; margin-bottom:4px; color:#374151; }
+  .entry-dock .route-toolbar label{ font-size:11px; margin-bottom:2px; color:#374151; }
   .entry-dock .route-toolbar input[type=text],
-  .entry-dock .route-toolbar select{ height:36px; }
+  .entry-dock .route-toolbar select{
+    height:32px;
+    padding:6px 10px;
+  }
   .entry-dock small.muted{ display:block; margin-top:4px; }
 
   @media (max-width:640px){
