@@ -184,33 +184,28 @@
 /* Хедер: зліва назва, справа кнопки */
 .topbar.header-grid{
   display:grid;
-  grid-template-columns: 260px 1fr; /* ліва колонка під назву */
-  align-items:start;                /* кнопки зверху праворуч */
+  grid-template-columns: 1fr auto;  /* назва займає все зліва, кнопки — свої розміри */
+  align-items:start;                /* кнопки й назва притиснуті до верху */
   gap:16px;
-  margin-bottom:12px;               /* як і було */
+  margin-bottom:12px;               /* відступ під хедером */
 }
 
-/* Назва по центру блоку зліва */
+/* Назва: одна лінія зверху зліва */
 .page-title{
-  display:flex;
-  justify-content:center;
-  align-items:center;
-  min-height:120px;                 /* щоб було «по центру» */
-  background:#fff;
-  border-radius:12px;
-  box-shadow:0 2px 10px rgba(0,0,0,.06);
-  padding:12px;
-  text-align:center;
+  margin:0;                         /* без додаткових відступів */
   font-size:20px;
   font-weight:600;
-  margin:0;                         /* прибираємо дефолтний відступ h1 */
+  line-height:1.25;
+  white-space:nowrap;               /* 1 рядок */
+  overflow:hidden;                  /* захист від переповнення */
+  text-overflow:ellipsis;
 }
 
 /* Кнопки вгорі праворуч */
 .header-actions{
   display:flex;
   justify-content:flex-end;         /* ПРАВОРУЧ */
-  align-items:center;
+  align-items:flex-start;           /* вище під верх */
   gap:8px;
   flex-wrap:wrap;
 }
@@ -366,7 +361,7 @@
 
   <div class="wrap">
     <div class="topbar header-grid">
-  <h1 class="page-title">Експорт маршрутів<br>(Firestore → Excel)</h1>
+  <h1 class="page-title">Експорт маршрутів (Firestore → Excel)</h1>
 
   <div class="header-actions">
     <a class="btn" href="/index.html">← До карти</a>
