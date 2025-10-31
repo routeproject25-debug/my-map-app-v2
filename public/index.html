@@ -357,6 +357,21 @@
   }
   .entry-dock.is-sm #intermediateField{ grid-column: span 2; }
 
+  /* У вузьких режимах прибираємо мінімальні ширини, щоб не було горизонтального переповнення */
+  .entry-dock.is-md .route-toolbar .field,
+  .entry-dock.is-md .route-toolbar .field.w220,
+  .entry-dock.is-md .route-toolbar .field.w240,
+  .entry-dock.is-md .route-toolbar .field.w260,
+  .entry-dock.is-md .route-toolbar .field.w420,
+  .entry-dock.is-md .route-toolbar .field.w160,
+  .entry-dock.is-sm .route-toolbar .field,
+  .entry-dock.is-sm .route-toolbar .field.w220,
+  .entry-dock.is-sm .route-toolbar .field.w240,
+  .entry-dock.is-sm .route-toolbar .field.w260,
+  .entry-dock.is-sm .route-toolbar .field.w420,
+  .entry-dock.is-sm .route-toolbar .field.w160{ min-width:0 !important; }
+  .entry-dock .route-toolbar{ overflow-x:hidden; }
+
   /* Collapsed state */
   .entry-dock.collapsed{ padding:4px 6px; }
   .entry-dock.collapsed .route-toolbar .field,
