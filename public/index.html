@@ -311,6 +311,11 @@
     box-shadow:0 2px 12px rgba(0,0,0,.12);
     padding:6px;
   }
+  .entry-dock-header{ display:flex; align-items:center; justify-content:flex-end; gap:6px; margin-bottom:4px; }
+  .entry-dock .entry-toggle{
+    cursor:pointer; border:1px solid var(--line); background:#fff; color:#111;
+    border-radius:8px; padding:4px 8px; font-size:12px; line-height:1.2;
+  }
   .entry-dock .route-toolbar{ display:flex; gap:6px; align-items:flex-end; flex-wrap:wrap; }
   .entry-dock .route-toolbar .field{ min-width:160px; }
   .entry-dock .route-toolbar .field.w220{ min-width:220px; }
@@ -324,6 +329,13 @@
     padding:6px 10px;
   }
   .entry-dock small.muted{ display:block; margin-top:4px; }
+
+  /* Collapsed state */
+  .entry-dock.collapsed{ padding:4px 6px; }
+  .entry-dock.collapsed .route-toolbar,
+  .entry-dock.collapsed datalist,
+  .entry-dock.collapsed #logistsMsg,
+  .entry-dock.collapsed small.muted{ display:none !important; }
 
   @media (max-width:640px){
     .entry-dock{ left:8px; right:8px; top:calc(var(--nav-real) + 8px); }
@@ -365,6 +377,9 @@
 
 <!-- Верхній блок для введення даних маршруту -->
 <div id="topEntryDock" class="entry-dock" role="region" aria-label="Введення маршруту">
+  <div class="entry-dock-header">
+    <button id="entryDockCollapse" class="entry-toggle" title="Згорнути/розгорнути панель">▴ Згорнути</button>
+  </div>
   <div class="route-toolbar" id="routeToolbar">
     <div class="field w220">
       <label for="fromName">Від</label>
@@ -725,6 +740,7 @@ function positionEntryDock(){
   dock.style.left = left + 'px';
   dock.style.right = '8px';
   dock.style.top = 'calc(var(--nav-real) + 8px)';
+  positionStatusDock();
 }
 window.addEventListener('resize', positionEntryDock);
 document.addEventListener('DOMContentLoaded', positionEntryDock);
@@ -733,6 +749,47 @@ setTimeout(() => {
   const toggle = document.getElementById('panelToggle');
   if (toggle) toggle.addEventListener('click', () => setTimeout(positionEntryDock, 0));
 }, 0);
+
+// Позиціонування правого статус-доку під верхнім доком, якщо той розгорнутий
+function positionStatusDock(){
+  const statusDock = document.getElementById('statusDock');
+  const dock = document.getElementById('topEntryDock');
+  if (!statusDock || !dock) return;
+  const collapsed = dock.classList.contains('collapsed');
+  // Висота верхнього доку
+  const rect = dock.getBoundingClientRect();
+  const topBase = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--nav-real')) || 56;
+  const offset = (!collapsed ? rect.height + 16 : 8); // 8px коли згорнуто, інакше відступ + висота
+  statusDock.style.top = `calc(${topBase}px + ${offset}px)`;
+}
+
+// Ініціалізація кнопки згортання верхнього доку з запам'ятовуванням стану
+function initEntryDockCollapse(){
+  const dock = document.getElementById('topEntryDock');
+  const btn  = document.getElementById('entryDockCollapse');
+  if (!dock || !btn) return;
+
+  function updateBtn(){
+    const collapsed = dock.classList.contains('collapsed');
+    btn.textContent = collapsed ? '▾ Розгорнути' : '▴ Згорнути';
+  }
+
+  try{
+    const stored = localStorage.getItem('entryDockCollapsed');
+    if (stored === '1' || stored === 'true') dock.classList.add('collapsed');
+  } catch(_){}
+  updateBtn();
+  positionEntryDock();
+
+  btn.addEventListener('click', () => {
+    dock.classList.toggle('collapsed');
+    try{ localStorage.setItem('entryDockCollapsed', dock.classList.contains('collapsed') ? '1' : '0'); } catch(_){}
+    updateBtn();
+    positionEntryDock();
+  });
+}
+
+document.addEventListener('DOMContentLoaded', initEntryDockCollapse);
 
 // Безпечна відправка повідомлення до Telegram через серверний endpoint
 function sendTelegramApprovalMessage(routeName, routeId){
