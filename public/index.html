@@ -270,6 +270,39 @@
   /* Кінцева лінійка: маркер помаранчевий */
   .ruler-marker.end{   background:#f59e0b; }
 
+  /* ==== НОВЕ КОМПОНУВАННЯ ГОЛОВИ ПАНЕЛІ СТВОРЕННЯ ==== */
+  #panel-create .panel-head .layout{
+    display:grid;
+    grid-template-columns:150px 1fr;
+    gap:10px;
+    align-items:start;
+  }
+  #panel-create .tools-left{
+    display:flex;
+    flex-direction:column;
+    gap:6px;
+  }
+  #panel-create .head-right{ min-width:0; }
+  #panel-create .route-toolbar{
+    display:flex; gap:8px; align-items:flex-end;
+    flex-wrap:nowrap; overflow:auto; padding-bottom:4px;
+  }
+  #panel-create .route-toolbar .field{ min-width:160px; }
+  #panel-create .route-toolbar .field.w220{ min-width:220px; }
+  #panel-create .route-toolbar .field.w240{ min-width:240px; }
+  #panel-create .route-toolbar .field.w260{ min-width:260px; }
+  #panel-create .route-toolbar .field.w160{ min-width:160px; }
+  #panel-create .route-toolbar label{ font-size:12px; margin-bottom:4px; color:#374151; }
+  #panel-create .route-toolbar input[type=text],
+  #panel-create .route-toolbar select{ height:36px; }
+
+  @media (max-width: 640px){
+    #panel-create .panel-head .layout{ grid-template-columns:1fr; }
+    /* На мобільних залишаємо стовпчик кнопок зліва зверху */
+    #panel-create .tools-left{ flex-direction:column; flex-wrap:nowrap; }
+    #panel-create .route-toolbar{ flex-wrap:wrap; overflow:visible; }
+  }
+
   </style>
 </head>
 <body>
@@ -308,20 +341,70 @@
   <!-- === ПАНЕЛЬ 1: СТВОРЕННЯ МАРШРУТУ (основна) === -->
   <div id="panel-create" class="panel active">
     <div class="panel-head">
-      <div class="segment">
-        <button id="toggleAdd" class="btn xs">Маршрут</button>
-        <button id="startLineMode" class="btn xs" title="Додавати точки початкової лінійки">Лінійка(поч.)</button>
-        <button id="endLineMode" class="btn xs" title="Додавати точки кінцевої лінійки">Лінійка(кін.)</button>
-      </div>
-
-      <div class="btn-row">
-        <button id="clearRoute" class="btn xs">Очист. марш.</button>
-        <button id="findSimilarBtn" class="btn xs" title="Знайти схожі маршрути в БД за вибраними Від/До">🔎 Схожі (Від/До)</button>
-        <button id="popRulerPoint" class="btn xs" title="Видалити останню точку активної лінійки">← Остання точка (лін.)</button>
-        <button id="clearRulers" class="btn xs" title="Очистити активну лінійку, або обидві якщо режим лінійки вимкнено">Очист. лін.</button>
-        <button id="toggleMarkers" class="btn xs">📍 Точки</button>
-        <button id="toggleGeozones" class="btn xs">🗺 Приховати геозони</button>
-        <button id="toggleRoadGrid" class="btn xs" title="Показати/приховати сітку доріг">🛣 Показати сітку доріг</button>
+      <!-- нове компонування: зліва стовпчик кнопок, справа верхній інлайн-рядок полів -->
+      <div class="layout">
+        <div class="tools-left">
+          <button id="toggleAdd" class="btn xs">Маршрут</button>
+          <button id="startLineMode" class="btn xs" title="Додавати точки початкової лінійки">Лінійка(поч.)</button>
+          <button id="endLineMode" class="btn xs" title="Додавати точки кінцевої лінійки">Лінійка(кін.)</button>
+          <button id="clearRoute" class="btn xs">Очист. марш.</button>
+          <button id="clearRulers" class="btn xs" title="Очистити активну лінійку, або обидві якщо режим лінійки вимкнено">Очист. лін.</button>
+          <button id="popRulerPoint" class="btn xs" title="Видалити останню точку активної лінійки">← Остання точка (лін.)</button>
+          <button id="findSimilarBtn" class="btn xs" title="Знайти схожі маршрути в БД за вибраними Від/До">🔎 Схожі (Від/До)</button>
+          <button id="toggleMarkers" class="btn xs">📍 Точки</button>
+          <button id="toggleGeozones" class="btn xs">🗺 Приховати геозони</button>
+          <button id="toggleRoadGrid" class="btn xs" title="Показати/приховати сітку доріг">🛣 Показати сітку доріг</button>
+        </div>
+        <div class="head-right">
+          <div class="route-toolbar" id="routeToolbar">
+            <div class="field w220">
+              <label for="fromName">Від</label>
+              <input id="fromName" type="text" placeholder="Почни вводити назву..." list="directoryList" autocomplete="off">
+            </div>
+            <div class="field w220">
+              <label for="toName">До</label>
+              <input id="toName" type="text" placeholder="Почни вводити назву..." list="directoryList" autocomplete="off">
+            </div>
+            <div class="field w160">
+              <label for="routeType">Тип маршруту</label>
+              <select id="routeType">
+                <option value="Основний">Основний</option>
+                <option value="Альтернативний1">Альтернативний1</option>
+                <option value="Альтернативний2">Альтернативний2</option>
+              </select>
+            </div>
+            <div class="field w160">
+              <label for="routePurpose">Призначення</label>
+              <select id="routePurpose">
+                <option value="Зерно" selected>Зерно</option>
+                <option value="ОД">ОД</option>
+                <option value="ТМЦ">ТМЦ</option>
+              </select>
+            </div>
+            <div class="field w160">
+              <label for="hubSelect">Хаб</label>
+              <select id="hubSelect">
+                <option value="">— не вказано —</option>
+                <option value="Вінницький">Вінницький</option>
+                <option value="Західний">Західний</option>
+                <option value="Центральний">Центральний</option>
+                <option value="Урожайна країна">Урожайна країна</option>
+              </select>
+            </div>
+            <div class="field w260">
+              <label for="intermediateText">Проміжні пункти</label>
+              <input id="intermediateText" type="text" placeholder="Напр.: Немирів; Гайсин; Тульчин">
+            </div>
+            <div class="field w240">
+              <label for="logistInput">Логіст (хто створює)</label>
+              <input id="logistInput" type="text" placeholder="Почни вводити прізвище..." list="logistsList" autocomplete="off">
+            </div>
+          </div>
+          <datalist id="directoryList"></datalist>
+          <datalist id="logistsList"></datalist>
+          <div id="logistsMsg"></div>
+          <small class="muted">Список логістів береться з колекції <b>logists</b> (активні).</small>
+        </div>
       </div>
 
       <details id="fileIoSection" style="margin-top:4px;">
@@ -345,63 +428,6 @@
     </div>
 
     <hr/>
-    <!-- Від/До -->
-    <div class="row">
-      <div>
-        <label>Від</label>
-        <input id="fromName" type="text" placeholder="Почни вводити назву..." list="directoryList" autocomplete="off">
-      </div>
-      <div>
-        <label>До</label>
-        <input id="toName" type="text" placeholder="Почни вводити назву..." list="directoryList" autocomplete="off">
-      </div>
-    </div>
-    <datalist id="directoryList"></datalist>
-
-    <!-- Тип/Призначення/Хаб/Проміжні -->
-    <div class="row" style="margin-top:6px;">
-      <div>
-        <label>Тип маршруту</label>
-        <select id="routeType">
-          <option value="Основний">Основний</option>
-          <option value="Альтернативний1">Альтернативний1</option>
-          <option value="Альтернативний2">Альтернативний2</option>
-        </select>
-      </div>
-      <div>
-        <label>Призначення</label>
-        <select id="routePurpose">
-          <option value="Зерно" selected>Зерно</option>
-          <option value="ОД">ОД</option>
-          <option value="ТМЦ">ТМЦ</option>
-        </select>
-      </div>
-      <div>
-        <label>Хаб</label>
-        <select id="hubSelect">
-          <option value="">— не вказано —</option>
-          <option value="Вінницький">Вінницький</option>
-          <option value="Західний">Західний</option>
-          <option value="Центральний">Центральний</option>
-          <option value="Урожайна країна">Урожайна країна</option>
-        </select>
-      </div>
-      <div style="grid-column:1 / -1">
-        <label>Проміжні пункти</label>
-        <input id="intermediateText" type="text" placeholder="Напр.: Немирів; Гайсин; Тульчин">
-      </div>
-    </div>
-
-    <!-- Логіст -->
-    <div class="row" style="margin-top:6px;">
-      <div style="grid-column:1 / -1">
-        <label>Логіст (хто створює)</label>
-        <input id="logistInput" type="text" placeholder="Почни вводити прізвище..." list="logistsList" autocomplete="off">
-        <datalist id="logistsList"></datalist>
-        <small class="muted">Список береться з колекції <b>logists</b> (активні). Обери себе зі списку.</small>
-        <div id="logistsMsg"></div>
-      </div>
-    </div>
 
     <small class="muted">У БД зберігаються <b>коди</b> “Від/До” + підписи. Назва маршруту генерується з актуальних назв довідника.</small>
 
