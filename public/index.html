@@ -71,7 +71,7 @@
     position:absolute; z-index:3000; top:calc(var(--nav-real) + 8px); left:8px;
     background:var(--card); border:1px solid var(--line); border-radius:12px;
     box-shadow:0 1px 8px rgba(0,0,0,.12); padding:12px;
-    max-width:380px; max-height:90vh; overflow-y:auto; overflow-x:hidden;
+    width:320px; max-width:320px; max-height:90vh; overflow-y:auto; overflow-x:hidden;
   }
   .controls-hidden #controls{ display:none }
 
@@ -433,9 +433,7 @@
           <button id="toggleGeozones" class="btn xs">🗺 Приховати геозони</button>
           <button id="toggleRoadGrid" class="btn xs" title="Показати/приховати сітку доріг">🛣 Показати сітку доріг</button>
         </div>
-        <div class="head-right">
-          <small class="muted">Поля введення перенесено у верхній док (під синьою шапкою).</small>
-        </div>
+        <div class="head-right"></div>
       </div>
 
       <details id="fileIoSection" style="margin-top:4px;">
