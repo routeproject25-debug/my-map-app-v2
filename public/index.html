@@ -785,15 +785,28 @@ function positionEntryDock(){
   dock.style.left = left + 'px';
   dock.style.right = '8px';
   dock.style.top = 'calc(var(--nav-real) + 8px)';
-  // Динамічні класи ширини для адаптивної сітки
+  // Динамічні класи ширини для адаптивної сітки: поєднання порогів і реального заміру переповнення
   try{
+    const toolbar = document.getElementById('routeToolbar');
+    dock.classList.remove('is-sm','is-md');
+
     const vw = window.innerWidth || document.documentElement.clientWidth || 0;
     const avail = Math.max(0, vw - left - 8); // фактична ширина доку
-    dock.classList.remove('is-sm','is-md');
-    if (avail < 980) {
-      dock.classList.add('is-sm');
-    } else if (avail < 1320) {
+    // Початкове припущення за порогами (трохи підняв пороги)
+    if (avail < 1400) dock.classList.add('is-md');
+    if (avail < 1100) dock.classList.add('is-sm');
+
+    const isOverflowing = () => toolbar && (toolbar.scrollWidth - toolbar.clientWidth) > 2;
+
+    // Якщо все ще не влазить — «ескалюємо» режим
+    if (!dock.classList.contains('is-md') && isOverflowing()) {
       dock.classList.add('is-md');
+      // форсуємо reflow перед повторною перевіркою
+      void toolbar.offsetWidth;
+    }
+    if (!dock.classList.contains('is-sm') && isOverflowing()) {
+      dock.classList.add('is-sm');
+      void toolbar.offsetWidth;
     }
   }catch(_){}
   positionStatusDock();
