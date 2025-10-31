@@ -311,7 +311,7 @@
     box-shadow:0 2px 12px rgba(0,0,0,.12);
     padding:6px;
   }
-  .entry-dock-header{ display:flex; align-items:center; justify-content:flex-end; gap:6px; margin-bottom:4px; }
+  .entry-dock-header{ display:flex; align-items:center; justify-content:flex-start; gap:6px; margin-bottom:4px; }
   .entry-dock .entry-toggle{
     cursor:pointer; border:1px solid var(--line); background:#fff; color:#111;
     border-radius:8px; padding:4px 8px; font-size:12px; line-height:1.2;
@@ -336,6 +336,7 @@
   .entry-dock.collapsed datalist,
   .entry-dock.collapsed #logistsMsg,
   .entry-dock.collapsed small.muted{ display:none !important; }
+  .entry-dock.collapsed .entry-dock-header{ margin-bottom:0; }
 
   @media (max-width:640px){
     .entry-dock{ left:8px; right:8px; top:calc(var(--nav-real) + 8px); }
@@ -759,7 +760,8 @@ function positionStatusDock(){
   // Висота верхнього доку
   const rect = dock.getBoundingClientRect();
   const topBase = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--nav-real')) || 56;
-  const offset = (!collapsed ? rect.height + 16 : 8); // 8px коли згорнуто, інакше відступ + висота
+  // Завжди тримаємо статус нижче фактичної висоти верхнього доку, щоб не перекривав кнопку розгортання
+  const offset = rect.height + 8;
   statusDock.style.top = `calc(${topBase}px + ${offset}px)`;
 }
 
