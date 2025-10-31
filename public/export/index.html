@@ -238,23 +238,6 @@
 #xScroller > div { height: 1px; }                 /* «доріжка» для ширини */
 
   </style>
-  <style>
-  /* ==== Preview pane (route image) ==== */
-  .route-preview{ position: fixed; right: 16px; top: 96px; width: min(420px, 34vw); max-height: 78vh; background:#fff; border:1px solid #e5e7eb; border-radius:12px; box-shadow:0 6px 24px rgba(0,0,0,.12); padding:12px; z-index: 40; display:flex; flex-direction:column; gap:8px; }
-  .route-preview.is-hidden{ display:none; }
-  .route-preview header{ display:flex; align-items:center; justify-content:space-between; gap:8px; }
-  .route-preview h3{ margin:0; font-size:15px; font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-  .route-preview .meta{ font-size:12.5px; color:#475569; display:flex; gap:8px; flex-wrap:wrap; }
-  .route-preview .canvas-wrap{ position:relative; border:1px solid #e5e7eb; border-radius:8px; overflow:hidden; background:#fafafa; }
-  .route-preview canvas{ display:block; width:100%; height:auto; }
-  .route-preview .actions{ display:flex; gap:8px; justify-content:flex-end; }
-  /* Row highlight when selected */
-  #resTable tbody tr.is-selected{ background:#eef2ff; }
-  /* Responsive: on small screens make it full-width stacked block */
-  @media (max-width: 980px){
-    .route-preview{ position: sticky; top: 8px; right:auto; width:auto; max-height:none; margin: 0 0 12px 0; }
-  }
-  </style>
   
   <!-- AUTH GUARD: /export — лише admin | logist -->
 <script>
@@ -467,7 +450,7 @@
       </div>
     </div>
 
-  <div class="card results-card">
+   <div class="card results-card">
       <div class="bar" style="justify-content:space-between; margin-bottom:8px;">
         <strong>Результати</strong>
         <span class="muted" id="countInfo">Натисніть «Попередній перегляд»</span>
@@ -592,20 +575,6 @@
         <datalist id="fRouteKeysList"></datalist>
         <datalist id="fIdsList"></datalist>
       </div>
-      <!-- Route preview panel -->
-      <aside id="routePreview" class="route-preview is-hidden" aria-live="polite">
-        <header>
-          <h3 id="rpTitle">Маршрут</h3>
-          <div class="actions">
-            <button id="rpSave" class="btn sm" title="Зберегти як PNG">⬇️ PNG</button>
-            <button id="rpClose" class="btn sm" title="Закрити прев'ю">✖</button>
-          </div>
-        </header>
-        <div class="meta" id="rpMeta">—</div>
-        <div class="canvas-wrap">
-          <canvas id="rpCanvas" width="800" height="520"></canvas>
-        </div>
-      </aside>
     </div>
   </div>
 
@@ -1149,22 +1118,6 @@ function normalizeSegments(source){
     if (typeof val==='object'){ for (const [k,v] of Object.entries(val)){ if (/(ruler|manual|line|path|segment|polyline|draw)/i.test(k)) scan(v); } }
   }
   scan(source); return segments;
-}
-
-/* === Extract geometry for preview from a row.raw === */
-function extractGeometryForPreview(raw){
-  // Try rich sources first
-  let pts = normalizePoints(raw?.points) || normalizePoints(raw?.coordinates) || normalizePoints(raw?.route) || normalizePoints(raw?.geojson) || normalizePoints(raw?.geometry);
-  // Fallback: start/midpoints/end composition
-  if (!pts) {
-    const parts = [];
-    if (raw?.start) { const p = toLonLat(raw.start); if (p) parts.push(p); }
-    if (Array.isArray(raw?.midpoints)) for (const m of raw.midpoints){ const p=toLonLat(m); if (p) parts.push(p); }
-    if (raw?.end) { const p = toLonLat(raw.end); if (p) parts.push(p); }
-    if (parts.length>=2) pts = parts;
-  }
-  const segs = normalizeSegments(raw?.manualSegments || raw?.segments || raw?.drawn || raw?.ruler || raw?.manual || raw?.lines || raw?.paths || raw?.polyline || raw?.polylines || raw?.overlays || raw?.extras || raw?.shapes);
-  return { points: pts || [], segments: segs || [] };
 }
 
 /* ---------- Витяг «Проміжних пунктів» ---------- */
@@ -1945,14 +1898,6 @@ function renderTable(rows){
 
   document.getElementById('countInfo').textContent = `Записів (після фільтру): ${rows.length}`;
   updateStats(rows);
-
-  // keep row selection highlight if any
-  try{
-    if (window.__selectedRouteId){
-      const tr = tb.querySelector(`tr[data-id="${window.__selectedRouteId}"]`);
-      if (tr) tr.classList.add('is-selected');
-    }
-  }catch(_){}
 }
 
 /* ---------- Експорт у Excel ---------- */
@@ -2200,14 +2145,6 @@ if (jsonOne){
       setTimeout(()=>{ copyBtn.textContent = '📋'; }, 1000);
     }catch{ prompt('Скопіюйте значення вручну:', val); }
   }
-
-  // Open preview on row click (ignore buttons/links)
-  const tr = ev.target.closest('tr[data-id]');
-  if (!tr) return;
-  if (ev.target.closest('a,button,.copy-btn,.share-btn,.json-one,.del-one')) return;
-  try{
-    openPreviewForId(tr.getAttribute('data-id'));
-  }catch(e){ console.warn('preview error:', e); }
 });
 
 /* ---------- Розтягування та автоширина колонок ---------- */
@@ -2370,133 +2307,6 @@ function restoreColumnWidths(){
 }
 
 btnAutosize.addEventListener('click', autosizeColumns);
-
-/* ---------- Маршрут-прев'ю: рендер на canvas ---------- */
-let __selectedRouteId = null; // current selected row id
-Object.defineProperty(window, '__selectedRouteId', { get: () => __selectedRouteId, set: v => { __selectedRouteId = v; } });
-
-const RP = {
-  panel:  document.getElementById('routePreview'),
-  title:  document.getElementById('rpTitle'),
-  meta:   document.getElementById('rpMeta'),
-  canvas: document.getElementById('rpCanvas'),
-  btnClose: document.getElementById('rpClose'),
-  btnSave:  document.getElementById('rpSave')
-};
-
-function setSelectedRowHighlight(){
-  try{
-    const tb = document.querySelector('#resTable tbody');
-    tb.querySelectorAll('tr.is-selected').forEach(tr => tr.classList.remove('is-selected'));
-    if (__selectedRouteId){
-      const tr = tb.querySelector(`tr[data-id="${__selectedRouteId}"]`);
-      if (tr) tr.classList.add('is-selected');
-    }
-  }catch(_){ }
-}
-
-function computeBounds(points, segments){
-  let minX= Infinity, minY= Infinity, maxX= -Infinity, maxY= -Infinity;
-  const push = ([x,y]) => { if (x<minX) minX=x; if (x>maxX) maxX=x; if (y<minY) minY=y; if (y>maxY) maxY=y; };
-  (points||[]).forEach(push);
-  (segments||[]).forEach(seg => (seg||[]).forEach(push));
-  if (!isFinite(minX) || !isFinite(minY) || !isFinite(maxX) || !isFinite(maxY)){
-    // default box around Ukraine to avoid NaNs
-    minX = 20; maxX = 42; minY = 44; maxY = 53;
-  }
-  // handle degenerate
-  if (maxX-minX < 1e-6) { minX -= 0.01; maxX += 0.01; }
-  if (maxY-minY < 1e-6) { minY -= 0.01; maxY += 0.01; }
-  return { minX, minY, maxX, maxY };
-}
-
-function drawRoutePreview(row){
-  if (!RP.canvas) return;
-  const dpr = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
-  const cssW = RP.canvas.clientWidth || RP.canvas.parentElement.clientWidth || 800;
-  const cssH = Math.round(cssW * 0.62);
-  RP.canvas.width  = Math.round(cssW * dpr);
-  RP.canvas.height = Math.round(cssH * dpr);
-  RP.canvas.style.height = cssH + 'px';
-  const ctx = RP.canvas.getContext('2d');
-  ctx.setTransform(1,0,0,1,0,0);
-  ctx.clearRect(0,0,RP.canvas.width, RP.canvas.height);
-
-  // background
-  ctx.fillStyle = '#ffffff';
-  ctx.fillRect(0,0,RP.canvas.width, RP.canvas.height);
-
-  const { points, segments } = extractGeometryForPreview(row?.raw || {});
-  const pad = 16 * dpr;
-  const { minX, minY, maxX, maxY } = computeBounds(points, segments);
-  const worldW = maxX - minX; const worldH = maxY - minY;
-  const viewW = RP.canvas.width - pad*2; const viewH = RP.canvas.height - pad*2;
-  const scale = Math.min(viewW / worldW, viewH / worldH);
-  const offsetX = pad + (viewW - worldW*scale)/2;
-  const offsetY = pad + (viewH - worldH*scale)/2;
-  const project = ([x,y]) => [ offsetX + (x - minX) * scale, offsetY + (maxY - y) * scale ];
-
-  // draw segments (manual) first
-  if (segments && segments.length){
-    ctx.lineWidth = 3*dpr; ctx.strokeStyle = '#f97316'; ctx.setLineDash([6*dpr, 6*dpr]);
-    for (const seg of segments){
-      if (!Array.isArray(seg) || seg.length<2) continue;
-      ctx.beginPath();
-      seg.forEach((p,i)=>{ const [x,y]=project(p); if (i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y); });
-      ctx.stroke();
-    }
-    ctx.setLineDash([]);
-  }
-
-  // draw main polyline
-  if (points && points.length){
-    ctx.lineWidth = 3*dpr; ctx.strokeStyle = '#2563eb';
-    ctx.beginPath();
-    points.forEach((p,i)=>{ const [x,y]=project(p); if (i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y); });
-    ctx.stroke();
-
-    // start/end markers
-    const start = project(points[0]);
-    const end   = project(points[points.length-1]);
-    const r = 5*dpr;
-    ctx.fillStyle = '#10b981'; ctx.beginPath(); ctx.arc(start[0], start[1], r, 0, Math.PI*2); ctx.fill();
-    ctx.fillStyle = '#ef4444'; ctx.beginPath(); ctx.arc(end[0], end[1], r, 0, Math.PI*2); ctx.fill();
-  } else {
-    // no geometry
-    ctx.fillStyle = '#6b7280';
-    ctx.font = `${12*dpr}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
-    ctx.fillText('Немає геометрії для превʼю', pad, pad + 14*dpr);
-  }
-}
-
-function openPreviewForId(id){
-  const row = (allRows || []).find(r => r.id === id);
-  if (!row) return;
-  __selectedRouteId = id;
-  setSelectedRowHighlight();
-  // title + meta
-  if (RP.title) RP.title.textContent = `${row.fromName || ''} → ${row.toName || ''}`;
-  const metaParts = [];
-  if (row.hub) metaParts.push(`ХАБ: ${row.hub}`);
-  if (Number.isFinite(row.distance_km)) metaParts.push(`Відстань: ${row.distance_km.toFixed(3)} км`);
-  if (row.type) metaParts.push(`Тип: ${row.type}`);
-  if (row.updatedAt) metaParts.push(`Оновлено: ${row.updatedAt}`);
-  if (RP.meta) RP.meta.textContent = metaParts.join(' • ') || '—';
-  if (RP.panel) RP.panel.classList.remove('is-hidden');
-  drawRoutePreview(row);
-}
-
-function closePreview(){ if (RP.panel) RP.panel.classList.add('is-hidden'); }
-
-if (RP.btnClose) RP.btnClose.addEventListener('click', closePreview);
-if (RP.btnSave) RP.btnSave.addEventListener('click', ()=>{
-  try{
-    const name = safeName((RP.title?.textContent || 'route') + '.png');
-    const a = document.createElement('a'); a.download = name; a.href = RP.canvas.toDataURL('image/png'); a.click();
-  }catch(e){ console.warn('save preview failed', e); }
-});
-
-window.addEventListener('resize', debounce(()=>{ if (!RP.panel || RP.panel.classList.contains('is-hidden')) return; const row = (allRows||[]).find(r=>r.id===__selectedRouteId); if (row) drawRoutePreview(row); }, 150));
 
 /* ---------- Старт ---------- */
 (async ()=>{
