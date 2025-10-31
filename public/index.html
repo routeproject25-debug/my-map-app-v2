@@ -311,12 +311,11 @@
     box-shadow:0 2px 12px rgba(0,0,0,.12);
     padding:6px;
   }
-  .entry-dock-header{ display:flex; align-items:center; justify-content:flex-start; gap:6px; margin-bottom:4px; }
   .entry-dock .entry-toggle{
     cursor:pointer; border:1px solid var(--line); background:#fff; color:#111;
     border-radius:8px; padding:4px 8px; font-size:12px; line-height:1.2;
   }
-  .entry-dock .route-toolbar{ display:flex; gap:6px; align-items:flex-end; flex-wrap:wrap; }
+  .entry-dock .route-toolbar{ display:flex; gap:6px; align-items:center; flex-wrap:wrap; }
   .entry-dock .route-toolbar .field{ min-width:160px; }
   .entry-dock .route-toolbar .field.w220{ min-width:220px; }
   .entry-dock .route-toolbar .field.w240{ min-width:240px; }
@@ -328,15 +327,14 @@
     height:32px;
     padding:6px 10px;
   }
-  .entry-dock small.muted{ display:block; margin-top:4px; }
+  .entry-dock small.muted{ display:none; }
 
   /* Collapsed state */
   .entry-dock.collapsed{ padding:4px 6px; }
-  .entry-dock.collapsed .route-toolbar,
+  .entry-dock.collapsed .route-toolbar .field,
   .entry-dock.collapsed datalist,
   .entry-dock.collapsed #logistsMsg,
   .entry-dock.collapsed small.muted{ display:none !important; }
-  .entry-dock.collapsed .entry-dock-header{ margin-bottom:0; }
 
   @media (max-width:640px){
     .entry-dock{ left:8px; right:8px; top:calc(var(--nav-real) + 8px); }
@@ -378,10 +376,8 @@
 
 <!-- Верхній блок для введення даних маршруту -->
 <div id="topEntryDock" class="entry-dock" role="region" aria-label="Введення маршруту">
-  <div class="entry-dock-header">
-    <button id="entryDockCollapse" class="entry-toggle" title="Згорнути/розгорнути панель">▴ Згорнути</button>
-  </div>
   <div class="route-toolbar" id="routeToolbar">
+    <button id="entryDockCollapse" class="entry-toggle" title="Згорнути/розгорнути панель">▴ Згорнути</button>
     <div class="field w220">
       <label for="fromName">Від</label>
       <input id="fromName" type="text" placeholder="Почни вводити назву..." list="directoryList" autocomplete="off">
