@@ -346,6 +346,17 @@
   }
   .entry-dock small.muted{ display:none; }
 
+  /* Адаптивна розкладка верхнього доку за реально доступною шириною (класи виставляє JS) */
+  .entry-dock.is-md .route-toolbar{
+    grid-template-columns: auto 1fr 1fr 1fr; /* 4 колонки: перший ряд від/до/тип/призначення; другий — хаб/проміжні/логіст */
+  }
+  .entry-dock.is-md #intermediateField{ grid-column: span 2; } /* зробити "Проміжні" ширшими у 2 колонки */
+
+  .entry-dock.is-sm .route-toolbar{
+    grid-template-columns: auto 1fr 1fr; /* компактніше — 2 гнучкі колонки + кнопка */
+  }
+  .entry-dock.is-sm #intermediateField{ grid-column: span 2; }
+
   /* Collapsed state */
   .entry-dock.collapsed{ padding:4px 6px; }
   .entry-dock.collapsed .route-toolbar .field,
@@ -434,7 +445,7 @@
         <option value="Урожайна країна">Урожайна країна</option>
       </select>
     </div>
-    <div class="field w420">
+    <div id="intermediateField" class="field w420">
       <label for="intermediateText">Проміжні пункти</label>
       <input id="intermediateText" type="text" placeholder="Напр.: Немирів; Гайсин; Тульчин">
     </div>
@@ -759,6 +770,17 @@ function positionEntryDock(){
   dock.style.left = left + 'px';
   dock.style.right = '8px';
   dock.style.top = 'calc(var(--nav-real) + 8px)';
+  // Динамічні класи ширини для адаптивної сітки
+  try{
+    const vw = window.innerWidth || document.documentElement.clientWidth || 0;
+    const avail = Math.max(0, vw - left - 8); // фактична ширина доку
+    dock.classList.remove('is-sm','is-md');
+    if (avail < 980) {
+      dock.classList.add('is-sm');
+    } else if (avail < 1320) {
+      dock.classList.add('is-md');
+    }
+  }catch(_){}
   positionStatusDock();
 }
 window.addEventListener('resize', positionEntryDock);
