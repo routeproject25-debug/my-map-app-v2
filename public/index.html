@@ -303,6 +303,29 @@
     #panel-create .route-toolbar{ flex-wrap:wrap; overflow:visible; }
   }
 
+  /* ===== Верхній док для введення даних (виділено окремо) ===== */
+  .entry-dock{
+    position:fixed; left:8px; right:8px; top:calc(var(--nav-real) + 8px);
+    z-index:3400;
+    background:var(--card); border:1px solid var(--line); border-radius:12px;
+    box-shadow:0 2px 12px rgba(0,0,0,.12);
+    padding:10px;
+  }
+  .entry-dock .route-toolbar{ display:flex; gap:8px; align-items:flex-end; flex-wrap:wrap; }
+  .entry-dock .route-toolbar .field{ min-width:160px; }
+  .entry-dock .route-toolbar .field.w220{ min-width:220px; }
+  .entry-dock .route-toolbar .field.w240{ min-width:240px; }
+  .entry-dock .route-toolbar .field.w260{ min-width:260px; }
+  .entry-dock .route-toolbar .field.w160{ min-width:160px; }
+  .entry-dock .route-toolbar label{ font-size:12px; margin-bottom:4px; color:#374151; }
+  .entry-dock .route-toolbar input[type=text],
+  .entry-dock .route-toolbar select{ height:36px; }
+  .entry-dock small.muted{ display:block; margin-top:4px; }
+
+  @media (max-width:640px){
+    .entry-dock{ left:8px; right:8px; top:calc(var(--nav-real) + 8px); }
+  }
+
   </style>
 </head>
 <body>
@@ -337,6 +360,58 @@
   <div>Завантажуємо карту…</div>
 </div>
 
+<!-- Верхній блок для введення даних маршруту -->
+<div id="topEntryDock" class="entry-dock" role="region" aria-label="Введення маршруту">
+  <div class="route-toolbar" id="routeToolbar">
+    <div class="field w220">
+      <label for="fromName">Від</label>
+      <input id="fromName" type="text" placeholder="Почни вводити назву..." list="directoryList" autocomplete="off">
+    </div>
+    <div class="field w220">
+      <label for="toName">До</label>
+      <input id="toName" type="text" placeholder="Почни вводити назву..." list="directoryList" autocomplete="off">
+    </div>
+    <div class="field w160">
+      <label for="routeType">Тип маршруту</label>
+      <select id="routeType">
+        <option value="Основний">Основний</option>
+        <option value="Альтернативний1">Альтернативний1</option>
+        <option value="Альтернативний2">Альтернативний2</option>
+      </select>
+    </div>
+    <div class="field w160">
+      <label for="routePurpose">Призначення</label>
+      <select id="routePurpose">
+        <option value="Зерно" selected>Зерно</option>
+        <option value="ОД">ОД</option>
+        <option value="ТМЦ">ТМЦ</option>
+      </select>
+    </div>
+    <div class="field w160">
+      <label for="hubSelect">Хаб</label>
+      <select id="hubSelect">
+        <option value="">— не вказано —</option>
+        <option value="Вінницький">Вінницький</option>
+        <option value="Західний">Західний</option>
+        <option value="Центральний">Центральний</option>
+        <option value="Урожайна країна">Урожайна країна</option>
+      </select>
+    </div>
+    <div class="field w260">
+      <label for="intermediateText">Проміжні пункти</label>
+      <input id="intermediateText" type="text" placeholder="Напр.: Немирів; Гайсин; Тульчин">
+    </div>
+    <div class="field w240">
+      <label for="logistInput">Логіст (хто створює)</label>
+      <input id="logistInput" type="text" placeholder="Почни вводити прізвище..." list="logistsList" autocomplete="off">
+    </div>
+  </div>
+  <datalist id="directoryList"></datalist>
+  <datalist id="logistsList"></datalist>
+  <div id="logistsMsg"></div>
+  <small class="muted">Список логістів береться з колекції <b>logists</b> (активні).</small>
+</div>
+
 <div id="controls">
   <!-- === ПАНЕЛЬ 1: СТВОРЕННЯ МАРШРУТУ (основна) === -->
   <div id="panel-create" class="panel active">
@@ -356,54 +431,7 @@
           <button id="toggleRoadGrid" class="btn xs" title="Показати/приховати сітку доріг">🛣 Показати сітку доріг</button>
         </div>
         <div class="head-right">
-          <div class="route-toolbar" id="routeToolbar">
-            <div class="field w220">
-              <label for="fromName">Від</label>
-              <input id="fromName" type="text" placeholder="Почни вводити назву..." list="directoryList" autocomplete="off">
-            </div>
-            <div class="field w220">
-              <label for="toName">До</label>
-              <input id="toName" type="text" placeholder="Почни вводити назву..." list="directoryList" autocomplete="off">
-            </div>
-            <div class="field w160">
-              <label for="routeType">Тип маршруту</label>
-              <select id="routeType">
-                <option value="Основний">Основний</option>
-                <option value="Альтернативний1">Альтернативний1</option>
-                <option value="Альтернативний2">Альтернативний2</option>
-              </select>
-            </div>
-            <div class="field w160">
-              <label for="routePurpose">Призначення</label>
-              <select id="routePurpose">
-                <option value="Зерно" selected>Зерно</option>
-                <option value="ОД">ОД</option>
-                <option value="ТМЦ">ТМЦ</option>
-              </select>
-            </div>
-            <div class="field w160">
-              <label for="hubSelect">Хаб</label>
-              <select id="hubSelect">
-                <option value="">— не вказано —</option>
-                <option value="Вінницький">Вінницький</option>
-                <option value="Західний">Західний</option>
-                <option value="Центральний">Центральний</option>
-                <option value="Урожайна країна">Урожайна країна</option>
-              </select>
-            </div>
-            <div class="field w260">
-              <label for="intermediateText">Проміжні пункти</label>
-              <input id="intermediateText" type="text" placeholder="Напр.: Немирів; Гайсин; Тульчин">
-            </div>
-            <div class="field w240">
-              <label for="logistInput">Логіст (хто створює)</label>
-              <input id="logistInput" type="text" placeholder="Почни вводити прізвище..." list="logistsList" autocomplete="off">
-            </div>
-          </div>
-          <datalist id="directoryList"></datalist>
-          <datalist id="logistsList"></datalist>
-          <div id="logistsMsg"></div>
-          <small class="muted">Список логістів береться з колекції <b>logists</b> (активні).</small>
+          <small class="muted">Поля введення перенесено у верхній док (під синьою шапкою).</small>
         </div>
       </div>
 
