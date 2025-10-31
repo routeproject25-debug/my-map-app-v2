@@ -319,7 +319,6 @@
   .entry-dock .route-toolbar{
     display:grid;
     grid-template-columns:
-      auto                 /* кнопка згорнути */
       220px  /* Від */
       220px  /* До */
       160px  /* Тип */
@@ -328,6 +327,7 @@
       minmax(420px, 1fr)   /* Проміжні пункти — довше, тягнеться */
       240px;               /* Логіст */
     gap:8px 10px; align-items:center; /* вирівнюємо по центру по вертикалі для рівнішого вигляду */
+    padding-left:34px; /* місце під плаваючу кнопку згортання */
   }
   .entry-dock .route-toolbar .field{ min-width:160px; /* дозволяємо елементу розтягуватись усередині гріду */ min-width:0; }
   .entry-dock .route-toolbar .field.w220{ min-width:220px; }
@@ -336,7 +336,11 @@
   .entry-dock .route-toolbar .field.w420{ min-width:420px; flex:1 1 420px; }
   .entry-dock .route-toolbar .field.w160{ min-width:160px; }
   /* кнопка компактна по висоті, щоб ряд був нижче */
-  .entry-dock .entry-toggle{ height:32px; display:inline-flex; align-items:center; }
+  .entry-dock .entry-toggle{
+    position:absolute; left:6px; top:10px; z-index:2;
+    height:28px; display:inline-flex; align-items:center; justify-content:center;
+    padding:2px 6px; font-size:14px; line-height:1; width:24px;
+  }
   .entry-dock .route-toolbar label{ font-size:11px; margin-bottom:2px; color:#374151; }
   .entry-dock .route-toolbar input[type=text],
   .entry-dock .route-toolbar select{
@@ -348,12 +352,12 @@
 
   /* Адаптивна розкладка верхнього доку за реально доступною шириною (класи виставляє JS) */
   .entry-dock.is-md .route-toolbar{
-    grid-template-columns: auto 1fr 1fr 1fr; /* 4 колонки: перший ряд від/до/тип/призначення; другий — хаб/проміжні/логіст */
+    grid-template-columns: 1fr 1fr 1fr; /* 3 гнучкі колонки; проміжні займуть 2 */
   }
   .entry-dock.is-md #intermediateField{ grid-column: span 2; } /* зробити "Проміжні" ширшими у 2 колонки */
 
   .entry-dock.is-sm .route-toolbar{
-    grid-template-columns: auto 1fr 1fr; /* компактніше — 2 гнучкі колонки + кнопка */
+    grid-template-columns: 1fr 1fr; /* компактніше — 2 гнучкі колонки */
   }
   .entry-dock.is-sm #intermediateField{ grid-column: span 2; }
 
@@ -382,9 +386,7 @@
   @media (max-width:640px){
     .entry-dock{ left:8px; right:8px; top:calc(var(--nav-real) + 8px); }
     /* на вузьких — дозволимо гріду перелаштовуватись у 2-3 рядки */
-    .entry-dock .route-toolbar{
-      grid-template-columns: auto 1fr 1fr; /* кнопка + 2 колонки */
-    }
+    .entry-dock .route-toolbar{ grid-template-columns: 1fr 1fr; }
     .entry-dock .route-toolbar .field.w420{ min-width:240px; }
   }
 
@@ -424,8 +426,8 @@
 
 <!-- Верхній блок для введення даних маршруту -->
 <div id="topEntryDock" class="entry-dock" role="region" aria-label="Введення маршруту">
+  <button id="entryDockCollapse" class="entry-toggle" title="Згорнути/розгорнути панель" aria-label="Згорнути">▴</button>
   <div class="route-toolbar" id="routeToolbar">
-    <button id="entryDockCollapse" class="entry-toggle" title="Згорнути/розгорнути панель">▴ Згорнути</button>
     <div class="field w220">
       <label for="fromName">Від</label>
       <input id="fromName" type="text" placeholder="Почни вводити назву..." list="directoryList" autocomplete="off">
@@ -841,7 +843,11 @@ function initEntryDockCollapse(){
 
   function updateBtn(){
     const collapsed = dock.classList.contains('collapsed');
-    btn.textContent = collapsed ? '▾ Розгорнути' : '▴ Згорнути';
+    btn.textContent = collapsed ? '▾' : '▴';
+    try{
+      btn.setAttribute('aria-label', collapsed ? 'Розгорнути' : 'Згорнути');
+      btn.title = collapsed ? 'Розгорнути панель' : 'Згорнути панель';
+    }catch(_){ }
   }
 
   try{
