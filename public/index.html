@@ -315,15 +315,28 @@
     cursor:pointer; border:1px solid var(--line); background:#fff; color:#111;
     border-radius:8px; padding:4px 8px; font-size:12px; line-height:1.2;
   }
-  .entry-dock .route-toolbar{ display:flex; gap:6px; align-items:center; flex-wrap:wrap; }
+  /* Рівномірне вирівнювання полів у верхньому доку */
+  .entry-dock .route-toolbar{
+    display:grid;
+    grid-template-columns:
+      auto                 /* кнопка згорнути */
+      220px  /* Від */
+      220px  /* До */
+      160px  /* Тип */
+      160px  /* Призначення */
+      160px  /* Хаб */
+      minmax(420px, 1fr)   /* Проміжні пункти — довше, тягнеться */
+      240px;               /* Логіст */
+    gap:8px 10px; align-items:end;
+  }
   .entry-dock .route-toolbar .field{ min-width:160px; }
   .entry-dock .route-toolbar .field.w220{ min-width:220px; }
   .entry-dock .route-toolbar .field.w240{ min-width:240px; }
   .entry-dock .route-toolbar .field.w260{ min-width:260px; }
   .entry-dock .route-toolbar .field.w420{ min-width:420px; flex:1 1 420px; }
   .entry-dock .route-toolbar .field.w160{ min-width:160px; }
-  /* трохи посунути всі поля праворуч після кнопки */
-  .entry-dock .route-toolbar .field:first-of-type{ margin-left:10px; }
+  /* кнопка компактна по висоті, щоб ряд був нижче */
+  .entry-dock .entry-toggle{ height:32px; display:inline-flex; align-items:center; }
   .entry-dock .route-toolbar label{ font-size:11px; margin-bottom:2px; color:#374151; }
   .entry-dock .route-toolbar input[type=text],
   .entry-dock .route-toolbar select{
@@ -341,7 +354,11 @@
 
   @media (max-width:640px){
     .entry-dock{ left:8px; right:8px; top:calc(var(--nav-real) + 8px); }
-    .entry-dock .route-toolbar .field.w420{ min-width:240px; flex:1 1 240px; }
+    /* на вузьких — дозволимо гріду перелаштовуватись у 2-3 рядки */
+    .entry-dock .route-toolbar{
+      grid-template-columns: auto 1fr 1fr; /* кнопка + 2 колонки */
+    }
+    .entry-dock .route-toolbar .field.w420{ min-width:240px; }
   }
 
   </style>
