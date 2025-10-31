@@ -708,6 +708,31 @@ function hideSplash(){
   if (s) { s.classList.add('hide'); setTimeout(() => s.remove(), 300); }
 }
 
+// Розміщення верхнього доку (правильна ширина як на макеті: від правого краю лівої панелі до правого краю екрану)
+function positionEntryDock(){
+  const dock = document.getElementById('topEntryDock');
+  if (!dock) return;
+  let left = 8; // відступ за замовчуванням, коли ліва панель схована
+  const controls = document.getElementById('controls');
+  if (controls) {
+    const cs = getComputedStyle(controls);
+    if (cs.display !== 'none' && cs.visibility !== 'hidden'){
+      const rect = controls.getBoundingClientRect();
+      if (rect && rect.right) left = Math.max(8, Math.round(rect.right + 8));
+    }
+  }
+  dock.style.left = left + 'px';
+  dock.style.right = '8px';
+  dock.style.top = 'calc(var(--nav-real) + 8px)';
+}
+window.addEventListener('resize', positionEntryDock);
+document.addEventListener('DOMContentLoaded', positionEntryDock);
+// Після кліку сховати/показати панель — оновимо позицію доку
+setTimeout(() => {
+  const toggle = document.getElementById('panelToggle');
+  if (toggle) toggle.addEventListener('click', () => setTimeout(positionEntryDock, 0));
+}, 0);
+
 // Безпечна відправка повідомлення до Telegram через серверний endpoint
 function sendTelegramApprovalMessage(routeName, routeId){
   try{
