@@ -39,24 +39,40 @@
 
     @keyframes login-bg-fade{ from{ opacity:0; transform:scale(1.06); } to{ opacity:1; transform:scale(1); } }
     .wrap{ min-height:100%; padding:var(--pad) }
-    .card{ position:fixed; top:var(--pad); right:var(--pad); width:min(420px,94vw); background:rgba(255,255,255,.94);
-           border:1px solid var(--line); border-radius:14px; box-shadow:0 20px 60px rgba(0,0,0,.25); backdrop-filter:blur(6px); padding:22px; }
+    /* Панель авторизації — зліва угорі + легка поява */
+    .card{
+      position:fixed; top:var(--pad); left:var(--pad); width:min(440px,94vw);
+      background:linear-gradient(180deg, rgba(255,255,255,.98), rgba(255,255,255,.92));
+      border:1px solid var(--line); border-radius:16px; box-shadow:0 24px 64px rgba(0,0,0,.28);
+      backdrop-filter: blur(8px); padding:24px; transform-origin:left top;
+      opacity:0; transform: translateX(-10px);
+      animation: panel-in 600ms cubic-bezier(.2,.7,.2,1) forwards;
+    }
+    @keyframes panel-in{ to{ opacity:1; transform:none; } }
     @media (max-width:640px){ .card{ left:var(--pad); right:var(--pad); top:var(--pad); width:auto; } }
-    h1{ margin:0 0 14px; font-size:22px }
+    h1{ margin:0 0 6px; font-size:22px; letter-spacing:.2px }
+    .subtitle{ margin:0 0 14px; font-size:13px; color:#475569 }
     .muted{ color:#6b7280; font-size:13px }
     label{ display:block; font-size:13px; margin:2px 0 6px; color:#374151 }
-    input{ width:100%; padding:10px 12px; border:1px solid var(--line); border-radius:10px; font-size:14px; background:#fff; outline:none; }
+    input{ width:100%; padding:10px 12px; border:1px solid var(--line); border-radius:10px; font-size:14px; background:#fff; outline:none;
+      transition: box-shadow .2s, border-color .2s, transform .08s; }
+    input:focus{ border-color:#2563eb; box-shadow:0 0 0 4px rgba(37,99,235,.12); }
     .actions{ display:flex; gap:10px; margin-top:14px; flex-wrap:wrap }
-    .btn{ cursor:pointer; border:1px solid var(--line); background:#2563eb; color:#fff; font-weight:600; border-radius:10px; padding:10px 12px; width:100%; }
+    .btn{ cursor:pointer; border:1px solid transparent; background:linear-gradient(90deg,#2563eb,#1d4ed8); color:#fff; font-weight:700; border-radius:10px; padding:10px 12px; width:100%;
+      box-shadow:0 6px 16px rgba(37,99,235,.25); transition: transform .08s ease, filter .15s ease, box-shadow .15s ease; }
+    .btn:hover{ filter: brightness(1.03); box-shadow:0 8px 18px rgba(37,99,235,.28); }
+    .btn:active{ transform: translateY(1px); }
     .btn[disabled]{ opacity:.6; cursor:not-allowed }
-    .btn.ghost{ background:#fff; color:#111 }
+    .btn.ghost{ background:#fff; color:#111; border-color:var(--line); box-shadow:none; }
+    .btn.ghost:hover{ filter:none; box-shadow:0 4px 12px rgba(0,0,0,.06); }
     .msg{ margin:10px 0 0; font-size:13px; min-height:1.25em }
     .msg.err{ color:#b91c1c }
-    .brand{ display:flex; align-items:center; gap:10px; margin-bottom:10px }
-    .brand svg{ width:28px; height:28px }
+  .brand{ display:flex; align-items:center; gap:10px; margin-bottom:2px }
+  .brand svg{ width:28px; height:28px; filter: drop-shadow(0 2px 4px rgba(37,99,235,.25)); }
     .links{ display:flex; gap:10px; margin-top:10px; flex-wrap:wrap }
     .a-btn{ display:inline-flex; align-items:center; justify-content:center; padding:10px 12px; border-radius:10px;
             border:1px solid var(--line); background:#fff; color:#111; text-decoration:none; width:100%; font-weight:600; }
+  .a-btn:hover{ box-shadow:0 4px 12px rgba(0,0,0,.08); }
   </style>
 </head>
 <body>
@@ -66,7 +82,7 @@
         <svg viewBox="0 0 24 24" fill="none"><path d="M3 12h18M12 3v18" stroke="#2563eb" stroke-width="2" stroke-linecap="round"/></svg>
         <h1>FARMLOG</h1>
       </div>
-      <p class="muted">Увійди своїм корпоративним email і паролем.</p>
+  <p class="subtitle">Увійди своїм корпоративним email і паролем.</p>
 
       <label for="email">Email</label>
       <input id="email" type="email" placeholder="you@company.com" autocomplete="username" />
