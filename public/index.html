@@ -1004,8 +1004,9 @@ document.getElementById('panelDock').addEventListener('click', (e)=>{
 showPanel('panel-create');
 
 /* ==== HIGHLIGHT (FROM/TO) CONFIG ==== */
-const NAME_KEYS = ['Name','name','Назва','Назва поля'];
-const CODE_KEYS = ['Code','code','Код'];
+// Додаємо більше можливих ключів і робимо порівняння без регістру
+const NAME_KEYS = ['Name','name','NAME','Назва','Назва поля','Title','title','Label','label'];
+const CODE_KEYS = ['Code','code','CODE','Код','Id','ID'];
 
 let HL_IDS_FROM = [];
 let HL_IDS_TO   = [];
@@ -1016,8 +1017,12 @@ let HL_LABEL_IDS_TO   = [];
 // OR-фільтр по кількох назвах властивостей
 function buildAnyMatch(keys, value){
   if (value === null || value === undefined || String(value).trim() === '') return null;
-  const v = String(value);
-  const parts = keys.map(k => ['==', ['get', k], v]);
+  // Порівняння без регістру + приведення властивостей до рядка
+  const vLower = String(value).trim().toLowerCase();
+  const parts = keys.map(k => ['==',
+    ['downcase', ['coalesce', ['to-string', ['get', k]], '' ]],
+    vLower
+  ]);
   return parts.length === 1 ? parts[0] : ['any', ...parts];
 }
 
