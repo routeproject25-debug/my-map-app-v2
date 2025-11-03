@@ -2816,6 +2816,61 @@ async function findExistingRoute(fromCode, toCode, routeType){
     return found;
   }catch(e){ console.warn('findExistingRoute error:', e?.message || e); return null; }
 }
+
+// Фолбек: пошук дублікатів за НАЗВАМИ (стабільно при зміні кодів)
+async function findExistingRouteByName(fromNameLower, toNameLower, routeType){
+  const tryExact = async (fieldFrom, fieldTo) => {
+    try{
+      let q = db.collection('routes');
+      if (typeof withHubFilter === 'function') q = withHubFilter(q, 'hub');
+      const s = await q
+        .where(fieldFrom,'==', fromNameLower)
+        .where(fieldTo,  '==', toNameLower)
+        .where('routeType','==', routeType)
+        .limit(1).get({ source:'default' });
+      let found = null; s.forEach(d => { if (!found) found = d; });
+      if (found) return found;
+    }catch(_){ /* індекса може не бути — ідемо далі */ }
+    return null;
+  };
+
+  // 1) Спробувати по нових полях (fromNameLower/toNameLower)
+  let doc = await tryExact('fromNameLower','toNameLower');
+  if (doc) return doc;
+  // 2) Спробувати по існуючих полях лейблів (fromLabelLower/toLabelLower)
+  doc = await tryExact('fromLabelLower','toLabelLower');
+  if (doc) return doc;
+
+  // 3) Без індексу: однополева вибірка + клієнтський фільтр
+  try{
+    let q = db.collection('routes');
+    if (typeof withHubFilter === 'function') q = withHubFilter(q, 'hub');
+    const s = await q.where('fromLabelLower','==', fromNameLower).limit(50).get({ source:'default' });
+    let found = null;
+    s.forEach(d => {
+      if (found) return;
+      const x = d.data() || {};
+      if ((x.toLabelLower||'') === toNameLower && (x.routeType||'') === routeType) found = d;
+    });
+    if (found) return found;
+  }catch(_){ }
+
+  // 4) Ще одна спроба з полями nameLower (на випадок старих/нових маршрутів)
+  try{
+    let q = db.collection('routes');
+    if (typeof withHubFilter === 'function') q = withHubFilter(q, 'hub');
+    const s = await q.where('fromNameLower','==', fromNameLower).limit(50).get({ source:'default' });
+    let found = null;
+    s.forEach(d => {
+      if (found) return;
+      const x = d.data() || {};
+      if ((x.toNameLower||'') === toNameLower && (x.routeType||'') === routeType) found = d;
+    });
+    if (found) return found;
+  }catch(_){ }
+
+  return null;
+}
 function makeCopyId(baseSafeId){ return `${baseSafeId}__${Date.now()}`; }
 
 const $dupModal = document.getElementById('dupModal');
@@ -3147,7 +3202,14 @@ async function saveToDB() {
     };
 
     // Перевірка дубля
-    const existing = await findExistingRoute(fromCode, toCode, routeType);
+    let existing = await findExistingRoute(fromCode, toCode, routeType);
+    if (!existing){
+      const fLowerFB = (fromNamePlain || '').toLowerCase();
+      const tLowerFB = (toNamePlain   || '').toLowerCase();
+      if (fLowerFB && tLowerFB){
+        existing = await findExistingRouteByName(fLowerFB, tLowerFB, routeType);
+      }
+    }
     const baseId = sanitizeId(finalName);
     let docId = baseId;
     let mode = 'new'; // 'new' | 'overwrite' | 'copy'
