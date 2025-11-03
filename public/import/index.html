@@ -603,6 +603,10 @@ function equalData(a, b){
           } else {
             const old = snap.data() || {};
             if (!equalData(old, data)){
+              // Діагностика зміни коду (видно в логах імпорту)
+              if ((old.code || '') !== (data.code || '')){
+                log(`↻ Код змінено для «${data.name}»: ${old.code || '—'} → ${data.code || '—'}`,'warn');
+              }
               updatedCount++;
               if (!dry){ batch.set(refs[i], data, { merge: true }); writes++; }
             } else {
