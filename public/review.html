@@ -276,7 +276,6 @@
 
     const chunks = splitIntoChunks(points, 20);
     let totalMeters = 0;
-    const allCoords = [];
 
     // bounds
     let bMinLng=+Infinity, bMinLat=+Infinity, bMaxLng=-Infinity, bMaxLat=-Infinity;
@@ -308,7 +307,6 @@
         routeLayers.push(srcId);
 
         (geom.coordinates||[]).forEach(grow);
-        try{ const cc = geom.coordinates; if (Array.isArray(cc)) allCoords.push(...cc); }catch{}
       }catch(e){ console.warn('Directions error', e); }
     }
 
@@ -318,16 +316,6 @@
 
     const km = (totalMeters/1000);
     chip('chipDistanceLive', isFinite(km) ? `По дорогах: ${km.toFixed(2)} км` : 'По дорогах: —');
-
-    // arrows along full snapped route
-    try{
-      const arr = buildRouteArrowsFC(allCoords);
-      map.addSource('rev-route-arrows', { type:'geojson', data: arr });
-      map.addLayer({ id:'rev-route-arrows', type:'symbol', source:'rev-route-arrows', layout:{
-        'icon-image':'triangle-11','icon-size':0.9,'icon-rotation-alignment':'map','icon-rotate':['get','bearing'], 'icon-allow-overlap': true
-      }, paint:{ 'icon-color':'#ef4444' } });
-      routeLayers.push('rev-route-arrows');
-    }catch{}
   }
 
   // dashed rulers
@@ -349,43 +337,6 @@
       map.addLayer({ id:'ruler-end', type:'line', source:'ruler-end-src',
         paint:{ 'line-color':'#22c55e','line-width':3,'line-dasharray':[1,2]}});
     }
-  }
-
-  // ---------- Стрілочки напрямку ----------
-  function haversineKm(a, b){
-    if (!a || !b) return 0;
-    const toRad = d => d * Math.PI / 180;
-    const [lng1, lat1] = a, [lng2, lat2] = b;
-    const R = 6371;
-    const dLat = toRad(lat2 - lat1), dLng = toRad(lng2 - lng1);
-    const s1 = Math.sin(dLat/2), s2 = Math.sin(dLng/2);
-    const h = s1*s1 + Math.cos(toRad(lat1))*Math.cos(toRad(lat2))*s2*s2;
-    return 2 * R * Math.asin(Math.sqrt(h));
-  }
-  function bearingDeg(a, b){
-    const toRad = d => d * Math.PI/180, toDeg = r => r*180/Math.PI;
-    const [lon1, lat1] = a, [lon2, lat2] = b;
-    const φ1 = toRad(lat1), φ2 = toRad(lat2), Δλ = toRad(lon2 - lon1);
-    const y = Math.sin(Δλ) * Math.cos(φ2);
-    const x = Math.cos(φ1)*Math.sin(φ2) - Math.sin(φ1)*Math.cos(φ2)*Math.cos(Δλ);
-    return (toDeg(Math.atan2(y, x)) + 360) % 360;
-  }
-  function interpolatePoint(a,b,t){ return [ a[0] + (b[0]-a[0])*t, a[1] + (b[1]-a[1])*t ]; }
-  function buildRouteArrowsFC(coords){
-    if (!Array.isArray(coords) || coords.length<2) return { type:'FeatureCollection', features:[] };
-    // total length
-    let L=0; for(let i=0;i<coords.length-1;i++) L+=haversineKm(coords[i], coords[i+1]);
-    const stepKm = (L >= 10) ? 10 : (L >= 5 ? 5 : 1);
-    const feats=[]; let acc=0, target=stepKm;
-    for(let i=0;i<coords.length-1;i++){
-      const a=coords[i], b=coords[i+1]; const d=haversineKm(a,b); if(d<=0) continue;
-      while(acc+d>=target){ const t=(target-acc)/d; const p=interpolatePoint(a,b,t); feats.push({ type:'Feature', geometry:{ type:'Point', coordinates:p }, properties:{ bearing: bearingDeg(a,b) }}); target+=stepKm; }
-      acc+=d;
-    }
-    if(!feats.length && L>0){ // одна посередині
-      let mid=L/2, passed=0; for(let i=0;i<coords.length-1;i++){ const a=coords[i], b=coords[i+1]; const d=haversineKm(a,b); if(passed+d>=mid){ const t=(mid-passed)/d; const p=interpolatePoint(a,b,t); feats.push({ type:'Feature', geometry:{ type:'Point', coordinates:p }, properties:{ bearing: bearingDeg(a,b) }}); break;} passed+=d; }
-    }
-    return { type:'FeatureCollection', features: feats };
   }
 // ---- нормалізація «домальованих» сегментів з різних форматів ----
 function normalizeSegments(source){
