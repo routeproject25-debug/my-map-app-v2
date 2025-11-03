@@ -670,11 +670,13 @@ async function ensureMap(){
   _map.on('load', async ()=>{
     ensureOverlaySourcesAndLayers();
     await loadTilesetsForExport();
+    applyUkrainianLabelsExport();
   });
   _map.on('style.load', async ()=>{
     // re-add overlays and tilesets after style change
     ensureOverlaySourcesAndLayers();
     await loadTilesetsForExport();
+    applyUkrainianLabelsExport();
     // redraw selection if exists
     if (_selectedId){
       const row = allRows.find(r=>r.id===_selectedId);
@@ -694,7 +696,6 @@ function ensureOverlaySourcesAndLayers(){
   addIf('zones',      { type:'geojson', data:{ type:'FeatureCollection', features:[] } });
 
   const addLayerOnce = (def)=>{ if (!_map.getLayer(def.id)) _map.addLayer(def); };
-  addLayerOnce({ id:'route-line', type:'line', source:'route-line', paint:{ 'line-color':'#2563eb', 'line-width':3 }});
   addLayerOnce({ id:'route-snap', type:'line', source:'route-snap', paint:{ 'line-color':'#10b981', 'line-width':4 }});
   addLayerOnce({ id:'route-segs', type:'line', source:'route-segs', paint:{ 'line-color':'#ef4444', 'line-width':2, 'line-dasharray':[2,2] }});
   addLayerOnce({ id:'pts', type:'circle', source:'pts', paint:{ 'circle-radius':6, 'circle-color':['match',['get','kind'], 'start', '#22c55e', 'end', '#ef4444', '#64748b'], 'circle-stroke-width':2, 'circle-stroke-color':'#fff' }});
@@ -754,6 +755,26 @@ function updateGeozoneHighlights(row){
   const toExpr   = toVals.length ? ['any', ...toVals.map(v => anyPropEqualsExpr(propsToTry, v))]   : ['==',['get','__never__'],1];
   for (const id of _tsHlFrom){ try{ _map.setFilter(id, fromExpr); }catch(_){ } }
   for (const id of _tsHlTo){   try{ _map.setFilter(id, toExpr); }catch(_){ } }
+}
+
+function applyUkrainianLabelsExport(){
+  if (!_map) return;
+  const style = _map.getStyle();
+  if (!style || !style.layers) return;
+  // пріоритет українських полів
+  const ukExpr = [
+    'coalesce', ['get','name_uk'], ['get','name:uk'], ['get','name_ua'], ['get','name:ua'], ['get','name_local'], ['get','name']
+  ];
+  const skip = new Set([
+    'route-snap','route-segs','pts','zones-fill','zones-line'
+  ]);
+  style.layers.forEach(l => {
+    if (l.type !== 'symbol') return;
+    if (skip.has(l.id)) return;
+    const has = _map.getLayoutProperty(l.id, 'text-field') !== undefined;
+    if (!has) return;
+    try { _map.setLayoutProperty(l.id, 'text-field', ukExpr); } catch(_){ }
+  });
 }
 
 function openMapPanel(open){
@@ -855,12 +876,14 @@ async function drawRouteOnMap(row){
   if (end)   ptsFC.features.push(feature('Point', end,   { kind:'end' }));
   const zonesFC = { type:'FeatureCollection', features: buildZonesForRow(d, start, end) };
 
-  setGeoJSON('route-line', lineFC);
   // Try to snap to roads using Mapbox Directions if feasible
   try{
     if (points && points.length >= 2){
       const snapped = await fetchSnappedRoute(points);
-      const snapFC = snapped ? { type:'FeatureCollection', features:[ feature('LineString', snapped, { kind:'snap' }) ] } : { type:'FeatureCollection', features:[] };
+      const snapCoords = snapped || points; // якщо Directions не дав результат — малюємо оригінальні точки, але тільки у snap-шарі
+      const snapFC = (snapCoords && snapCoords.length>=2)
+        ? { type:'FeatureCollection', features:[ feature('LineString', snapCoords, { kind:'snap' }) ] }
+        : { type:'FeatureCollection', features:[] };
       setGeoJSON('route-snap', snapFC);
     } else {
       setGeoJSON('route-snap', { type:'FeatureCollection', features:[] });
@@ -873,7 +896,11 @@ async function drawRouteOnMap(row){
   try{ updateGeozoneHighlights(row); }catch(_){ }
 
   // Fit bounds
-  const allForBbox = [...lineFC.features, ...segFC.features, ...ptsFC.features, ...zonesFC.features];
+  // пріоритет — snapped лінія; якщо порожня, беремо оригінальну
+  let forBbox = [];
+  try { const s = _map.getSource('route-snap'); const dta = s ? s._data || s._options?.data : null; if (dta && dta.features) forBbox = forBbox.concat(dta.features); } catch(_){ }
+  if (!forBbox.length) forBbox = forBbox.concat(lineFC.features);
+  const allForBbox = [...forBbox, ...segFC.features, ...ptsFC.features, ...zonesFC.features];
   const b = bboxOfFeatures(allForBbox);
   if (b){
     try{ _map.fitBounds(b, { padding: 40, maxZoom: 14, duration: 500 }); }catch(_){ }
