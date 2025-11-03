@@ -66,7 +66,7 @@
   margin-right: 0;
   border-radius: 12px;
 }
-    /* ширини/поведінка комірок */
+  /* ширини/поведінка комірок */
     .col-code { width: 120px; }
     .cell-code { word-break: break-all; overflow-wrap: anywhere; white-space: normal; line-height:1.25; }
 
@@ -74,7 +74,8 @@
     .col-via { width: clamp(220px, 28%, 520px); } /* або 40ch / 30% — як зручніше */
     .cell-via { white-space: normal; overflow-wrap: anywhere; word-break: break-word; line-height: 1.25; }
 
-    .col-key { width: clamp(140px, 16vw, 200px); }
+  .col-key { width: clamp(140px, 16vw, 200px); }
+  .col-unit { width: clamp(120px, 16vw, 200px); }
     .col-id  { width: clamp(120px, 18vw, 220px); }
 
     .col-status { width: clamp(140px, 18vw, 200px); }
@@ -497,7 +498,7 @@
             <!-- 16 колонок з урахуванням нових «Статус» і «Причина відхилення» -->
 			<col class="col-hub">
             <col class="col-code"><col class="col-code">
-            <col><col><col class="col-via">  <!-- Від, До, Проміжні -->
+            <col><col class="col-unit"><col><col class="col-via">  <!-- Від, Підрозділ, До, Проміжні -->
             <col><col><col>                  <!-- Відстань, Тип, Логіст -->
             <col class="col-status"><col class="col-comment"> <!-- Статус, Причина -->
             <col>             <!-- Оновлено -->
@@ -516,6 +517,7 @@
     <th class="sortable" data-sort="fromCode"      data-colkey="fromCode">Код Від <span class="s">↕</span></th>
     <th class="sortable" data-sort="toCode"        data-colkey="toCode">Код До <span class="s">↕</span></th>
     <th class="sortable" data-sort="fromName"      data-colkey="fromName">Від <span class="s">↕</span></th>
+    <th class="sortable" data-sort="fromUnit"      data-colkey="unit">Підрозділ <span class="s">↕</span></th>
     <th class="sortable" data-sort="toName"        data-colkey="toName">До <span class="s">↕</span></th>
     <th class="sortable" data-sort="viaNames"      data-colkey="via">Проміжні пункти <span class="s">↕</span></th>
     <th class="sortable" data-sort="distance_km"   data-colkey="distance">Відстань, км <span class="s">↕</span></th>
@@ -539,6 +541,7 @@
     <th><input id="f_fromCode" type="text" placeholder="пошук…" list="fFromCodesList"></th>
     <th><input id="f_toCode" type="text" placeholder="пошук…" list="fToCodesList"></th>
     <th><input id="f_fromName" type="text" placeholder="пошук…" list="fFromNamesList"></th>
+    <th><input id="f_unitFrom" type="text" placeholder="підрозділ…" list="fUnitsList"></th>
     <th><input id="f_toName" type="text" placeholder="пошук…" list="fToNamesList"></th>
   <th><input id="f_via" type="text" placeholder="проміжні…" list="fViaList"></th>
     <th>
@@ -587,6 +590,7 @@
         <datalist id="fFromCodesList"></datalist>
         <datalist id="fToCodesList"></datalist>
         <datalist id="fFromNamesList"></datalist>
+  <datalist id="fUnitsList"></datalist>
         <datalist id="fToNamesList"></datalist>
         <datalist id="fLogistsList"></datalist>
         <datalist id="fViaList"></datalist>
@@ -1819,6 +1823,7 @@ function getTableFilterState(){
     fromCode:  document.getElementById('f_fromCode').value.trim(),
     toCode:    document.getElementById('f_toCode').value.trim(),
     fromName:  document.getElementById('f_fromName').value.trim(),
+    unitFrom:  document.getElementById('f_unitFrom').value.trim(),
     toName:    document.getElementById('f_toName').value.trim(),
     via:       document.getElementById('f_via').value.trim(),
     distMin:   toNum(document.getElementById('f_distMin').value),
@@ -1845,6 +1850,7 @@ function applyTableFilters(rows){
     if (f.fromCode && !normInc(r.fromCode, f.fromCode)) return false;
     if (f.toCode   && !normInc(r.toCode,   f.toCode))   return false;
     if (f.fromName && !normInc(r.fromName, f.fromName)) return false;
+    if (f.unitFrom && !normInc(r.fromUnit, f.unitFrom)) return false;
     if (f.toName   && !normInc(r.toName,   f.toName))   return false;
     if (f.via      && !normInc(r.viaNames, f.via)) return false;
     const dist = r.distance_km;
@@ -1895,6 +1901,7 @@ function updateColumnFilterLists(rows){
   const fCodes = uniqSorted(rows.map(r => r.fromCode));
   const tCodes = uniqSorted(rows.map(r => r.toCode));
   const fNames = uniqSorted(rows.map(r => r.fromName));
+  const fUnits = uniqSorted(rows.map(r => r.fromUnit));
   const tNames = uniqSorted(rows.map(r => r.toName));
   const logs   = uniqSorted(rows.map(r => r.logisticName));
   const stats  = uniqSorted(rows.map(r => r.statusLabel));
@@ -1910,6 +1917,7 @@ function updateColumnFilterLists(rows){
   setDatalistOptions('fFromCodesList', fCodes);
   setDatalistOptions('fToCodesList', tCodes);
   setDatalistOptions('fFromNamesList', fNames);
+  setDatalistOptions('fUnitsList', fUnits);
   setDatalistOptions('fToNamesList', tNames);
   setDatalistOptions('fLogistsList', logs);
   setDatalistOptions('fViaList', viaParts);
@@ -2044,12 +2052,12 @@ async function exportJsonFromRows(rows){
 /* ==== Керування видимістю колонок (чекбокси ліворуч) ==== */
 const VCOL_KEY = 'export.visibleColumns.v1'; // ключ для localStorage  ← ДОДАТИ
 const COLS_ORDER = [
-  'hub','fromCode','toCode','fromName','toName','via','distance','type',
+  'hub','fromCode','toCode','fromName','unit','toName','via','distance','type',
   'logist','status','comment','updated','routeKey','id','map','review','navigator','json',
   'delete' // ⬅ додано
 ];
 const COL_LABEL = {
-  hub:'ХАБ', fromCode:'Код Від', toCode:'Код До', fromName:'Від', toName:'До',
+  hub:'ХАБ', fromCode:'Код Від', toCode:'Код До', fromName:'Від', unit:'Підрозділ', toName:'До',
   via:'Проміжні пункти', distance:'Відстань, км', type:'Тип', logist:'Логіст',
   status:'Статус погодження', comment:'Причина відхилення', updated:'Оновлено',
   routeKey:'Код маршруту', id:'ID', map:'Карта', navigator:'Навігатор', json:'JSON',
@@ -2059,14 +2067,14 @@ const COL_INDEX = Object.fromEntries(COLS_ORDER.map((k,i)=>[k,i+1]));
 
 // Можеш забрати 'delete' із дефолтних, якщо не треба показувати одразу
 const DEFAULT_VISIBLE = new Set([
-  'hub','fromName','toName','via','distance','type','status','map','review','delete'
+  'hub','fromName','unit','toName','via','distance','type','status','map','review','delete'
 ]);
 
 const EXCEL_EXCLUDE = new Set(['map','navigator','json','review','delete']); // ⬅ додано
 
 // ваги для авто-розтягування
 const COL_WEIGHTS = {
-  via: 2.2, comment: 2.0, fromName: 1.3, toName: 1.3,
+  via: 2.2, comment: 2.0, fromName: 1.3, unit: 1.1, toName: 1.3,
   hub: 1, fromCode: 1, toCode: 1, distance: 1, type: 1,
   logist: 1, status: 1, updated: 1, routeKey: 1, id: 1,
   map: 1, navigator: 1, json: 1, review: 1, delete: 1
@@ -2074,7 +2082,7 @@ const COL_WEIGHTS = {
 
 // мінімальні ширини
 const COL_MIN_PX = {
-  via: 280, comment: 240, fromName: 160, toName: 160,
+  via: 280, comment: 240, fromName: 160, unit: 140, toName: 160,
   hub: 110, fromCode: 110, toCode: 110, distance: 120, type: 120,
   logist: 140, status: 140, updated: 160, routeKey: 160, id: 160,
   map: 120, navigator: 120, json: 120, review: 120, delete: 120
@@ -2211,6 +2219,7 @@ function renderTable(rows){
     <td class="cell-code" title="${r.fromCode}">${r.fromCode}</td>
     <td class="cell-code" title="${r.toCode}">${r.toCode}</td>
     <td>${r.fromName}</td>
+    <td>${r.fromUnit || ''}</td>
     <td>${r.toName}</td>
     <td class="cell-via">${r.viaNames || ''}</td>
     <td>${Number.isFinite(r.distance_km) ? r.distance_km.toFixed(3) : ''}</td>
@@ -2266,6 +2275,7 @@ function exportToExcel(rows){
       case 'fromCode':   return r.fromCode || '';
       case 'toCode':     return r.toCode || '';
       case 'fromName':   return r.fromName || '';
+      case 'unit':       return r.fromUnit || '';
       case 'toName':     return r.toName || '';
       case 'via':        return r.viaNames || '';
       case 'distance':   return Number.isFinite(r.distance_km) ? Number(r.distance_km.toFixed(3)) : '';
