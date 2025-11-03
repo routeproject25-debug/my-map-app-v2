@@ -1766,6 +1766,8 @@ function clearPreviewRoute(){
       if (map.getLayer(previewLayerId)) map.removeLayer(previewLayerId);
       if (map.getSource(previewLayerId)) map.removeSource(previewLayerId);
     }
+    if (map.getLayer('similar-preview-arrows')) map.removeLayer('similar-preview-arrows');
+    if (map.getSource('similar-preview-arrows')) map.removeSource('similar-preview-arrows');
   }catch(_){ }
   previewLayerId = null;
   const btn = document.getElementById('similarClearPreview');
@@ -1783,6 +1785,14 @@ function showPreviewRoute(coords){
     layout: { 'line-join': 'round', 'line-cap': 'round' },
     paint: { 'line-color': '#0ea5e9', 'line-width': 4, 'line-dasharray': [1,2] }
   });
+  // arrows along preview
+  try{
+    const arr = buildRouteArrowsFC(coords);
+    map.addSource('similar-preview-arrows', { type:'geojson', data: arr });
+    map.addLayer({ id:'similar-preview-arrows', type:'symbol', source:'similar-preview-arrows', layout:{
+      'icon-image':'triangle-11','icon-size':0.9,'icon-rotation-alignment':'map','icon-rotate':['get','bearing'], 'icon-allow-overlap': true
+    }, paint:{ 'icon-color':'#0ea5e9' } });
+  }catch(_){ }
   const btn = document.getElementById('similarClearPreview');
   if (btn) btn.style.display = 'inline-block';
 }
@@ -2218,6 +2228,31 @@ function calculateRulerDistance(ruler) {
   return dist;
 }
 
+// ===== Стрілочки напрямку для маршрутів =====
+function totalLengthKm(coords){ let s=0; for(let i=0;i<coords.length-1;i++){ s+=haversineKm(coords[i], coords[i+1]); } return s; }
+function bearingDeg(a,b){
+  const toRad=d=>d*Math.PI/180, toDeg=r=>r*180/Math.PI;
+  const [lon1,lat1]=a,[lon2,lat2]=b; const φ1=toRad(lat1), φ2=toRad(lat2), Δλ=toRad(lon2-lon1);
+  const y=Math.sin(Δλ)*Math.cos(φ2); const x=Math.cos(φ1)*Math.sin(φ2)-Math.sin(φ1)*Math.cos(φ2)*Math.cos(Δλ);
+  return (toDeg(Math.atan2(y,x))+360)%360;
+}
+function interpolatePoint(a,b,t){ return [ a[0]+(b[0]-a[0])*t, a[1]+(b[1]-a[1])*t ]; }
+function buildRouteArrowsFC(coords){
+  if (!Array.isArray(coords) || coords.length<2) return { type:'FeatureCollection', features:[] };
+  const L = totalLengthKm(coords);
+  const stepKm = (L >= 10) ? 10 : (L >= 5 ? 5 : 1);
+  const out=[]; let acc=0, target=stepKm;
+  for(let i=0;i<coords.length-1;i++){
+    const a=coords[i], b=coords[i+1]; const d=haversineKm(a,b); if (d<=0) continue;
+    while(acc+d>=target){ const t=(target-acc)/d; const p=interpolatePoint(a,b,t); out.push({ type:'Feature', geometry:{ type:'Point', coordinates:p }, properties:{ bearing: bearingDeg(a,b) }}); target+=stepKm; }
+    acc+=d;
+  }
+  if(!out.length && L>0){ // одна посередині, якщо коротко
+    let mid=L/2, passed=0; for(let i=0;i<coords.length-1;i++){ const a=coords[i], b=coords[i+1]; const d=haversineKm(a,b); if(passed+d>=mid){ const t=(mid-passed)/d; const p=interpolatePoint(a,b,t); out.push({ type:'Feature', geometry:{ type:'Point', coordinates:p }, properties:{ bearing: bearingDeg(a,b) }}); break; } passed+=d; }
+  }
+  return { type:'FeatureCollection', features: out };
+}
+
 /* ===== Лічильники ===== */
 function updateCounters(){
   const routeCount = points.length;
@@ -2293,11 +2328,15 @@ function clearRouteLayers() {
 async function updateRoute() {
   if (points.length < 2) {
     setKmUI(calculateRulerDistance(startRuler) + calculateRulerDistance(endRuler));
-    updateCounters(); clearRouteLayers(); return;
+    updateCounters(); clearRouteLayers();
+    try{ if (map.getLayer('route-arrows')) map.removeLayer('route-arrows'); }catch(_){ }
+    try{ if (map.getSource('route-arrows')) map.removeSource('route-arrows'); }catch(_){ }
+    return;
   }
   const chunks = splitIntoChunks(points, 20);
   let totalDistance = 0;
   clearRouteLayers();
+  const allCoords = [];
 
   for (let i = 0; i < chunks.length; i++) {
     const chunk = chunks[i];
@@ -2316,6 +2355,8 @@ async function updateRoute() {
         totalDistance += route.distance;
         const layerId = `route-part-${i}`;
         const geo = { type: 'Feature', geometry: route.geometry };
+        // collect coords for arrows
+        try{ const cc = route.geometry?.coordinates; if (Array.isArray(cc)) allCoords.push(...cc); }catch(_){ }
         // Захист від дублювання джерела: оновлюємо якщо існує, інакше додаємо
         if (map.getSource(layerId)) {
           try { map.getSource(layerId).setData(geo); } catch(_){}
@@ -2338,6 +2379,19 @@ async function updateRoute() {
       }
     } catch (e) { console.error('Помилка маршруту:', e); }
   }
+
+  // arrows along full snapped route
+  try{
+    const arr = buildRouteArrowsFC(allCoords);
+    if (map.getSource('route-arrows')){ try{ map.getSource('route-arrows').setData(arr); }catch(_){ } }
+    else { map.addSource('route-arrows', { type:'geojson', data: arr }); }
+    if (!map.getLayer('route-arrows')){
+      map.addLayer({ id:'route-arrows', type:'symbol', source:'route-arrows', layout:{
+        'icon-image':'triangle-11','icon-size':0.9,'icon-rotation-alignment':'map','icon-rotate':['get','bearing'], 'icon-allow-overlap': true
+      }, paint:{ 'icon-color':'#ef4444' } });
+    }
+    routeLayers.push('route-arrows');
+  }catch(_){ }
 
   totalDistance = (totalDistance / 1000) + calculateRulerDistance(startRuler) + calculateRulerDistance(endRuler);
   setKmUI(totalDistance);
