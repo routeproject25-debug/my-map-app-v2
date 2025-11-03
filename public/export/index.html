@@ -708,7 +708,7 @@ function ensureOverlaySourcesAndLayers(){
   addIf('zones',      { type:'geojson', data:{ type:'FeatureCollection', features:[] } });
 
   const addLayerOnce = (def)=>{ if (!_map.getLayer(def.id)) _map.addLayer(def); };
-  addLayerOnce({ id:'route-snap', type:'line', source:'route-snap', paint:{ 'line-color':'#10b981', 'line-width':4 }});
+  addLayerOnce({ id:'route-snap', type:'line', source:'route-snap', paint:{ 'line-color':'#ef4444', 'line-width':4 }});
   addLayerOnce({ id:'route-segs', type:'line', source:'route-segs', paint:{ 'line-color':'#ef4444', 'line-width':2, 'line-dasharray':[2,2] }});
   addLayerOnce({ id:'pts', type:'circle', source:'pts', paint:{ 'circle-radius':6, 'circle-color':['match',['get','kind'], 'start', '#22c55e', 'end', '#ef4444', '#64748b'], 'circle-stroke-width':2, 'circle-stroke-color':'#fff' }});
   addLayerOnce({ id:'zones-fill', type:'fill', source:'zones', paint:{ 'fill-color':'#fde68a', 'fill-opacity':0.25 }});
