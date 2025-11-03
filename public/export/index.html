@@ -248,6 +248,13 @@
   #routeMap{width:100%;height:100%}
   /* Selected row highlight */
   #resTable tbody tr.is-selected{background:#fff7ed}
+
+  /* Mini style dock (bottom-left) like on main page */
+  .style-dock{position:fixed;left:8px;bottom:8px;z-index:3500;display:flex;align-items:center;gap:6px;background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:6px 8px;box-shadow:0 2px 12px rgba(0,0,0,.12)}
+  .style-dock select{border:1px solid #e5e7eb;border-radius:10px;padding:6px 8px;font-size:13px;background:#fff;color:#111}
+  .style-dock .mapbox-brand{font-size:11px;color:#6b7280;border-left:1px dashed #e5e7eb;padding-left:8px}
+  .style-dock.export{display:none}
+  body.map-open .style-dock.export{display:flex}
   </style>
   
   <!-- AUTH GUARD: /export — лише admin | logist -->
@@ -594,6 +601,16 @@
   <div id="mapPanel" class="map-panel" aria-hidden="true" role="region">
     <div id="routeMap"></div>
   </div>
+  <!-- Basemap style switcher (shown only when map is open) -->
+  <div id="styleDockExport" class="style-dock export" title="Стиль карти">
+    <select id="mapStyleDockExport">
+      <option value="mapbox://styles/mapbox/streets-v12">Streets</option>
+      <option value="mapbox://styles/mapbox/satellite-v9">Satellite</option>
+      <option value="mapbox://styles/mapbox/satellite-streets-v12">Satellite Streets</option>
+      <option value="mapbox://styles/mapbox/outdoors-v12">Outdoors</option>
+    </select>
+    <div class="mapbox-brand">mapbox</div>
+  </div>
 
 <script>
 /* === Навігаційні константи === */
@@ -607,6 +624,11 @@ let _mapPanelOpen = false;
 let _mapboxReady = false;
 let _map = null;
 let _selectedId = null;
+let _tilesets = [];
+let _tsFillIds = [];
+let _tsOutlineIds = [];
+let _tsHlFrom = [];
+let _tsHlTo = [];
 
 function loadMapboxOnce(){
   return new Promise((resolve, reject)=>{
@@ -645,27 +667,93 @@ async function ensureMap(){
     zoom: 5
   });
   _map.addControl(new window.mapboxgl.NavigationControl({ showCompass:false }), 'top-right');
-  _map.on('load', ()=>{
-    // Prepare empty sources/layers
-    if (!_map.getSource('route-line')){
-      _map.addSource('route-line', { type:'geojson', data:{ type:'FeatureCollection', features:[] } });
-      _map.addLayer({ id:'route-line', type:'line', source:'route-line', paint:{ 'line-color':'#2563eb', 'line-width':3 } });
-    }
-    if (!_map.getSource('route-segs')){
-      _map.addSource('route-segs', { type:'geojson', data:{ type:'FeatureCollection', features:[] } });
-      _map.addLayer({ id:'route-segs', type:'line', source:'route-segs', paint:{ 'line-color':'#ef4444', 'line-width':2, 'line-dasharray':[2,2] } });
-    }
-    if (!_map.getSource('pts')){
-      _map.addSource('pts', { type:'geojson', data:{ type:'FeatureCollection', features:[] } });
-      _map.addLayer({ id:'pts', type:'circle', source:'pts', paint:{ 'circle-radius':6, 'circle-color':['match',['get','kind'], 'start', '#22c55e', 'end', '#ef4444', '#64748b'], 'circle-stroke-width':2, 'circle-stroke-color':'#fff' } });
-    }
-    if (!_map.getSource('zones')){
-      _map.addSource('zones', { type:'geojson', data:{ type:'FeatureCollection', features:[] } });
-      _map.addLayer({ id:'zones-fill', type:'fill', source:'zones', paint:{ 'fill-color':'#fde68a', 'fill-opacity':0.25 } });
-      _map.addLayer({ id:'zones-line', type:'line', source:'zones', paint:{ 'line-color':'#f59e0b', 'line-width':2 } });
+  _map.on('load', async ()=>{
+    ensureOverlaySourcesAndLayers();
+    await loadTilesetsForExport();
+  });
+  _map.on('style.load', async ()=>{
+    // re-add overlays and tilesets after style change
+    ensureOverlaySourcesAndLayers();
+    await loadTilesetsForExport();
+    // redraw selection if exists
+    if (_selectedId){
+      const row = allRows.find(r=>r.id===_selectedId);
+      if (row){ try{ await drawRouteOnMap(row); }catch(_){} }
     }
   });
   return _map;
+}
+
+function ensureOverlaySourcesAndLayers(){
+  if (!_map) return;
+  const addIf = (id, src)=>{ if (!_map.getSource(id)) _map.addSource(id, src); };
+  addIf('route-line', { type:'geojson', data:{ type:'FeatureCollection', features:[] } });
+  addIf('route-snap', { type:'geojson', data:{ type:'FeatureCollection', features:[] } });
+  addIf('route-segs', { type:'geojson', data:{ type:'FeatureCollection', features:[] } });
+  addIf('pts',        { type:'geojson', data:{ type:'FeatureCollection', features:[] } });
+  addIf('zones',      { type:'geojson', data:{ type:'FeatureCollection', features:[] } });
+
+  const addLayerOnce = (def)=>{ if (!_map.getLayer(def.id)) _map.addLayer(def); };
+  addLayerOnce({ id:'route-line', type:'line', source:'route-line', paint:{ 'line-color':'#2563eb', 'line-width':3 }});
+  addLayerOnce({ id:'route-snap', type:'line', source:'route-snap', paint:{ 'line-color':'#10b981', 'line-width':4 }});
+  addLayerOnce({ id:'route-segs', type:'line', source:'route-segs', paint:{ 'line-color':'#ef4444', 'line-width':2, 'line-dasharray':[2,2] }});
+  addLayerOnce({ id:'pts', type:'circle', source:'pts', paint:{ 'circle-radius':6, 'circle-color':['match',['get','kind'], 'start', '#22c55e', 'end', '#ef4444', '#64748b'], 'circle-stroke-width':2, 'circle-stroke-color':'#fff' }});
+  addLayerOnce({ id:'zones-fill', type:'fill', source:'zones', paint:{ 'fill-color':'#fde68a', 'fill-opacity':0.25 }});
+  addLayerOnce({ id:'zones-line', type:'line', source:'zones', paint:{ 'line-color':'#f59e0b', 'line-width':2 }});
+}
+
+async function loadTilesetsForExport(){
+  if (!_map) return;
+  try{
+    if (!_tilesets.length){
+      const r = await fetch('/config/tilesets.json', { cache:'no-cache' });
+      _tilesets = await r.json();
+    }
+  }catch(e){ console.warn('tilesets.json error:', e); return; }
+
+  _tsFillIds = []; _tsOutlineIds = []; _tsHlFrom = []; _tsHlTo = [];
+  for (const ts of _tilesets){
+    if (ts.enabled === false) continue;
+    const srcId = `geozones-tileset-${ts.key}`;
+    if (!_map.getSource(srcId)){
+      _map.addSource(srcId, { type:'vector', url: ts.url });
+    }
+    const fillId = `tileset-fill-${ts.key}`;
+    const outlineId = `tileset-outline-${ts.key}`;
+    if (!_map.getLayer(fillId)){
+      _map.addLayer({ id: fillId, type:'fill', source: srcId, 'source-layer': ts.layer, paint:{ 'fill-color':'#22c55e','fill-opacity':0.15 } });
+    }
+    if (!_map.getLayer(outlineId)){
+      _map.addLayer({ id: outlineId, type:'line', source: srcId, 'source-layer': ts.layer, paint:{ 'line-color':'#16a34a','line-width':1.0 } });
+    }
+    const hlFrom = `tileset-hl-from-${ts.key}`;
+    const hlTo   = `tileset-hl-to-${ts.key}`;
+    if (!_map.getLayer(hlFrom)){
+      _map.addLayer({ id: hlFrom, type:'fill', source: srcId, 'source-layer': ts.layer, filter:['==',['get','__never__'],1], paint:{ 'fill-color':'#3b82f6','fill-opacity':0.45 } });
+    }
+    if (!_map.getLayer(hlTo)){
+      _map.addLayer({ id: hlTo, type:'fill', source: srcId, 'source-layer': ts.layer, filter:['==',['get','__never__'],1], paint:{ 'fill-color':'#f43f5e','fill-opacity':0.45 } });
+    }
+    _tsFillIds.push(fillId); _tsOutlineIds.push(outlineId); _tsHlFrom.push(hlFrom); _tsHlTo.push(hlTo);
+  }
+}
+
+function anyPropEqualsExpr(propList, value){
+  const clauses = propList.map(k => ['==',['get',k], value]);
+  if (clauses.length === 0) return ['==',['get','__never__'],1];
+  if (clauses.length === 1) return clauses[0];
+  return ['any', ...clauses];
+}
+
+function updateGeozoneHighlights(row){
+  if (!_map) return;
+  const propsToTry = ['Name','name','Назва','Назва поля','Code','code','Код'];
+  const fromVals = [row.fromName, row.fromCode].filter(Boolean);
+  const toVals   = [row.toName, row.toCode].filter(Boolean);
+  const fromExpr = fromVals.length ? ['any', ...fromVals.map(v => anyPropEqualsExpr(propsToTry, v))] : ['==',['get','__never__'],1];
+  const toExpr   = toVals.length ? ['any', ...toVals.map(v => anyPropEqualsExpr(propsToTry, v))]   : ['==',['get','__never__'],1];
+  for (const id of _tsHlFrom){ try{ _map.setFilter(id, fromExpr); }catch(_){ } }
+  for (const id of _tsHlTo){   try{ _map.setFilter(id, toExpr); }catch(_){ } }
 }
 
 function openMapPanel(open){
@@ -740,11 +828,6 @@ function buildZonesForRow(raw, start, end){
   tryPoly(raw?.endZone,   { which:'end' });
   tryPoly(raw?.geofenceStart, { which:'start' });
   tryPoly(raw?.geofenceEnd,   { which:'end' });
-  // fallback: small circles ~300m if none provided
-  if (!feats.length){
-    if (start) feats.push(feature('Polygon', [createCircle(start[0], start[1], 300)], { which:'start' }));
-    if (end)   feats.push(feature('Polygon', [createCircle(end[0],   end[1],   300)], { which:'end' }));
-  }
   return feats;
 }
 
@@ -773,9 +856,21 @@ async function drawRouteOnMap(row){
   const zonesFC = { type:'FeatureCollection', features: buildZonesForRow(d, start, end) };
 
   setGeoJSON('route-line', lineFC);
+  // Try to snap to roads using Mapbox Directions if feasible
+  try{
+    if (points && points.length >= 2){
+      const snapped = await fetchSnappedRoute(points);
+      const snapFC = snapped ? { type:'FeatureCollection', features:[ feature('LineString', snapped, { kind:'snap' }) ] } : { type:'FeatureCollection', features:[] };
+      setGeoJSON('route-snap', snapFC);
+    } else {
+      setGeoJSON('route-snap', { type:'FeatureCollection', features:[] });
+    }
+  }catch(e){ console.warn('snap error:', e); setGeoJSON('route-snap', { type:'FeatureCollection', features:[] }); }
   setGeoJSON('route-segs', segFC);
   setGeoJSON('pts', ptsFC);
   setGeoJSON('zones', zonesFC);
+  // highlight external tileset zones by from/to
+  try{ updateGeozoneHighlights(row); }catch(_){ }
 
   // Fit bounds
   const allForBbox = [...lineFC.features, ...segFC.features, ...ptsFC.features, ...zonesFC.features];
@@ -790,6 +885,24 @@ function selectRowVisual(id){
   document.querySelectorAll('#resTable tbody tr').forEach(tr => tr.classList.remove('is-selected'));
   const tr = document.querySelector(`#resTable tbody tr[data-id="${CSS.escape(id)}"]`);
   if (tr) tr.classList.add('is-selected');
+}
+
+async function fetchSnappedRoute(points){
+  try{
+    if (!Array.isArray(points) || points.length < 2) return null;
+    const token = (window.APP_CONFIG && window.APP_CONFIG.mapboxToken) || '';
+    if (!token) return null;
+    // Limit waypoints to avoid API limits (max 25)
+    const capped = points.slice(0, 25);
+    const coords = capped.map(([lon,lat]) => `${lon},${lat}`).join(';');
+    const url = `https://api.mapbox.com/directions/v5/mapbox/driving/${coords}?geometries=geojson&overview=full&access_token=${encodeURIComponent(token)}`;
+    const r = await fetch(url);
+    if (!r.ok) throw new Error(`Directions ${r.status}`);
+    const j = await r.json();
+    const geom = j && j.routes && j.routes[0] && j.routes[0].geometry;
+    if (geom && geom.type === 'LineString' && Array.isArray(geom.coordinates)) return geom.coordinates;
+    return null;
+  }catch(e){ console.warn('Directions API error:', e); return null; }
 }
 
 /* --- глобальний логер --- */
@@ -2275,6 +2388,11 @@ btnToggleMap.addEventListener('click', async ()=>{
         if (row){ selectRowVisual(id); await drawRouteOnMap(row); }
       }
     }
+    // sync style selector to current style
+    try{
+      const sel = document.getElementById('mapStyleDockExport');
+      if (sel && _map?.getStyle()?.sprite){ /* no-op; keep default */ }
+    }catch(_){ }
   } else {
     openMapPanel(false);
   }
@@ -2621,6 +2739,15 @@ document.getElementById('btnExportKmlAll').addEventListener('click', async ()=>{
     await exportKmlZipFromRows(rows);
   }catch(e){ handleFirestoreError(e); }
   finally{ setBusy(false); }
+});
+
+// Basemap style switcher for export map
+document.getElementById('mapStyleDockExport')?.addEventListener('change', async (e)=>{
+  try{
+    await ensureMap();
+    const style = e.target.value;
+    _map.setStyle(style);
+  }catch(_){ }
 });
 /* ==== Тогл «Поля таблиці» як секції (показати/сховати) ==== */
 const COLPICKER = document.getElementById('columnPicker');
