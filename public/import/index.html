@@ -587,28 +587,69 @@ function equalData(a, b){
       for (let b = 0; b < totalBatches; b++){
         const slice = entries.slice(b*SAFE_BATCH, (b+1)*SAFE_BATCH);
 
-        // читаємо поточні версії (паралельно)
-        const refs = slice.map(({id}) => db.collection('directory').doc(id));
-        const snaps = await Promise.all(refs.map(r => r.get()));
+        // 1) читаємо документи за новою схемою (id = nameId)
+        const refsByNameId = slice.map(({id}) => db.collection('directory').doc(id));
+        const snapsByNameId = await Promise.all(refsByNameId.map(r => r.get()));
+
+        // 2) додатково шукаємо наявні документи з такою ж назвою (legacy id=код)
+        // Firestore дозволяє where('field','in',[...]) максимум на 10 значень → чанкуємо
+        const nameLowerList = Array.from(new Set(slice.map(s => s.data.nameLower)));
+        const byNameLower = new Map(); // nameLower -> Array<DocSnapshot>
+        for (let i = 0; i < nameLowerList.length; i += 10){
+          const chunk = nameLowerList.slice(i, i+10);
+          try{
+            const q = await db.collection('directory').where('nameLower','in',chunk).get();
+            q.forEach(doc => {
+              const nl = (doc.data()?.nameLower) || '';
+              if (!byNameLower.has(nl)) byNameLower.set(nl, []);
+              byNameLower.get(nl).push(doc);
+            });
+          }catch(e){
+            // якщо індексів нема або порожній чанк — просто пропускаємо
+          }
+        }
 
         let writes = 0;
         const batch = !dry ? db.batch() : null;
 
         for (let i = 0; i < slice.length; i++){
           const { id, data } = slice[i];
-          const snap = snaps[i];
-          if (!snap.exists){
-            newCount++;
-            if (!dry){ batch.set(refs[i], data, { merge: true }); writes++; }
+          const snapByNameId = snapsByNameId[i];
+
+          // Підбираємо цільовий документ для оновлення:
+          //  - якщо вже існує doc з id=nameId → оновлюємо його
+          //  - інакше, якщо знайдено будь-який doc із такою ж nameLower (legacy id=код) → оновлюємо його (НЕ створюємо новий)
+          //  - інакше створюємо новий doc з id=nameId
+          const candidates = byNameLower.get(data.nameLower) || [];
+          let targetSnap = null, targetRef = null, targetId = id;
+          if (snapByNameId.exists){
+            targetSnap = snapByNameId; targetRef = refsByNameId[i]; targetId = id;
+          } else if (candidates.length){
+            // віддаємо пріоритет запису з id=nameId, якщо раптом є у candidates
+            const byName = candidates.find(d => d.id === id);
+            const chosen = byName || candidates[0];
+            targetSnap = chosen;
+            targetId = chosen.id;
+            targetRef = db.collection('directory').doc(targetId);
+            if (chosen.id !== id) {
+              log(`↻ Оновлюю наявний запис за назвою «${data.name}» (id=${chosen.id}), щоб уникнути дубліката.`, 'warn');
+            }
           } else {
-            const old = snap.data() || {};
+            // нового з таким nameLower не знайдено
+            targetSnap = snapByNameId; targetRef = refsByNameId[i]; targetId = id;
+          }
+
+          if (!targetSnap.exists){
+            newCount++;
+            if (!dry){ batch.set(targetRef, data, { merge: true }); writes++; }
+          } else {
+            const old = targetSnap.data() || {};
             if (!equalData(old, data)){
-              // Діагностика зміни коду (видно в логах імпорту)
               if ((old.code || '') !== (data.code || '')){
                 log(`↻ Код змінено для «${data.name}»: ${old.code || '—'} → ${data.code || '—'}`,'warn');
               }
               updatedCount++;
-              if (!dry){ batch.set(refs[i], data, { merge: true }); writes++; }
+              if (!dry){ batch.set(targetRef, data, { merge: true }); writes++; }
             } else {
               unchangedCount++;
             }
