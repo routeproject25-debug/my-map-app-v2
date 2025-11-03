@@ -242,11 +242,14 @@
   
   <!-- Inline map panel (lazy-loaded) -->
   <style>
-  /* Bottom half-screen map panel */
-  .map-panel{position:fixed;left:0;right:0;bottom:0;height:50vh;background:#eef2f7;border-top:1px solid #e5e7eb;z-index:100;transform:translateY(100%);transition:transform .25s ease;display:none}
+  /* Bottom resizable map panel */
+  :root{ --map-h: 50vh; }
+  .map-panel{position:fixed;left:0;right:0;bottom:0;height:var(--map-h);background:#eef2f7;border-top:1px solid #e5e7eb;z-index:100;transform:translateY(100%);transition:transform .25s ease;display:none}
   .map-panel.open{transform:translateY(0);display:block}
-  body.map-open{padding-bottom:50vh}
+  body.map-open{padding-bottom:var(--map-h)}
   #routeMap{width:100%;height:100%}
+  .map-panel .map-resize{position:absolute;left:0;right:0;top:0;height:10px;cursor:ns-resize;z-index:2;background:linear-gradient(to bottom, rgba(0,0,0,.06), rgba(0,0,0,0));}
+  .map-panel .map-resize::after{content:"";position:absolute;left:50%;top:2px;transform:translateX(-50%);width:36px;height:4px;border-radius:999px;background:#9ca3af}
   /* Selected row highlight */
   #resTable tbody tr.is-selected{background:#fff7ed}
 
@@ -495,10 +498,14 @@
       <div class="table-wrap">
         <table id="resTable">
           <colgroup>
-            <!-- 16 колонок з урахуванням нових «Статус» і «Причина відхилення» -->
-			<col class="col-hub">
-            <col class="col-code"><col class="col-code">
-            <col><col class="col-unit"><col><col class="col-via">  <!-- Від, Підрозділ, До, Проміжні -->
+      <!-- 16+ колонок з урахуванням нових «Статус» і «Причина відхилення» -->
+			<col class="col-hub">           <!-- ХАБ -->
+      <col class="col-unit">        <!-- Підрозділ -->
+      <col class="col-code">        <!-- Код Від -->
+      <col class="col-code">        <!-- Код До -->
+      <col>                           <!-- Від -->
+      <col>                           <!-- До -->
+      <col class="col-via">          <!-- Проміжні -->
             <col><col><col>                  <!-- Відстань, Тип, Логіст -->
             <col class="col-status"><col class="col-comment"> <!-- Статус, Причина -->
             <col>             <!-- Оновлено -->
@@ -514,10 +521,10 @@
   <!-- Рядок заголовків -->
   <tr>
     <th class="sortable" data-sort="hub"           data-colkey="hub">ХАБ <span class="s">↕</span></th>
+    <th class="sortable" data-sort="fromUnit"      data-colkey="unit">Підрозділ <span class="s">↕</span></th>
     <th class="sortable" data-sort="fromCode"      data-colkey="fromCode">Код Від <span class="s">↕</span></th>
     <th class="sortable" data-sort="toCode"        data-colkey="toCode">Код До <span class="s">↕</span></th>
     <th class="sortable" data-sort="fromName"      data-colkey="fromName">Від <span class="s">↕</span></th>
-    <th class="sortable" data-sort="fromUnit"      data-colkey="unit">Підрозділ <span class="s">↕</span></th>
     <th class="sortable" data-sort="toName"        data-colkey="toName">До <span class="s">↕</span></th>
     <th class="sortable" data-sort="viaNames"      data-colkey="via">Проміжні пункти <span class="s">↕</span></th>
     <th class="sortable" data-sort="distance_km"   data-colkey="distance">Відстань, км <span class="s">↕</span></th>
@@ -538,10 +545,10 @@
   <!-- Рядок фільтрів (без змін по суті) -->
   <tr class="filters">
     <th><input id="f_hub" type="text" placeholder="пошук…" list="fHubsList"></th>
+    <th><input id="f_unitFrom" type="text" placeholder="підрозділ…" list="fUnitsList"></th>
     <th><input id="f_fromCode" type="text" placeholder="пошук…" list="fFromCodesList"></th>
     <th><input id="f_toCode" type="text" placeholder="пошук…" list="fToCodesList"></th>
     <th><input id="f_fromName" type="text" placeholder="пошук…" list="fFromNamesList"></th>
-    <th><input id="f_unitFrom" type="text" placeholder="підрозділ…" list="fUnitsList"></th>
     <th><input id="f_toName" type="text" placeholder="пошук…" list="fToNamesList"></th>
   <th><input id="f_via" type="text" placeholder="проміжні…" list="fViaList"></th>
     <th>
@@ -603,6 +610,7 @@
 
   <!-- Bottom map panel (initially hidden, lazy-loaded) -->
   <div id="mapPanel" class="map-panel" aria-hidden="true" role="region">
+    <div class="map-resize" id="mapResizeHandle" title="Перетягни, щоб змінити висоту"></div>
     <div id="routeMap"></div>
   </div>
   <!-- Basemap style switcher (shown only when map is open) -->
@@ -797,6 +805,16 @@ function openMapPanel(open){
     document.body.classList.remove('map-open');
     if (btnToggleMap) btnToggleMap.textContent = '🗺️ Показати карту';
   }
+}
+
+const MAP_H_KEY = 'export.mapPanelHeight.v1';
+function setMapHeight(px){
+  const min = Math.max(160, Math.round(window.innerHeight * 0.2)); // >=20vh
+  const max = Math.max(min+40, Math.round(window.innerHeight * 0.9)); // <=90vh
+  const clamped = Math.min(max, Math.max(min, Math.round(px)));
+  document.documentElement.style.setProperty('--map-h', clamped + 'px');
+  try{ localStorage.setItem(MAP_H_KEY, String(clamped)); }catch(_){ }
+  try{ _map && _map.resize(); }catch(_){ }
 }
 
 function createCircle(lon, lat, radiusM, steps=64){
@@ -1010,6 +1028,7 @@ const btnAutosize = document.getElementById('btnAutosize');
 const btnExportJson     = document.getElementById('btnExportJson');
 const btnExportJsonAll  = document.getElementById('btnExportJsonAll');
 const btnToggleMap = document.getElementById('btnToggleMap');
+const mapResizeHandle = document.getElementById('mapResizeHandle');
 
 function setBusy(b){
   btnPreview.disabled = b || !currentUser;
@@ -2052,7 +2071,7 @@ async function exportJsonFromRows(rows){
 /* ==== Керування видимістю колонок (чекбокси ліворуч) ==== */
 const VCOL_KEY = 'export.visibleColumns.v1'; // ключ для localStorage  ← ДОДАТИ
 const COLS_ORDER = [
-  'hub','fromCode','toCode','fromName','unit','toName','via','distance','type',
+  'hub','unit','fromCode','toCode','fromName','toName','via','distance','type',
   'logist','status','comment','updated','routeKey','id','map','review','navigator','json',
   'delete' // ⬅ додано
 ];
@@ -2216,10 +2235,10 @@ function renderTable(rows){
   const tb = document.querySelector('#resTable tbody');
   tb.innerHTML = rows.map(r=>`<tr data-id="${r.id}">
     <td>${r.hub || ''}</td>
+    <td>${r.fromUnit || ''}</td>
     <td class="cell-code" title="${r.fromCode}">${r.fromCode}</td>
     <td class="cell-code" title="${r.toCode}">${r.toCode}</td>
     <td>${r.fromName}</td>
-    <td>${r.fromUnit || ''}</td>
     <td>${r.toName}</td>
     <td class="cell-via">${r.viaNames || ''}</td>
     <td>${Number.isFinite(r.distance_km) ? r.distance_km.toFixed(3) : ''}</td>
@@ -2725,6 +2744,8 @@ btnAutosize.addEventListener('click', autosizeColumns);
   fitTableToViewport();      // ← додали
   bindXSync();            // ← додали
   fillHubsList();
+  // Restore map height if saved
+  try{ const h = parseInt(localStorage.getItem(MAP_H_KEY)); if (h && h > 0) setMapHeight(h); }catch(_){ }
 })();
 
 btnExportJson.addEventListener('click', async ()=>{
@@ -2786,6 +2807,32 @@ document.getElementById('mapStyleDockExport')?.addEventListener('change', async 
     _map.setStyle(style);
   }catch(_){ }
 });
+
+// Map panel resize drag
+if (mapResizeHandle){
+  let startY = 0, startH = 0, dragging = false, raf = 0;
+  const onMove = (e)=>{
+    if (!dragging) return;
+    const dy = startY - e.clientY; // up = bigger
+    const newH = startH + dy;
+    if (raf) cancelAnimationFrame(raf);
+    raf = requestAnimationFrame(()=> setMapHeight(newH));
+  };
+  const onUp = ()=>{
+    dragging = false;
+    document.removeEventListener('mousemove', onMove);
+    document.removeEventListener('mouseup', onUp);
+  };
+  mapResizeHandle.addEventListener('mousedown', (e)=>{
+    e.preventDefault();
+    const panel = document.getElementById('mapPanel');
+    startY = e.clientY;
+    startH = panel.getBoundingClientRect().height;
+    dragging = true;
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  });
+}
 /* ==== Тогл «Поля таблиці» як секції (показати/сховати) ==== */
 const COLPICKER = document.getElementById('columnPicker');
 const COLPICKER_STATE_KEY = 'export.colpickerHidden.v1';
