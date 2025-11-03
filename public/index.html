@@ -73,8 +73,7 @@
     box-shadow:0 1px 8px rgba(0,0,0,.12); padding:12px;
     width:320px; max-width:320px; max-height:90vh; overflow-y:auto; overflow-x:hidden;
   }
-  /* Клас на <body>, щоб ховати ліву панель (використовується на мобільних) */
-  body.controls-hidden #controls{ display:none }
+  .controls-hidden #controls{ display:none }
 
   #controls .row>*{min-width:0}
   #controls input[type=text], #controls select, #controls textarea{
@@ -822,59 +821,6 @@ setTimeout(() => {
   if (toggle) toggle.addEventListener('click', () => setTimeout(positionEntryDock, 0));
 }, 0);
 
-// Ініціалізація перемикачів для мобільних: ховання лівої панелі та панелі входу
-function initResponsiveToggles(){
-  const isSmall = () => (window.innerWidth || 0) <= 768;
-
-  // — Ліва панель (#controls)
-  const btn = document.getElementById('panelToggle');
-  const applyBtnLabel = () => {
-    if (!btn) return;
-    const hidden = document.body.classList.contains('controls-hidden');
-    btn.textContent = hidden ? '☰ Панель' : '◀ Сховати';
-    btn.setAttribute('aria-pressed', hidden ? 'false' : 'true');
-  };
-  let rawSaved = null;
-  try { rawSaved = localStorage.getItem('leftPanelHidden'); } catch {}
-  const hasSaved = rawSaved !== null;
-  const saved = rawSaved === '1';
-  // Якщо користувач ще не визначився і екран вузький — ховаємо панель за замовчуванням
-  if (!hasSaved && isSmall()) {
-    document.body.classList.add('controls-hidden');
-  } else {
-    document.body.classList.toggle('controls-hidden', !!saved);
-  }
-  applyBtnLabel();
-  if (btn){
-    btn.addEventListener('click', () => {
-      document.body.classList.toggle('controls-hidden');
-      try { localStorage.setItem('leftPanelHidden', document.body.classList.contains('controls-hidden') ? '1' : '0'); } catch {}
-      applyBtnLabel();
-      positionEntryDock();
-    });
-  }
-
-  // — Панель входу (звортання інпутів на мобільному)
-  const authWrap = document.getElementById('authBar');
-  const authToggle = document.getElementById('mobileAuthToggle');
-  const ensureCollapsedDefault = () => {
-    if (isSmall()) authWrap?.classList.add('collapsed');
-  };
-  ensureCollapsedDefault();
-  if (authToggle){
-    authToggle.addEventListener('click', () => {
-      authWrap?.classList.toggle('collapsed');
-    });
-  }
-
-  // При зміні розміру оновлюємо кнопки/позиціювання
-  window.addEventListener('resize', () => {
-    applyBtnLabel();
-    positionEntryDock();
-  });
-}
-document.addEventListener('DOMContentLoaded', initResponsiveToggles);
-
 // Позиціонування правого статус-доку під верхнім доком, якщо той розгорнутий
 function positionStatusDock(){
   const statusDock = document.getElementById('statusDock');
@@ -906,15 +852,8 @@ function initEntryDockCollapse(){
 
   try{
     const stored = localStorage.getItem('entryDockCollapsed');
-    if (stored === '1' || stored === 'true') {
-      dock.classList.add('collapsed');
-    } else {
-      // За замовчуванням на мобільних стартуємо згорнутим
-      if ((window.innerWidth || 0) <= 768) dock.classList.add('collapsed');
-    }
-  } catch(_){
-    if ((window.innerWidth || 0) <= 768) dock.classList.add('collapsed');
-  }
+    if (stored === '1' || stored === 'true') dock.classList.add('collapsed');
+  } catch(_){}
   updateBtn();
   positionEntryDock();
 
