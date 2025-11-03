@@ -239,6 +239,17 @@
 
   </style>
   
+  <!-- Inline map panel (lazy-loaded) -->
+  <style>
+  /* Bottom half-screen map panel */
+  .map-panel{position:fixed;left:0;right:0;bottom:0;height:50vh;background:#eef2f7;border-top:1px solid #e5e7eb;z-index:100;transform:translateY(100%);transition:transform .25s ease;display:none}
+  .map-panel.open{transform:translateY(0);display:block}
+  body.map-open{padding-bottom:50vh}
+  #routeMap{width:100%;height:100%}
+  /* Selected row highlight */
+  #resTable tbody tr.is-selected{background:#fff7ed}
+  </style>
+  
   <!-- AUTH GUARD: /export — лише admin | logist -->
 <script>
 (function () {
@@ -468,6 +479,7 @@
         <button id="btnAll" class="btn sm">Завантажити все</button>
         <button id="btnClearFilters" class="btn sm">Очистити фільтри таблиці</button>
         <button id="btnAutosize" class="btn sm">↔️ Автоширина колонок</button>
+        <button id="btnToggleMap" class="btn sm">🗺️ Показати карту</button>
       </div>
 <!-- Липкий верхній горизонтальний скрол -->
 <div id="xScroller"><div></div></div>
@@ -578,12 +590,207 @@
     </div>
   </div>
 
+  <!-- Bottom map panel (initially hidden, lazy-loaded) -->
+  <div id="mapPanel" class="map-panel" aria-hidden="true" role="region">
+    <div id="routeMap"></div>
+  </div>
+
 <script>
 /* === Навігаційні константи === */
 const MAP_URL = '/index.html';
 const NAVIGATE_PAGE = '/navigate.html';
 const DEFAULT_PROFILE = 'driving';
 const REVIEW_PAGE = '/review.html';
+
+/* === Inline Map (lazy Mapbox) === */
+let _mapPanelOpen = false;
+let _mapboxReady = false;
+let _map = null;
+let _selectedId = null;
+
+function loadMapboxOnce(){
+  return new Promise((resolve, reject)=>{
+    if (_mapboxReady){ resolve(); return; }
+    // CSS
+    const haveCss = !!document.querySelector('link[data-mapbox="1"]');
+    if (!haveCss){
+      const l = document.createElement('link');
+      l.dataset.mapbox = '1';
+      l.rel = 'stylesheet';
+      l.href = 'https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.css';
+      document.head.appendChild(l);
+    }
+    // JS
+    if (window.mapboxgl){ _mapboxReady = true; resolve(); return; }
+    const s = document.createElement('script');
+    s.src = 'https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.js';
+    s.async = true;
+    s.onload = ()=>{ _mapboxReady = true; resolve(); };
+    s.onerror = (e)=> reject(new Error('Не вдалося завантажити Mapbox GL JS'));
+    document.head.appendChild(s);
+  });
+}
+
+async function ensureMap(){
+  await loadMapboxOnce();
+  if (_map) return _map;
+  const token = (window.APP_CONFIG && window.APP_CONFIG.mapboxToken) || '';
+  if (!token) console.warn('APP_CONFIG.mapboxToken не знайдено — карта може не відображатися.');
+  try{ window.mapboxgl.accessToken = token; }catch(_){ }
+  const el = document.getElementById('routeMap');
+  _map = new window.mapboxgl.Map({
+    container: el,
+    style: 'mapbox://styles/mapbox/streets-v12',
+    center: [30.5, 50.45],
+    zoom: 5
+  });
+  _map.addControl(new window.mapboxgl.NavigationControl({ showCompass:false }), 'top-right');
+  _map.on('load', ()=>{
+    // Prepare empty sources/layers
+    if (!_map.getSource('route-line')){
+      _map.addSource('route-line', { type:'geojson', data:{ type:'FeatureCollection', features:[] } });
+      _map.addLayer({ id:'route-line', type:'line', source:'route-line', paint:{ 'line-color':'#2563eb', 'line-width':3 } });
+    }
+    if (!_map.getSource('route-segs')){
+      _map.addSource('route-segs', { type:'geojson', data:{ type:'FeatureCollection', features:[] } });
+      _map.addLayer({ id:'route-segs', type:'line', source:'route-segs', paint:{ 'line-color':'#ef4444', 'line-width':2, 'line-dasharray':[2,2] } });
+    }
+    if (!_map.getSource('pts')){
+      _map.addSource('pts', { type:'geojson', data:{ type:'FeatureCollection', features:[] } });
+      _map.addLayer({ id:'pts', type:'circle', source:'pts', paint:{ 'circle-radius':6, 'circle-color':['match',['get','kind'], 'start', '#22c55e', 'end', '#ef4444', '#64748b'], 'circle-stroke-width':2, 'circle-stroke-color':'#fff' } });
+    }
+    if (!_map.getSource('zones')){
+      _map.addSource('zones', { type:'geojson', data:{ type:'FeatureCollection', features:[] } });
+      _map.addLayer({ id:'zones-fill', type:'fill', source:'zones', paint:{ 'fill-color':'#fde68a', 'fill-opacity':0.25 } });
+      _map.addLayer({ id:'zones-line', type:'line', source:'zones', paint:{ 'line-color':'#f59e0b', 'line-width':2 } });
+    }
+  });
+  return _map;
+}
+
+function openMapPanel(open){
+  const panel = document.getElementById('mapPanel');
+  _mapPanelOpen = open;
+  if (open){
+    panel.classList.add('open');
+    panel.setAttribute('aria-hidden','false');
+    document.body.classList.add('map-open');
+    if (btnToggleMap) btnToggleMap.textContent = '🗺️ Сховати карту';
+    // slight delay to resize after visible
+    setTimeout(()=>{ try{ _map && _map.resize(); }catch(_){ } }, 120);
+  } else {
+    panel.classList.remove('open');
+    panel.setAttribute('aria-hidden','true');
+    document.body.classList.remove('map-open');
+    if (btnToggleMap) btnToggleMap.textContent = '🗺️ Показати карту';
+  }
+}
+
+function createCircle(lon, lat, radiusM, steps=64){
+  const R = 6371000; // meters
+  const coords = [];
+  for (let i=0;i<=steps;i++){
+    const brng = (i/steps) * 2*Math.PI;
+    const lat1 = lat * Math.PI/180;
+    const lon1 = lon * Math.PI/180;
+    const lat2 = Math.asin(Math.sin(lat1)*Math.cos(radiusM/R) + Math.cos(lat1)*Math.sin(radiusM/R)*Math.cos(brng));
+    const lon2 = lon1 + Math.atan2(Math.sin(brng)*Math.sin(radiusM/R)*Math.cos(lat1), Math.cos(radiusM/R)-Math.sin(lat1)*Math.sin(lat2));
+    coords.push([lon2*180/Math.PI, lat2*180/Math.PI]);
+  }
+  return coords;
+}
+
+function feature(type, coords, props){
+  return { type:'Feature', geometry:{ type, coordinates:coords }, properties: props || {} };
+}
+
+function bboxOfFeatures(features){
+  let minX=Infinity,minY=Infinity,maxX=-Infinity,maxY=-Infinity;
+  function visit(coord){ const x=coord[0], y=coord[1]; if (x<minX)minX=x; if (y<minY)minY=y; if (x>maxX)maxX=x; if (y>maxY)maxY=y; }
+  for (const f of features||[]){
+    const g=f.geometry; if (!g) continue;
+    const t=g.type; const c=g.coordinates;
+    if (t==='Point') visit(c);
+    else if (t==='LineString') c.forEach(visit);
+    else if (t==='Polygon') c.flat().forEach(visit);
+    else if (t==='MultiLineString') c.flat().forEach(visit);
+    else if (t==='MultiPolygon') c.flat(2).forEach(visit);
+  }
+  if (!Number.isFinite(minX)) return null;
+  return [[minX,minY],[maxX,maxY]];
+}
+
+function setGeoJSON(id, fc){ try{ const s=_map.getSource(id); if (s) s.setData(fc); }catch(_){ } }
+
+function buildZonesForRow(raw, start, end){
+  const feats = [];
+  const tryPoly = (val, prop) => {
+    if (!val) return;
+    // accept Polygon/MultiPolygon, or array of points (closed automatically if not)
+    try{
+      if (val.type==='Feature' && val.geometry){ return tryPoly(val.geometry, prop); }
+      if (val.type==='Polygon' || val.type==='MultiPolygon'){ feats.push(feature(val.type, val.coordinates, prop)); return; }
+      if (Array.isArray(val) && Array.isArray(val[0]) && typeof val[0][0] !== 'number'){
+        // nested rings
+        feats.push(feature('Polygon', val, prop)); return;
+      }
+    }catch(_){ }
+  };
+  tryPoly(raw?.startZone, { which:'start' });
+  tryPoly(raw?.endZone,   { which:'end' });
+  tryPoly(raw?.geofenceStart, { which:'start' });
+  tryPoly(raw?.geofenceEnd,   { which:'end' });
+  // fallback: small circles ~300m if none provided
+  if (!feats.length){
+    if (start) feats.push(feature('Polygon', [createCircle(start[0], start[1], 300)], { which:'start' }));
+    if (end)   feats.push(feature('Polygon', [createCircle(end[0],   end[1],   300)], { which:'end' }));
+  }
+  return feats;
+}
+
+async function drawRouteOnMap(row){
+  await ensureMap();
+  const d = row.raw || {};
+  // route line
+  const pts = normalizePoints(d.points) || normalizePoints(d.coordinates) || normalizePoints(d.route) || normalizePoints(d.geojson) || normalizePoints(d.geometry);
+  let points = pts;
+  if (!points || points.length < 2){
+    const parts = [];
+    if (d.start){ const p = toLonLat(d.start); if (p) parts.push(p); }
+    if (Array.isArray(d.midpoints)) for (const m of d.midpoints){ const p=toLonLat(m); if (p) parts.push(p); }
+    if (d.end){ const p = toLonLat(d.end); if (p) parts.push(p); }
+    if (parts.length>=2) points = parts;
+  }
+  const segs = normalizeSegments(d) || [];
+  const start = points && points.length ? points[0] : (d.start ? toLonLat(d.start) : null);
+  const end   = points && points.length ? points[points.length-1] : (d.end ? toLonLat(d.end) : null);
+
+  const lineFC = { type:'FeatureCollection', features: points && points.length>=2 ? [feature('LineString', points, { kind:'route' })] : [] };
+  const segFC  = { type:'FeatureCollection', features: segs.map(s => feature('LineString', s, { kind:'segment' })) };
+  const ptsFC  = { type:'FeatureCollection', features: [] };
+  if (start) ptsFC.features.push(feature('Point', start, { kind:'start' }));
+  if (end)   ptsFC.features.push(feature('Point', end,   { kind:'end' }));
+  const zonesFC = { type:'FeatureCollection', features: buildZonesForRow(d, start, end) };
+
+  setGeoJSON('route-line', lineFC);
+  setGeoJSON('route-segs', segFC);
+  setGeoJSON('pts', ptsFC);
+  setGeoJSON('zones', zonesFC);
+
+  // Fit bounds
+  const allForBbox = [...lineFC.features, ...segFC.features, ...ptsFC.features, ...zonesFC.features];
+  const b = bboxOfFeatures(allForBbox);
+  if (b){
+    try{ _map.fitBounds(b, { padding: 40, maxZoom: 14, duration: 500 }); }catch(_){ }
+  }
+}
+
+function selectRowVisual(id){
+  _selectedId = id;
+  document.querySelectorAll('#resTable tbody tr').forEach(tr => tr.classList.remove('is-selected'));
+  const tr = document.querySelector(`#resTable tbody tr[data-id="${CSS.escape(id)}"]`);
+  if (tr) tr.classList.add('is-selected');
+}
 
 /* --- глобальний логер --- */
 window.addEventListener('error', (e) => {
@@ -658,6 +865,7 @@ const btnClearFilters = document.getElementById('btnClearFilters');
 const btnAutosize = document.getElementById('btnAutosize');
 const btnExportJson     = document.getElementById('btnExportJson');
 const btnExportJsonAll  = document.getElementById('btnExportJsonAll');
+const btnToggleMap = document.getElementById('btnToggleMap');
 
 function setBusy(b){
   btnPreview.disabled = b || !currentUser;
@@ -1898,6 +2106,12 @@ function renderTable(rows){
 
   document.getElementById('countInfo').textContent = `Записів (після фільтру): ${rows.length}`;
   updateStats(rows);
+
+  // keep selection highlight if current row is still visible
+  if (_selectedId){
+    const tr = tb.querySelector(`tr[data-id="${CSS.escape(_selectedId)}"]`);
+    if (tr) tr.classList.add('is-selected');
+  }
 }
 
 /* ---------- Експорт у Excel ---------- */
@@ -2045,6 +2259,27 @@ btnExport.addEventListener('click', async ()=>{
 
 btnRefresh.addEventListener('click', refreshAll);
 
+/* Toggle map panel */
+btnToggleMap.addEventListener('click', async ()=>{
+  const toOpen = !_mapPanelOpen;
+  if (toOpen){
+    openMapPanel(true);
+    await ensureMap().catch(e=>console.warn(e));
+    try{ _map && _map.resize(); }catch(_){ }
+    // If nothing selected yet, try select first visible row
+    if (!_selectedId){
+      const first = document.querySelector('#resTable tbody tr');
+      if (first){
+        const id = first.getAttribute('data-id');
+        const row = allRows.find(r => r.id === id);
+        if (row){ selectRowVisual(id); await drawRouteOnMap(row); }
+      }
+    }
+  } else {
+    openMapPanel(false);
+  }
+});
+
 document.querySelector('#resTable thead').addEventListener('click', (ev)=>{
   const th = ev.target.closest('th.sortable');
   if (!th) return;
@@ -2145,6 +2380,21 @@ if (jsonOne){
       setTimeout(()=>{ copyBtn.textContent = '📋'; }, 1000);
     }catch{ prompt('Скопіюйте значення вручну:', val); }
   }
+
+  // Row selection to preview on map (ignore clicks on interactive controls)
+  const interactive = ev.target.closest('a,button,.copy-btn,input,select,textarea,label');
+  if (interactive) return;
+  const tr = ev.target.closest('tr[data-id]');
+  if (!tr) return;
+  const id = tr.getAttribute('data-id');
+  const row = allRows.find(x => x.id === id);
+  if (!row) return;
+  try{
+    selectRowVisual(id);
+    openMapPanel(true);
+    await ensureMap();
+    await drawRouteOnMap(row);
+  }catch(e){ console.warn('Map preview error:', e); }
 });
 
 /* ---------- Розтягування та автоширина колонок ---------- */
