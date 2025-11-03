@@ -23,12 +23,7 @@
 <script src="/config/config.js"></script>
 
   <style>
-  :root { --nav-h:56px; --nav-real:56px; --card:#fff; --line:#e5e7eb; --muted:#6b7280; 
-           --safe-top: env(safe-area-inset-top, 0px); 
-           --safe-bottom: env(safe-area-inset-bottom, 0px); 
-           --safe-left: env(safe-area-inset-left, 0px); 
-           --safe-right: env(safe-area-inset-right, 0px);
-  }
+  :root { --nav-h:56px; --nav-real:56px; --card:#fff; --line:#e5e7eb; --muted:#6b7280; }
 
   *{box-sizing:border-box}
   body{margin:0;padding:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
@@ -36,10 +31,6 @@
   header.topbar{
     position:sticky; top:0; z-index:5000; min-height:var(--nav-h);
     display:flex; align-items:center; justify-content:space-between; gap:10px; padding:8px;
-    /* Safe areas for iOS notches */
-    padding-top: calc(8px + var(--safe-top));
-    padding-left: calc(8px + var(--safe-left));
-    padding-right: calc(8px + var(--safe-right));
     background:#2563eb; color:#fff;
   }
   header.topbar a{ color:#fff; text-decoration:none; margin-right:12px; white-space:nowrap; }
@@ -77,10 +68,10 @@
   #map{position:absolute; top:var(--nav-real); bottom:0; width:100%}
 
   #controls{
-    position:absolute; z-index:3000; top:calc(var(--nav-real) + 8px); left:calc(8px + var(--safe-left));
+    position:absolute; z-index:3000; top:calc(var(--nav-real) + 8px); left:8px;
     background:var(--card); border:1px solid var(--line); border-radius:12px;
     box-shadow:0 1px 8px rgba(0,0,0,.12); padding:12px;
-    width:320px; max-width:320px; max-height:calc(100vh - var(--nav-real) - 16px); overflow-y:auto; overflow-x:hidden;
+    width:320px; max-width:320px; max-height:90vh; overflow-y:auto; overflow-x:hidden;
   }
   .controls-hidden #controls{ display:none }
 
@@ -110,7 +101,7 @@
   .btn-row{display:flex;gap:6px;flex-wrap:wrap}
 
   @media (max-width: 640px){
-    #controls{ left:calc(8px + var(--safe-left)); right:calc(8px + var(--safe-right)); max-width:unset; width:auto; }
+    #controls{ left:8px; right:8px; max-width:unset; width:auto; }
     .segment, .btn-row{ display:grid; grid-template-columns:1fr 1fr; gap:8px; }
     .btn, .btn.xs{ min-height:44px; font-size:15px; padding:10px 12px; }
     .km-chip{ font-size:13px; padding:6px 10px; }
@@ -144,7 +135,7 @@
   /* Стилі для дока перемикання стилю карти (нижній лівий кут) */
   .style-dock{
     position:fixed;
-    left:calc(8px + var(--safe-left)); bottom:calc(8px + var(--safe-bottom)); z-index:3500;
+    left:8px; bottom:8px; z-index:3500;
     display:flex; align-items:center; gap:6px;
     background:var(--card); border:1px solid var(--line);
     border-radius:12px; padding:6px 8px;
@@ -185,7 +176,7 @@
 #statusDock{
   position:fixed;
   top:calc(var(--nav-real) + 8px);
-  right:calc(8px + var(--safe-right));
+  right:8px;
   z-index:3500;
   display:flex;
   flex-direction:column;
@@ -225,7 +216,7 @@
 /* Док-перемикач панелей (праворуч внизу) */
 #panelDock{
   position:fixed;
-  right:calc(8px + var(--safe-right)); bottom:calc(8px + var(--safe-bottom));
+  right:8px; bottom:8px;
   z-index:3500;
   display:flex; gap:6px; flex-wrap:wrap;
   background:var(--card);
@@ -393,13 +384,10 @@
   .entry-dock.collapsed small.muted{ display:none !important; }
 
   @media (max-width:640px){
-    .entry-dock{ left:calc(8px + var(--safe-left)); right:calc(8px + var(--safe-right)); top:calc(var(--nav-real) + 8px); }
+    .entry-dock{ left:8px; right:8px; top:calc(var(--nav-real) + 8px); }
     /* на вузьких — дозволимо гріду перелаштовуватись у 2-3 рядки */
     .entry-dock .route-toolbar{ grid-template-columns: 1fr 1fr; }
     .entry-dock .route-toolbar .field.w420{ min-width:240px; }
-    /* більші touch-таргети на мобільних */
-    .entry-dock .route-toolbar input[type=text],
-    .entry-dock .route-toolbar select{ height:40px; }
   }
 
   </style>
@@ -864,12 +852,7 @@ function initEntryDockCollapse(){
 
   try{
     const stored = localStorage.getItem('entryDockCollapsed');
-    if (stored === '1' || stored === 'true') {
-      dock.classList.add('collapsed');
-    } else if (stored === null && window.matchMedia('(max-width: 640px)').matches) {
-      // Перше відвідування на мобільному — згорнути за замовчуванням
-      dock.classList.add('collapsed');
-    }
+    if (stored === '1' || stored === 'true') dock.classList.add('collapsed');
   } catch(_){}
   updateBtn();
   positionEntryDock();
@@ -4199,29 +4182,8 @@ function updatePanelToggleLabel(){
 }
 panelToggleBtn.addEventListener('click', () => {
   document.body.classList.toggle('controls-hidden'); updatePanelToggleLabel();
-  try{ localStorage.setItem('controlsHidden', document.body.classList.contains('controls-hidden') ? '1' : '0'); }catch(_){}
 });
 updatePanelToggleLabel();
-
-// На мобільних — сховати ліву панель при першому візиті (не чіпаємо, якщо користувач вже взаємодіяв)
-try {
-  // 1) якщо є явне збережене значення — застосовуємо його
-  const saved = localStorage.getItem('controlsHidden');
-  if (saved === '1' || saved === '0') {
-    document.body.classList.toggle('controls-hidden', saved === '1');
-    updatePanelToggleLabel();
-    positionEntryDock();
-  } else {
-    // 2) інакше, на першому мобільному візиті — ховаємо
-    const k = 'controlsHiddenInit';
-    if (!localStorage.getItem(k) && window.matchMedia('(max-width: 640px)').matches) {
-      document.body.classList.add('controls-hidden');
-      localStorage.setItem(k, '1');
-      updatePanelToggleLabel();
-      positionEntryDock();
-    }
-  }
-} catch(_) {}
 
 /* ======== ⬇️ ГЕОЗОНИ зі STORAGE (geozones/all.geojson) ========= */
 const STORAGE_GEOJSON_PATH = 'geozones/all.geojson';
