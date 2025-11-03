@@ -1151,7 +1151,7 @@ const limitByHub = (roleNow === 'logist' && !allNow);
   const rows = [];
   snap.forEach(doc=>{
     const d = doc.data()||{};
-    rows.push({ code: doc.id, name: d.name || doc.id, company: d.company || '', unit: d.unit || '' });
+    rows.push({ code: (d.code || doc.id), name: d.name || (d.code || doc.id), company: d.company || '', unit: d.unit || '' });
   });
   fillDirectoryUI(rows);
 

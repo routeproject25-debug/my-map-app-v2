@@ -421,6 +421,12 @@ function makeNGrams(s, n = 3){
   return Array.from(grams);
 }
 
+  // Стабільний ключ за НАЗВОЮ (нормалізованою)
+  function makeNameId(name){
+    const base = toUkLower(name).replace(/\s+/g, ' ').trim();
+    return sanitizeId(base);
+  }
+
   // Підготовка entries
   function prepareEntries(){
     const raw = $('raw').value;
@@ -456,39 +462,63 @@ function makeNGrams(s, n = 3){
     const entries = [];
     let skippedEmptyName = 0, skippedEmptyCode = 0, skippedBlankRow = 0;
 
-for (let i = startIdx; i < rows.length; i++) {
-  const r = rows[i];
-  if (!r || !r.length || r.every(c => (c || '').toString().trim() === '')) { skippedBlankRow++; continue; }
+    // Назва → множина кодів для попередження
+    const nameToCodes = new Map();
+    const nameToSample = new Map();
 
-  const name    = (r[nameIdx]   || '').toString().trim();
-  const code    = (r[codeIdx]   || '').toString().trim();
-  const company = companyIdx != null ? (r[companyIdx] || '').toString().trim() : '';
-  const unit    = unitIdx    != null ? (r[unitIdx]    || '').toString().trim() : '';
-  const hub     = hubIdx     != null ? (r[hubIdx]     || '').toString().trim() : '';
+    for (let i = startIdx; i < rows.length; i++) {
+      const r = rows[i];
+      if (!r || !r.length || r.every(c => (c || '').toString().trim() === '')) { skippedBlankRow++; continue; }
 
-  if (!name && !code) { skippedBlankRow++; continue; }
-  if (!name) { skippedEmptyName++; continue; }
-  if (!code) { skippedEmptyCode++; continue; }
+      const name    = (r[nameIdx]   || '').toString().trim();
+      const code    = (r[codeIdx]   || '').toString().trim();
+      const company = companyIdx != null ? (r[companyIdx] || '').toString().trim() : '';
+      const unit    = unitIdx    != null ? (r[unitIdx]    || '').toString().trim() : '';
+      const hub     = hubIdx     != null ? (r[hubIdx]     || '').toString().trim() : '';
 
-  entries.push({
-  id: sanitizeId(code),
-  data: {
-    name,
-    ...(company && { company }),
-    ...(unit    && { unit }),
-    ...(hub     && { hub }),
-    nameLower: toUkLower(name),           // ← нормалізований lower
-    nameNgrams: makeNGrams(name)          // ← триґрами для пошуку "всередині"
-  }
-});
-}
+      if (!name && !code) { skippedBlankRow++; continue; }
+      if (!name) { skippedEmptyName++; continue; }
+      if (!code) { skippedEmptyCode++; continue; }
 
-    // Дедуп за id
+      const idByName = makeNameId(name);
+
+      if (!nameToCodes.has(idByName)) nameToCodes.set(idByName, new Set());
+      nameToCodes.get(idByName).add(code);
+      if (!nameToSample.has(idByName)) nameToSample.set(idByName, name);
+
+      entries.push({
+        id: idByName,
+        data: {
+          name,
+          code,
+          ...(company && { company }),
+          ...(unit    && { unit }),
+          ...(hub     && { hub }),
+          nameLower: toUkLower(name),
+          nameNgrams: makeNGrams(name)
+        }
+      });
+    }
+
+    // Попередження про однакові назви з різними кодами
+    const dupWarnings = [];
+    for (const [id, set] of nameToCodes.entries()){
+      const arr = Array.from(set);
+      if (arr.length > 1) dupWarnings.push({ nameId:id, name:nameToSample.get(id)||id, codes:arr });
+    }
+    window.DUP_WARNINGS = dupWarnings;
+    if (dupWarnings.length){
+      log(`Знайдено ${dupWarnings.length} груп(и) з однаковою назвою та різними кодами — буде використано останній рядок для кожної назви.`, 'warn');
+      dupWarnings.slice(0,10).forEach(w => log(`  • "${w.name}" → коди: ${w.codes.join(', ')}`, 'warn'));
+      if (dupWarnings.length>10) log(`  … ще ${dupWarnings.length-10} груп(и)`, 'warn');
+    }
+
+    // Дедуп за назвою
     const map = new Map();
     for (const e of entries) map.set(e.id, e);
     const deduped = Array.from(map.values());
 
-    log(`Знайдено записів: ${entries.length}. Після дедуплікації: ${deduped.length}`, 'ok');
+    log(`Знайдено записів: ${entries.length}. Після дедуплікації за назвою: ${deduped.length}`, 'ok');
     log(`Пропущено → blank:${skippedBlankRow} | emptyName:${skippedEmptyName} | emptyCode:${skippedEmptyCode}`, 'ok');
 
     return deduped;
@@ -509,10 +539,11 @@ function normData(d){
   const name = (d?.name ?? '').toString();
   return {
     name,
+    code:    d?.code ?? '',
     company: d?.company ?? '',
     unit:    d?.unit ?? '',
     hub:     d?.hub ?? '',
-    nameLower: toUkLower(d?.nameLower ?? name) // використовуємо функцію, що оголошена ВИЩЕ
+    nameLower: toUkLower(d?.nameLower ?? name)
   };
 }
 
@@ -524,6 +555,15 @@ function equalData(a, b){
   $('importBtn').addEventListener('click', async () => {
     const entries = prepareEntries();
     if (!entries) return;
+
+    if (Array.isArray(window.DUP_WARNINGS) && window.DUP_WARNINGS.length){
+      const proceed = confirm(
+        `Попередження: знайдено ${window.DUP_WARNINGS.length} груп(и) з однаковою назвою та різними кодами.\n`+
+        `Ключем імпорту є НАЗВА — для кожної назви залишиться останній рядок з файлу.\n`+
+        `Продовжити імпорт?`
+      );
+      if (!proceed) return;
+    }
 
     const dry = $('dryRun').checked;
     if (!dry){

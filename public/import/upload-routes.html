@@ -225,15 +225,35 @@ async function loadDirectoryByCodes(codes){
   const list = Array.from(new Set((codes||[]).filter(Boolean)));
   for (let i=0;i<list.length;i+=10){
     const chunk = list.slice(i, i+10);
+    let resolved = new Set();
+    // 1) Перевага — по полю code (новий імпорт з id=назва)
     try{
-      const snap = await db.collection('directory')
-        .where(firebase.firestore.FieldPath.documentId(), 'in', chunk)
+      const snap1 = await db.collection('directory')
+        .where('code','in', chunk)
         .get({ source:'server' });
-      snap.forEach(doc=>{
+      snap1.forEach(doc=>{
         const d = doc.data() || {};
-        dirNamesByCode.set(doc.id, d.name || doc.id);
+        const code = d.code || doc.id;
+        const name = d.name || doc.id;
+        dirNamesByCode.set(code, name);
+        resolved.add(code);
       });
-    }catch(e){}
+    }catch(_){ /* пропустимо до фолбеку */ }
+    // 2) Фолбек — по documentId (старий імпорт з id=код)
+    const rest = chunk.filter(c => !resolved.has(c));
+    if (rest.length){
+      try{
+        const snap2 = await db.collection('directory')
+          .where(firebase.firestore.FieldPath.documentId(), 'in', rest)
+          .get({ source:'server' });
+        snap2.forEach(doc=>{
+          const d = doc.data() || {};
+          dirNamesByCode.set(doc.id, d.name || doc.id);
+          resolved.add(doc.id);
+        });
+      }catch(_){ /* ignore */ }
+    }
+    // 3) Для невідомих — підстрахуємося самим кодом
     chunk.forEach(id => { if (!dirNamesByCode.has(id)) dirNamesByCode.set(id, id); });
   }
 }

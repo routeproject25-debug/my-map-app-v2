@@ -2548,7 +2548,7 @@ const snap = await q.get({ source:'default' });
   const rows = [];
   snap.forEach(doc => {
     const d = doc.data() || {};
-    rows.push({ code: doc.id, name: d.name || doc.id, company: d.company || '', unit: d.unit || '' });
+    rows.push({ code: (d.code || doc.id), name: d.name || (d.code || doc.id), company: d.company || '', unit: d.unit || '' });
   });
 
   fillDirectoryUI(rows);
@@ -2604,8 +2604,8 @@ async function queryDirectoryPrefix(prefix, limit = 20){
         if (seen.has(doc.id)) return;
         const d = doc.data() || {};
         accRows.push({
-          code: doc.id,
-          name: d.name || doc.id,
+          code: (d.code || doc.id),
+          name: d.name || (d.code || doc.id),
           company: d.company || '',
           unit: d.unit || ''
         });
@@ -2630,8 +2630,8 @@ if (accRows.length < limit && pLower.length >= 4){
         if (seen.has(doc.id)) return;
         const d = doc.data() || {};
         accRows.push({
-          code: doc.id,
-          name: d.name || doc.id,
+          code: (d.code || doc.id),
+          name: d.name || (d.code || doc.id),
           company: d.company || '',
           unit: d.unit || ''
         });
