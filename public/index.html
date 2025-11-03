@@ -3097,10 +3097,15 @@ async function saveToDB() {
       alert('Оберіть логіста зі списку.'); return;
     }
 
-    const from = dirByCode[fromCode] || {};
-    const to   = dirByCode[toCode]   || {};
+  const from = dirByCode[fromCode] || {};
+  const to   = dirByCode[toCode]   || {};
     const fromLabel = makeDirLabelByCode(fromCode);
     const toLabel   = makeDirLabelByCode(toCode);
+  // Стабільна прив'язка за НАЗВОЮ: зберігаємо чисті назви (без юнітів/компаній)
+  const fromNameInput = (getPureNameFromInput && getPureNameFromInput('fromName')) || '';
+  const toNameInput   = (getPureNameFromInput && getPureNameFromInput('toName'))   || '';
+  const fromNamePlain = (from.name || '').trim() || String(fromNameInput||'').trim();
+  const toNamePlain   = (to.name   || '').trim() || String(toNameInput||'').trim();
 
     const generatedName = `${fromLabel} → ${toLabel} [${routeType}${purpose ? ' • '+purpose : ''}]`;
     const manual = (document.getElementById('routeName').value || '').trim();
@@ -3112,6 +3117,8 @@ async function saveToDB() {
   name: finalName,
   fromCode, toCode, routeType, purpose, intermediateText,
   fromLabel, toLabel,
+  fromName: fromNamePlain,
+  toName:   toNamePlain,
   points: toObjPoints(points),
   startRuler: toObjPoints(startRuler),
   endRuler: toObjPoints(endRuler),
@@ -3130,6 +3137,8 @@ async function saveToDB() {
       nameLower:      (finalName || '').toLowerCase(),
       fromLabelLower: (fromLabel || '').toLowerCase(),
       toLabelLower:   (toLabel   || '').toLowerCase(),
+      fromNameLower:  (fromNamePlain || '').toLowerCase(),
+      toNameLower:    (toNamePlain   || '').toLowerCase(),
       nameNgrams:     trigrams(finalName),
       fromNgrams:     trigrams(fromLabel),
       toNgrams:       trigrams(toLabel),
