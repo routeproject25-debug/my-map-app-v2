@@ -193,6 +193,7 @@
       <div class="row" style="margin-top:6px">
         <label><input type="checkbox" id="hasHeader" checked /> Перша строка — заголовки</label>
         <label><input type="checkbox" id="dryRun" checked /> “Сухий” запуск (без запису)</label>
+        <label><input type="checkbox" id="mergeDup" /> Злити дублікати за назвою (видалити legacy)</label>
       </div>
     </div>
 
@@ -274,6 +275,7 @@ async function resolveUserRole(uid){
     }
   }
   $('dryRun').addEventListener('change', updateImportButton);
+  $('mergeDup').addEventListener('change', updateImportButton);
 
   btnLogout.addEventListener('click', async () => {
     try{ await auth.signOut(); }catch(e){ console.warn(e); }
@@ -566,6 +568,7 @@ function equalData(a, b){
     }
 
     const dry = $('dryRun').checked;
+    const mergeDup = $('mergeDup').checked;
     if (!dry){
       if (!initFirebaseWrite()) return;
     }
@@ -587,7 +590,7 @@ function equalData(a, b){
       for (let b = 0; b < totalBatches; b++){
         const slice = entries.slice(b*SAFE_BATCH, (b+1)*SAFE_BATCH);
 
-        // 1) читаємо документи за новою схемою (id = nameId)
+  // 1) читаємо документи за новою схемою (id = nameId)
         const refsByNameId = slice.map(({id}) => db.collection('directory').doc(id));
         const snapsByNameId = await Promise.all(refsByNameId.map(r => r.get()));
 
@@ -610,33 +613,60 @@ function equalData(a, b){
         }
 
         let writes = 0;
+        let deletedThisBatch = 0;
         const batch = !dry ? db.batch() : null;
 
         for (let i = 0; i < slice.length; i++){
           const { id, data } = slice[i];
           const snapByNameId = snapsByNameId[i];
 
-          // Підбираємо цільовий документ для оновлення:
-          //  - якщо вже існує doc з id=nameId → оновлюємо його
-          //  - інакше, якщо знайдено будь-який doc із такою ж nameLower (legacy id=код) → оновлюємо його (НЕ створюємо новий)
-          //  - інакше створюємо новий doc з id=nameId
+          // Підбираємо цільовий документ для оновлення/міграції:
+          //  - якщо mergeDup = true → канонічний id = nameId; усі інші з такою nameLower вважаються legacy і будуть видалені
+          //  - якщо mergeDup = false → як раніше: оновлюємо існуючий (id=nameId або будь-який з такою nameLower), без видалення
           const candidates = byNameLower.get(data.nameLower) || [];
           let targetSnap = null, targetRef = null, targetId = id;
-          if (snapByNameId.exists){
-            targetSnap = snapByNameId; targetRef = refsByNameId[i]; targetId = id;
-          } else if (candidates.length){
-            // віддаємо пріоритет запису з id=nameId, якщо раптом є у candidates
-            const byName = candidates.find(d => d.id === id);
-            const chosen = byName || candidates[0];
-            targetSnap = chosen;
-            targetId = chosen.id;
-            targetRef = db.collection('directory').doc(targetId);
-            if (chosen.id !== id) {
-              log(`↻ Оновлюю наявний запис за назвою «${data.name}» (id=${chosen.id}), щоб уникнути дубліката.`, 'warn');
+
+          if (mergeDup){
+            // Канонічний — id=nameId
+            targetRef = refsByNameId[i];
+            targetSnap = snapByNameId;
+
+            const others = candidates.filter(d => d.id !== id);
+            // Якщо канонічного ще нема, але є legacy — перенесемо поля й видалимо legacy
+            if (!snapByNameId.exists && candidates.length){
+              const primary = candidates[0];
+              const old = primary.data() || {};
+              const extras = {};
+              if (old.company && !data.company) extras.company = old.company;
+              if (old.unit    && !data.unit)    extras.unit    = old.unit;
+              if (old.hub     && !data.hub)     extras.hub     = old.hub;
+              // розширимо data перед записом, щоб не втратити метадані
+              Object.assign(data, extras);
+              log(`↻ Міграція «${data.name}»: переносимо з legacy id=${primary.id} → id=${id}`, 'warn');
+            }
+
+            // Плануємо видалення всіх неканонічних документів цієї назви
+            if (!dry && others.length){
+              for (const d of others){ batch.delete(db.collection('directory').doc(d.id)); writes++; deletedThisBatch++; }
+            } else if (dry && others.length){
+              log(`(dry-run) Було б видалено legacy дублікат(и) для «${data.name}»: ${others.map(o=>o.id).join(', ')}`,'warn');
             }
           } else {
-            // нового з таким nameLower не знайдено
-            targetSnap = snapByNameId; targetRef = refsByNameId[i]; targetId = id;
+            // Старий безпечний режим — без видалення
+            if (snapByNameId.exists){
+              targetSnap = snapByNameId; targetRef = refsByNameId[i]; targetId = id;
+            } else if (candidates.length){
+              const byName = candidates.find(d => d.id === id);
+              const chosen = byName || candidates[0];
+              targetSnap = chosen;
+              targetId = chosen.id;
+              targetRef = db.collection('directory').doc(targetId);
+              if (chosen.id !== id) {
+                log(`↻ Оновлюю наявний запис за назвою «${data.name}» (id=${chosen.id}), щоб уникнути дубліката.`, 'warn');
+              }
+            } else {
+              targetSnap = snapByNameId; targetRef = refsByNameId[i]; targetId = id;
+            }
           }
 
           if (!targetSnap.exists){
@@ -670,7 +700,8 @@ function equalData(a, b){
 
         setProg(pct, `Виконано ${Math.round(pct)}% • ${ok}/${total} • ETA ~ ${Math.ceil(eta)}с`);
         if ((b % 5) === 0 || b === totalBatches-1){
-          log(`Батч ${b+1}/${totalBatches} завершено. Оброблено: ${ok}. Нових: ${newCount}, Оновлено: ${updatedCount}, Без змін: ${unchangedCount}`, 'ok');
+          const dl = deletedThisBatch ? `, Видалено legacy: ${deletedThisBatch}` : '';
+          log(`Батч ${b+1}/${totalBatches} завершено. Оброблено: ${ok}. Нових: ${newCount}, Оновлено: ${updatedCount}, Без змін: ${unchangedCount}${dl}`, 'ok');
         }
       }
 
