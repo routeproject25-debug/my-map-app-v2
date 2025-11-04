@@ -169,6 +169,7 @@
           <div class="chip" id="chipDistanceDb">БД: —</div>
           <div class="chip" id="chipDistanceLive">Разом: —</div>
           <div class="chip" id="chipProposalKm" style="display:none;">Пропозиція: —</div>
+          <div class="chip" id="chipProposalInfo" style="display:none;">Є пропозиція СБ</div>
           <div class="chip" id="chipRevision">Подача № —</div>
         </div>
         <div style="text-align:right">
@@ -616,6 +617,18 @@ function drawManualSegments(d){
 
     chip('chipRevision', 'Подача № ' + ((d.approval?.revision) ?? '—'));
     chip('chipStatus',   'Статус: ' + fmtStatus(d.approval?.status));
+    // Інформер про наявність пропозиції
+    const propInfoEl = document.getElementById('chipProposalInfo');
+    const prop0 = d.approval && d.approval.securityProposal ? d.approval.securityProposal : null;
+    if (prop0 && Array.isArray(prop0.points) && prop0.points.length>=2){
+      const when = prop0.proposedAt ? new Date(prop0.proposedAt).toLocaleString() : '';
+      const who  = prop0.proposedByEmail || prop0.proposedByUid || '';
+      propInfoEl.style.display = 'inline-block';
+      propInfoEl.textContent = `Є пропозиція СБ${prop0.km?` (${prop0.km} км)`:''}${when||who?` • ${when} ${who}`:''}`;
+    } else {
+      propInfoEl.style.display = 'none';
+      propInfoEl.textContent = 'Є пропозиція СБ';
+    }
 	    // якщо вже є рішення — не показуємо дії
     const decided = ['approved','rejected'].includes(String(d.approval?.status||'').toLowerCase());
     const role = await getNormalizedRole();

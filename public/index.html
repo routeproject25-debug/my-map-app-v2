@@ -3925,6 +3925,15 @@ if (open){
     chip.textContent = (icon ? (icon + ' ') : '') + 'Статус: ' + label;
     chip.dataset.status = st;           // тригер для стилів (pending/approved/rejected)
   }
+
+  // —— док "Пропозиція СБ" (праворуч зверху) — якщо у approval є securityProposal
+  try{
+    const dock = document.getElementById('proposalDock');
+    const prop = approval && approval.securityProposal ? approval.securityProposal : null;
+    const has = !!(prop && Array.isArray(prop.points) && prop.points.length >= 2);
+    if (dock){ dock.style.display = has ? 'flex' : 'none'; }
+    if (!has) { try{ clearSecurityProposalOverlay(); }catch(_){ } }
+  }catch(_){ }
 }
 
 // копіюємо лінк на перегляд/погодження
@@ -4306,11 +4315,23 @@ routeSearch.addEventListener('focus', () => {
 /* Load by ?rid= */
 async function loadRouteById(rid) {
   try {
-    // Спробувати свіжі дані з сервера, фолбек до кешу
+    // Спробувати свіжі дані з сервера, фолбек до кешу; якщо не знайдено за ID — зробити розумний пошук
+    const ref = db.collection('routes').doc(rid);
     let snap;
-    try { snap = await db.collection('routes').doc(rid).get({ source: 'server' }); }
-    catch { snap = await db.collection('routes').doc(rid).get(); }
-    if (!snap.exists) { alert('Маршрут з таким ID не знайдено: ' + rid); return; }
+    try { snap = await ref.get({ source: 'server' }); }
+    catch { snap = await ref.get(); }
+    if (!snap || !snap.exists) {
+      // Якщо rid виглядає як назва (а не ID), спробуємо знайти по nameLower або routeKey
+      const qName = await db.collection('routes').where('nameLower','==', String(rid).toLowerCase()).limit(1).get({ source:'server' }).catch(()=>null);
+      if (qName && !qName.empty) {
+        snap = qName.docs[0];
+      } else {
+        // Спроба по routeKey
+        const qKey = await db.collection('routes').where('routeKey','==', String(rid)).limit(1).get({ source:'server' }).catch(()=>null);
+        if (qKey && !qKey.empty) snap = qKey.docs[0];
+      }
+      if (!snap || !snap.exists) { alert('Маршрут не знайдено: ' + rid); return; }
+    }
     const data = snap.data();
     if (!userAllowsHub(data.hub || '')) {
   alert('⛔ У вас немає доступу до хабу цього маршруту: ' + (data.hub || '—'));
@@ -4340,7 +4361,7 @@ async function loadRouteById(rid) {
       for (const p of points) b.extend(p);
       map.fitBounds(b, { padding: 40 });
     }
-    if (data.routeKey) alert('Код маршруту: ' + data.routeKey);
+  if (data.routeKey) alert('Код маршруту: ' + data.routeKey);
 
     // === Пропозиція СБ: показати док, якщо є ===
     try{
