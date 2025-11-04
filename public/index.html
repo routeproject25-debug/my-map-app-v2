@@ -3925,11 +3925,25 @@ function setProposalOverlayData(prop){
 }
 
 function setProposalVisibility(show){
+  // Гарантуємо, що шари існують, і дані підвантажені, перш ніж міняти видимість.
+  ensureProposalLayers();
+  if (CURRENT_PROPOSAL) {
+    try { setProposalOverlayData(CURRENT_PROPOSAL); } catch(_) {}
+  }
+
   PROPOSAL_VISIBLE = !!show;
   const vis = PROPOSAL_VISIBLE ? 'visible' : 'none';
-  try{ map.setLayoutProperty('proposal-route','visibility', vis); }catch(_){}
+  try{ map.setLayoutProperty('proposal-route','visibility', vis); }catch(_){ }
   try{ map.setLayoutProperty('proposal-ruler-start','visibility', vis); }catch(_){ }
   try{ map.setLayoutProperty('proposal-ruler-end','visibility', vis); }catch(_){ }
+
+  // Підіймаємо пропозицію над усіма маршрутними шарами, щоб її точно було видно
+  try{
+    if (map.getLayer('proposal-ruler-end'))   map.moveLayer('proposal-ruler-end');
+    if (map.getLayer('proposal-ruler-start')) map.moveLayer('proposal-ruler-start');
+    if (map.getLayer('proposal-route'))       map.moveLayer('proposal-route');
+  }catch(_){ }
+
   const btn = document.getElementById('btnShowProposal');
   if (btn) btn.textContent = PROPOSAL_VISIBLE ? '🙈 Сховати пропозицію' : '👁 Показати пропозицію';
 }
@@ -3965,8 +3979,10 @@ function updateProposalUIForData(data){
       endRuler: fromObjPoints(p.endRuler || []),
       distance_km: km
     };
+    // Підготуємо шари і дані одразу після завантаження документа
     setProposalOverlayData(CURRENT_PROPOSAL);
-    setProposalVisibility(false); // default hidden until toggled
+    // За замовчуванням — приховано, але ставимо кнопку в «Показати» і підіймаємо шари над маршрутом
+    setProposalVisibility(false);
   } else {
     clearProposalOverlay();
   }
