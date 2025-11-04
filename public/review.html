@@ -142,10 +142,12 @@
         <button id="approveBtn" class="btn good">✅ Погодити</button>
         <button id="rejectBtn"  class="btn bad">❌ Відхилити</button>
         <a id="openEditor" class="btn" target="_blank">🗺 Відкрити в редакторі</a>
-        <button id="toggleProposalEdit" class="btn" title="Намалювати або відредагувати пропозицію маршруту">✏️ Запропонувати зміни</button>
-        <button id="copyFromSubmitted" class="btn" title="Почати з поточного маршруту">📄 Копія з поточного</button>
-        <button id="saveProposalBtn" class="btn good" title="Зберегти пропозицію для логіста" style="display:none;">💾 Зберегти пропозицію</button>
-        <button id="clearProposalBtn" class="btn bad" title="Очистити/прибрати пропозицію" style="display:none;">🗑 Очистити пропозицію</button>
+  <button id="toggleProposalEdit" class="btn" title="Намалювати або відредагувати пропозицію маршруту">✏️ Запропонувати зміни</button>
+  <button id="copyFromSubmitted" class="btn" title="Почати з поточного маршруту">📄 Копія з поточного</button>
+  <button id="toggleStartRuler" class="btn" title="Додавати/редагувати лінійку старту" style="display:none;">📏 Лінійка старт</button>
+  <button id="toggleEndRuler" class="btn" title="Додавати/редагувати лінійку фінішу" style="display:none;">📐 Лінійка фініш</button>
+  <button id="saveProposalBtn" class="btn good" title="Зберегти пропозицію для логіста" style="display:none;">💾 Зберегти пропозицію</button>
+  <button id="clearProposalBtn" class="btn bad" title="Очистити/прибрати пропозицію" style="display:none;">🗑 Очистити пропозицію</button>
       </div>
 
       <div id="rejectWrap" style="display:none; margin-top:10px;">
@@ -165,7 +167,8 @@
         <div>
           <div class="chip" id="chipStatus">Статус: —</div>
           <div class="chip" id="chipDistanceDb">БД: —</div>
-          <div class="chip" id="chipDistanceLive">По дорогах: —</div>
+          <div class="chip" id="chipDistanceLive">Разом: —</div>
+          <div class="chip" id="chipProposalKm" style="display:none;">Пропозиція: —</div>
           <div class="chip" id="chipRevision">Подача № —</div>
         </div>
         <div style="text-align:right">
@@ -276,8 +279,8 @@
   async function drawSnappedRoute(points){
     clearRouteLayers();
     if(!Array.isArray(points) || points.length<2){
-      chip('chipDistanceLive','По дорогах: —');
-      return;
+      chip('chipDistanceLive','Разом: —');
+      return 0;
     }
 
     const chunks = splitIntoChunks(points, 20);
@@ -320,8 +323,8 @@
       map.fitBounds([[bMinLng,bMinLat],[bMaxLng,bMaxLat]], { padding: 40, maxZoom: 14 });
     }
 
-    const km = (totalMeters/1000);
-    chip('chipDistanceLive', isFinite(km) ? `По дорогах: ${km.toFixed(2)} км` : 'По дорогах: —');
+    // повертаємо довжину маршруту по дорогах у метрах (без лінійок)
+    return totalMeters;
   }
 
   /* ---------- Security proposal (editable, yellow) ---------- */
@@ -329,6 +332,12 @@
   let proposalMarkers = [];
   let proposalLayers = [];
   let proposalEditMode = false;
+  // Редаговані лінійки для пропозиції
+  let propStartRuler = [];
+  let propEndRuler = [];
+  let propStartMarkers = [];
+  let propEndMarkers = [];
+  let propRulerMode = null; // 'start' | 'end' | null
 
   function clearProposalLayers(){
     proposalLayers.forEach(id=>{
@@ -340,6 +349,11 @@
   function clearProposalMarkers(){
     proposalMarkers.forEach(m=>{ try{ m.remove(); }catch{} });
     proposalMarkers = [];
+  }
+  function clearProposalRulerMarkers(){
+    propStartMarkers.forEach(m=>{ try{ m.remove(); }catch{} });
+    propEndMarkers.forEach(m=>{ try{ m.remove(); }catch{} });
+    propStartMarkers = []; propEndMarkers = [];
   }
   function rebuildProposalMarkers(){
     clearProposalMarkers();
@@ -355,6 +369,32 @@
       });
       proposalMarkers.push(marker);
     });
+    // Ruler markers
+    clearProposalRulerMarkers();
+    propStartRuler.forEach((pt, idx)=>{
+      const marker = new mapboxgl.Marker({ color:'#0ea5e9', draggable: proposalEditMode })
+        .setLngLat(pt).addTo(map);
+      marker.on('dragend', ()=>{
+        if (!proposalEditMode) return;
+        const ll = marker.getLngLat();
+        propStartRuler[idx] = [ll.lng, ll.lat];
+        drawProposalRulers();
+        drawSnappedProposal();
+      });
+      propStartMarkers.push(marker);
+    });
+    propEndRuler.forEach((pt, idx)=>{
+      const marker = new mapboxgl.Marker({ color:'#22c55e', draggable: proposalEditMode })
+        .setLngLat(pt).addTo(map);
+      marker.on('dragend', ()=>{
+        if (!proposalEditMode) return;
+        const ll = marker.getLngLat();
+        propEndRuler[idx] = [ll.lng, ll.lat];
+        drawProposalRulers();
+        drawSnappedProposal();
+      });
+      propEndMarkers.push(marker);
+    });
   }
   function setProposalEditMode(on){
     proposalEditMode = !!on;
@@ -363,15 +403,50 @@
     document.getElementById('clearProposalBtn').style.display = (proposalPoints.length>0) ? 'inline-block' : 'none';
     const btn = document.getElementById('toggleProposalEdit');
     btn.classList.toggle('good', proposalEditMode);
+    // показати кнопки для лінійок тільки у режимі редагування
+    document.getElementById('toggleStartRuler').style.display = proposalEditMode ? 'inline-block' : 'none';
+    document.getElementById('toggleEndRuler').style.display   = proposalEditMode ? 'inline-block' : 'none';
   }
   // Додавання точок пропозиції кліком по карті (після оголошення змінних)
   map.on('click', (e)=>{
     if (!proposalEditMode) return;
     const pt = [e.lngLat.lng, e.lngLat.lat];
+    if (propRulerMode === 'start'){
+      propStartRuler.push(pt);
+      rebuildProposalMarkers();
+      drawProposalRulers();
+      drawSnappedProposal();
+      return;
+    }
+    if (propRulerMode === 'end'){
+      propEndRuler.push(pt);
+      rebuildProposalMarkers();
+      drawProposalRulers();
+      drawSnappedProposal();
+      return;
+    }
+    // звичайний режим — додаємо точки маршруту
     proposalPoints.push(pt);
     rebuildProposalMarkers();
     drawSnappedProposal();
   });
+  function haversineMeters(a,b){
+    const toRad = d=>d*Math.PI/180;
+    const R=6371000;
+    const dLat=toRad(b[1]-a[1]);
+    const dLng=toRad(b[0]-a[0]);
+    const lat1=toRad(a[1]); const lat2=toRad(b[1]);
+    const h = Math.sin(dLat/2)**2 + Math.cos(lat1)*Math.cos(lat2)*Math.sin(dLng/2)**2;
+    return 2*R*Math.asin(Math.sqrt(h));
+  }
+  function lineMeters(coords){
+    let m=0; for(let i=1;i<coords.length;i++){ m += haversineMeters(coords[i-1], coords[i]); } return m;
+  }
+  function proposalRulersMeters(){
+    let m=0; if (propStartRuler.length>=2) m+=lineMeters(propStartRuler);
+    if (propEndRuler.length>=2) m+=lineMeters(propEndRuler);
+    return m;
+  }
   async function drawSnappedProposal(){
     clearProposalLayers();
     if (!Array.isArray(proposalPoints) || proposalPoints.length<2) return;
@@ -390,15 +465,11 @@
         proposalLayers.push(srcId);
       }catch(e){ console.warn('Directions proposal error', e); }
     }
-    // показати сумарну довжину пропозиції у статусі
-    const km = totalMeters/1000;
-    const info = document.getElementById('rejectInfo');
-    if (info){
-      const base = (document.getElementById('decisionInfo')?.textContent || '').split(' | ')[0];
-      const text = `Пропозиція СБ: ${isFinite(km)?km.toFixed(2)+' км':'—'}`;
-      // не перезаписуємо decisionInfo, лише показуємо нижче
-      info.textContent = (document.getElementById('rejectInfo').textContent || '');
-    }
+    // намалювати лінійки пропозиції та показати сумарну довжину (маршрут + лінійки)
+    drawProposalRulers();
+    const totalKm = (totalMeters + proposalRulersMeters())/1000;
+    const chipP = document.getElementById('chipProposalKm');
+    if (chipP){ chipP.style.display='inline-block'; chipP.textContent = isFinite(totalKm)?(`Пропозиція: ${totalKm.toFixed(2)} км`):'Пропозиція: —'; }
   }
 
   // dashed rulers
@@ -419,6 +490,22 @@
       map.addSource('ruler-end-src',{type:'geojson', data:{ type:'Feature', geometry:{ type:'LineString', coordinates: re } }});
       map.addLayer({ id:'ruler-end', type:'line', source:'ruler-end-src',
         paint:{ 'line-color':'#22c55e','line-width':3,'line-dasharray':[1,2]}});
+    }
+  }
+
+  // Пропозиційні лінійки (штрих)
+  function drawProposalRulers(){
+    ['prop-ruler-start','prop-ruler-end','prop-ruler-start-src','prop-ruler-end-src'].forEach(id=>{
+      try{ if(map.getLayer(id)) map.removeLayer(id); }catch{}
+      try{ if(map.getSource(id)) map.removeSource(id); }catch{}
+    });
+    if (propStartRuler.length>=2){
+      map.addSource('prop-ruler-start-src',{type:'geojson', data:{ type:'Feature', geometry:{ type:'LineString', coordinates: propStartRuler } }});
+      map.addLayer({ id:'prop-ruler-start', type:'line', source:'prop-ruler-start-src', paint:{ 'line-color':'#0ea5e9','line-width':3,'line-dasharray':[1,2]}});
+    }
+    if (propEndRuler.length>=2){
+      map.addSource('prop-ruler-end-src',{type:'geojson', data:{ type:'Feature', geometry:{ type:'LineString', coordinates: propEndRuler } }});
+      map.addLayer({ id:'prop-ruler-end', type:'line', source:'prop-ruler-end-src', paint:{ 'line-color':'#22c55e','line-width':3,'line-dasharray':[1,2]}});
     }
   }
 // ---- нормалізація «домальованих» сегментів з різних форматів ----
@@ -523,9 +610,9 @@ function drawManualSegments(d){
     document.getElementById('fromLabel').textContent = d.fromLabel || '—';
     document.getElementById('toLabel').textContent   = d.toLabel   || '—';
 
-    // ➜ дві дистанції
-    chip('chipDistanceDb',   (typeof d.distance_km==='number') ? `БД: ${d.distance_km.toFixed(2)} км` : 'БД: —');
-    chip('chipDistanceLive', 'По дорогах: …');
+  // ➜ дистанції: показуємо БД та "Разом" (маршрут+лінійки)
+  chip('chipDistanceDb',   (typeof d.distance_km==='number') ? `БД: ${d.distance_km.toFixed(2)} км` : 'БД: —');
+  chip('chipDistanceLive', 'Разом: …');
 
     chip('chipRevision', 'Подача № ' + ((d.approval?.revision) ?? '—'));
     chip('chipStatus',   'Статус: ' + fmtStatus(d.approval?.status));
@@ -557,23 +644,44 @@ function drawManualSegments(d){
     // збережемо сирі точки для фолбеків і копіювання в пропозицію
     try{ window.__docRawPoints = d.points || d.coordinates || d.route || d.geojson || d.geometry || null; }catch(_){ }
     try{ window.__lastSubmittedPoints = Array.isArray(pts) ? pts.slice() : []; }catch(_){ }
-    await drawSnappedRoute(pts);
+    const routeMeters = await drawSnappedRoute(pts);
     setSEMarkers(pts);
     drawRulers(d);
 	drawManualSegments(d);
+    // порахуємо довжину лінійок (прямі відрізки)
+    function haversineMeters(a,b){
+      const toRad = d=>d*Math.PI/180; const R=6371000;
+      const dLat=toRad(b[1]-a[1]); const dLng=toRad(b[0]-a[0]);
+      const lat1=toRad(a[1]); const lat2=toRad(b[1]);
+      const h = Math.sin(dLat/2)**2 + Math.cos(lat1)*Math.cos(lat2)*Math.sin(dLng/2)**2;
+      return 2*R*Math.asin(Math.sqrt(h));
+    }
+    function lineMeters(coords){ let m=0; for(let i=1;i<coords.length;i++){ m+=haversineMeters(coords[i-1], coords[i]); } return m; }
+  const rs = fromObjPoints(d.startRuler||[]), re = fromObjPoints(d.endRuler||[]);
+  try{ window.__docStartRuler = rs.slice(); window.__docEndRuler = re.slice(); }catch(_){ }
+    const rulersMeters = (rs.length>=2?lineMeters(rs):0) + (re.length>=2?lineMeters(re):0);
+    const totalKm = (routeMeters + rulersMeters)/1000;
+    chip('chipDistanceLive', isFinite(totalKm)?`Разом: ${totalKm.toFixed(2)} км`:'Разом: —');
 
     // Якщо є збережена пропозиція СБ — показати її
     const prop = d.approval && d.approval.securityProposal ? d.approval.securityProposal : null;
     if (prop && Array.isArray(prop.points)){
       proposalPoints = fromObjPoints(prop.points);
+      propStartRuler = Array.isArray(prop.startRuler)? fromObjPoints(prop.startRuler) : [];
+      propEndRuler   = Array.isArray(prop.endRuler)?   fromObjPoints(prop.endRuler)   : [];
       setProposalEditMode(false);
       rebuildProposalMarkers();
       await drawSnappedProposal();
+      // позначити, що є пропозиція
+      const chipP = document.getElementById('chipProposalKm'); if (chipP) chipP.style.display='inline-block';
     } else {
       proposalPoints = [];
+      propStartRuler = []; propEndRuler = [];
       setProposalEditMode(false);
       rebuildProposalMarkers();
       clearProposalLayers();
+      drawProposalRulers();
+      const chipP = document.getElementById('chipProposalKm'); if (chipP){ chipP.style.display='none'; chipP.textContent='Пропозиція: —'; }
     }
   }
 
@@ -709,7 +817,9 @@ function drawManualSegments(d){
     const saveBtn   = document.getElementById('saveProposalBtn');
     const clearBtn  = document.getElementById('clearProposalBtn');
     const copyBtn   = document.getElementById('copyFromSubmitted');
-    toggleBtn.disabled = !canEdit; saveBtn.disabled = !canEdit; clearBtn.disabled = !canEdit; copyBtn.disabled = !canEdit;
+  const btnStart  = document.getElementById('toggleStartRuler');
+  const btnEnd    = document.getElementById('toggleEndRuler');
+  toggleBtn.disabled = !canEdit; saveBtn.disabled = !canEdit; clearBtn.disabled = !canEdit; copyBtn.disabled = !canEdit; btnStart.disabled = !canEdit; btnEnd.disabled = !canEdit;
 
     toggleBtn.onclick = ()=>{
       if (!canEdit) return;
@@ -722,6 +832,9 @@ function drawManualSegments(d){
         proposalPoints = (Array.isArray(window.__lastSubmittedPoints) && window.__lastSubmittedPoints.length)
           ? window.__lastSubmittedPoints.slice()
           : (Array.isArray(window.__docRawPoints) ? fromObjPoints(window.__docRawPoints) : []);
+        // Копіюємо також лінійки з документа, щоб можна було їх підредагувати
+        if (Array.isArray(window.__docStartRuler)) propStartRuler = window.__docStartRuler.slice();
+        if (Array.isArray(window.__docEndRuler))   propEndRuler   = window.__docEndRuler.slice();
         if (!proposalPoints.length){
           // візьмемо необроблені точки з документа, якщо збережені глобально при завантаженні
           if (window.__docRawPoints && Array.isArray(window.__docRawPoints)){
@@ -730,8 +843,21 @@ function drawManualSegments(d){
         }
         setProposalEditMode(true);
         rebuildProposalMarkers();
+        drawProposalRulers();
         drawSnappedProposal();
       }catch(_){ setProposalEditMode(true); }
+    };
+    btnStart.onclick = ()=>{
+      if (!canEdit) return; setProposalEditMode(true);
+      propRulerMode = (propRulerMode==='start') ? null : 'start';
+      btnStart.classList.toggle('good', propRulerMode==='start');
+      btnEnd.classList.remove('good');
+    };
+    btnEnd.onclick = ()=>{
+      if (!canEdit) return; setProposalEditMode(true);
+      propRulerMode = (propRulerMode==='end') ? null : 'end';
+      btnEnd.classList.toggle('good', propRulerMode==='end');
+      btnStart.classList.remove('good');
     };
     saveBtn.onclick = async ()=>{
       if (!canEdit) return;
@@ -747,10 +873,20 @@ function drawManualSegments(d){
           const r = await fetch(url); const j = await r.json().catch(()=>null); const m = j?.routes?.[0]?.distance || 0; kmApprox += m/1000;
         }
       }catch(_){ }
+      // додамо довжину лінійок (прямі відрізки)
+      try{
+        const toKm = (m)=>m/1000;
+        const hk = (a,b)=>{ const toRad=d=>d*Math.PI/180, R=6371000; const dLat=toRad(b[1]-a[1]), dLng=toRad(b[0]-a[0]); const lat1=toRad(a[1]), lat2=toRad(b[1]); const h=Math.sin(dLat/2)**2+Math.cos(lat1)*Math.cos(lat2)*Math.sin(dLng/2)**2; return 2*R*Math.asin(Math.sqrt(h)); };
+        const lm = (arr)=>{ let m=0; for(let i=1;i<arr.length;i++){ m+=hk(arr[i-1],arr[i]); } return m; };
+        if (propStartRuler.length>=2) kmApprox += toKm(lm(propStartRuler));
+        if (propEndRuler.length>=2)   kmApprox += toKm(lm(propEndRuler));
+      }catch(_){ }
       const user = auth.currentUser;
       const payload = {
         'approval.securityProposal': {
           points: proposalPoints.map(p=>({lng:p[0],lat:p[1]})),
+          startRuler: propStartRuler.map(p=>({lng:p[0],lat:p[1]})),
+          endRuler:   propEndRuler.map(p=>({lng:p[0],lat:p[1]})),
           km: isFinite(kmApprox) ? Number(kmApprox.toFixed(2)) : null,
           proposedAt: new Date().toISOString(),
           proposedByUid: user?.uid || null,
@@ -770,7 +906,8 @@ function drawManualSegments(d){
       if (!confirm('Прибрати пропозицію СБ?')) return;
       try{
         await db.collection('routes').doc(rid).update({ 'approval.securityProposal': firebase.firestore.FieldValue.delete(), updatedAt: new Date().toISOString() });
-        proposalPoints = []; setProposalEditMode(false); rebuildProposalMarkers(); clearProposalLayers();
+        proposalPoints = []; propStartRuler=[]; propEndRuler=[]; propRulerMode=null;
+        setProposalEditMode(false); rebuildProposalMarkers(); clearProposalLayers(); drawProposalRulers();
         alert('Пропозицію видалено.');
       }catch(e){ alert('Не вдалося видалити: ' + (e?.message||e)); }
     };
