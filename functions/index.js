@@ -178,58 +178,6 @@ exports.approveRoute = onRequest({ cors: true }, async (req, res) => {
   }
 });
 
-// Save or clear Security proposal (server-side, role: admin|security)
-exports.saveProposal = onRequest({ cors: true }, async (req, res) => {
-  try{
-    if (req.method !== 'POST'){
-      res.set('Allow','POST');
-      return res.status(405).json({ ok:false, error:'Method Not Allowed' });
-    }
-
-    const authInfo = await verifyAuth(req);
-    const { role } = await getUserAccess(authInfo.uid);
-    const canEdit = role === 'admin' || role === 'security';
-    if (!canEdit) return res.status(403).json({ ok:false, error:'forbidden' });
-
-    const body = req.body || {};
-    const id = String(body.id || '').trim();
-    if (!id) return res.status(400).json({ ok:false, error:'Missing id' });
-    const clear = !!body.clear;
-
-    const db = admin.firestore();
-    const ref = db.collection('routes').doc(id);
-    const nowIso = new Date().toISOString();
-
-    if (clear){
-      await ref.set({ 'approval.securityProposal': admin.firestore.FieldValue.delete(), updatedAt: nowIso }, { merge:true });
-      return res.json({ ok:true, id, cleared:true });
-    }
-
-    const points = Array.isArray(body.points) ? body.points : [];
-    if (points.length < 2) return res.status(400).json({ ok:false, error:'Need at least 2 points' });
-    const startRuler = Array.isArray(body.startRuler) ? body.startRuler : [];
-    const endRuler   = Array.isArray(body.endRuler)   ? body.endRuler   : [];
-    const km        = (typeof body.km === 'number') ? body.km : null;
-
-    const payload = {
-      'approval.securityProposal': {
-        points, startRuler, endRuler,
-        km,
-        proposedAt: nowIso,
-        proposedByUid: authInfo.uid || null,
-        proposedByEmail: authInfo.email || null
-      },
-      updatedAt: nowIso
-    };
-    await ref.set(payload, { merge:true });
-    return res.json({ ok:true, id, saved:true });
-  }catch(e){
-    const code = e && e.code ? String(e.code) : undefined;
-    if (code === 'unauthenticated') return res.status(401).json({ ok:false, error:'unauthenticated' });
-    return res.status(500).json({ ok:false, error: String(e && e.message || e) });
-  }
-});
-
 // Delete user (admin only): remove Firestore user doc, optional Auth user, and roles doc
 exports.deleteUser = onRequest({ cors: true }, async (req, res) => {
   try{
