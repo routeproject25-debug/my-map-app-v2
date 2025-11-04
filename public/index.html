@@ -1933,6 +1933,20 @@ async function findSimilarRoutes(){
         startRuler = fromObjPoints(d.startRuler||[]);
         endRuler   = fromObjPoints(d.endRuler||[]);
         rebuildMarkers(); rebuildRulerMarkers(); drawRulers(); updateRoute();
+        // Підхопити пропозицію СБ з вибраного маршруту (якщо є)
+        try{
+          const prop = d.approval && d.approval.securityProposal ? d.approval.securityProposal : null;
+          securityProposal = prop && Array.isArray(prop.points) ? { points: fromObjPoints(prop.points), km: prop.km || null } : null;
+          const dock = document.getElementById('proposalDock');
+          if (securityProposal && securityProposal.points.length >= 2){
+            dock.style.display = 'flex';
+          } else {
+            dock.style.display = 'none';
+            clearSecurityProposalOverlay();
+          }
+          const tBtn = document.getElementById('proposalToggleBtn');
+          if (tBtn) tBtn.textContent = '👁 Показати';
+        }catch(_){ /* ignore */ }
         clearPreviewRoute();
         modal.classList.remove('show');
       };
@@ -3743,7 +3757,14 @@ async function loadFromDB() {
     if (!id) { alert('Оберіть маршрут у списку або виберіть зі списку підказок пошуку'); return; }
 
     const docRef = db.collection('routes').doc(id);
-    const docSnap = await docRef.get();
+    // Спробувати отримати свіжі дані з сервера (щоб побачити нову пропозицію СБ),
+    // у разі помилки мережі — фолбек до кешу за замовчуванням
+    let docSnap;
+    try {
+      docSnap = await docRef.get({ source: 'server' });
+    } catch(_) {
+      docSnap = await docRef.get();
+    }
     if (!docSnap.exists) { alert('Маршрут не знайдено'); return; }
   const data = docSnap.data();
     if (!userAllowsHub(data.hub || '')) {
@@ -3790,6 +3811,9 @@ registerDirEntry(data.toCode,   data.toLabel   || document.getElementById('toNam
         dock.style.display = 'none';
         clearSecurityProposalOverlay();
       }
+      // Скинути стан кнопки перегляду
+      const tBtn = document.getElementById('proposalToggleBtn');
+      if (tBtn) tBtn.textContent = '👁 Показати';
     }catch(_){ }
   } catch (err) {
     console.error('❌ Помилка завантаження з БД:', err);
