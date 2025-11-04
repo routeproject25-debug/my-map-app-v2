@@ -77,8 +77,10 @@
     .row{ display:grid; grid-template-columns:1fr 1fr; gap:12px }
     @media(max-width:900px){ .row{ grid-template-columns:1fr } }
 
-    /* Proposal styles */
-    .btn.warn{ background:#fef9c3; border-color:#f59e0b }
+  /* Proposal styles */
+  /* За замовчуванням кнопки режимів білі; стають жовтими лише коли активні */
+  .btn.warn{ background:#fff; border-color:var(--line) }
+  .btn.warn.active{ background:#fef9c3; border-color:#f59e0b }
     .chip.proposal{ background:#fef9c3; border-color:#f59e0b }
     /* Make draw handles a bit more visible */
     .mapbox-gl-draw_point{ width:10px; height:10px; }
@@ -277,12 +279,12 @@
             id: 'gl-draw-point-active', type:'circle', filter:['all',['==','$type','Point'],['==','active','true']],
             paint:{ 'circle-radius':6, 'circle-color':'#f59e0b', 'circle-stroke-width':2, 'circle-stroke-color':'#111' }
           },
-          // route line (yellow)
+          // raw line from Draw — робимо прозорим, щоб не бачити не‑снапнуті прямі сегменти
           {
             id: 'gl-draw-line-inactive', type:'line', filter:['all',['==','$type','LineString'],['!=','active','true']],
-            paint:{ 'line-color':'#f59e0b','line-width':3 }
+            paint:{ 'line-color':'#f59e0b','line-width':3, 'line-opacity':0 }
           },
-          { id: 'gl-draw-line-active', type:'line', filter:['all',['==','$type','LineString'],['==','active','true']], paint:{ 'line-color':'#f59e0b','line-width':4 } },
+          { id: 'gl-draw-line-active', type:'line', filter:['all',['==','$type','LineString'],['==','active','true']], paint:{ 'line-color':'#f59e0b','line-width':4, 'line-opacity':0 } },
           // midpoints
           { id:'gl-draw-polygon-and-line-vertex-halo-active', type:'circle', filter:['all',['==','meta','vertex'],['==','$type','Point']], paint:{ 'circle-radius':8,'circle-color':'#fff' } },
           { id:'gl-draw-polygon-and-line-vertex-active', type:'circle', filter:['all',['==','meta','vertex'],['==','$type','Point']], paint:{ 'circle-radius':5,'circle-color':'#f59e0b' } },
@@ -310,18 +312,29 @@
     try{
       if (!draw) return;
       if (!proposalEditOn){ draw.changeMode('simple_select', {}); return; }
-      const id = propIds[proposalMode];
-      if (id){ draw.changeMode('direct_select', { featureId: id }); }
+      // Примусово активуємо потрібну лінію, щоб одразу зʼявилися вершини
+      ensureFeatureForKind(proposalMode);
     }catch(_){ }
   }
 
   function ensureFeatureForKind(kind){
     ensureDrawOnce();
     try{
-      // Не створюємо примусово жодних точок — користувач ставить першу точку сам,
-      // щоб не було «дивного» сегмента від центру карти до першої точки
-      const id = propIds[kind];
-      if (id) try{ draw.changeMode('direct_select', { featureId: id }); }catch(_){ }
+      // Не створюємо примусово жодних точок — користувач ставить першу точку сам.
+      // Але обовʼязково активуємо direct_select для існуючої лінії, 
+      // і робимо це через коротке повернення у simple_select для стабільності.
+      let id = propIds[kind];
+      if (!id){
+        try{
+          const all = draw.getAll();
+          const feat = all.features?.find(f => f.geometry?.type==='LineString' && f.properties?.kind===kind);
+          if (feat) id = feat.id;
+        }catch(_){ }
+      }
+      if (id){
+        try{ draw.changeMode('simple_select'); }catch(_){}
+        setTimeout(()=>{ try{ draw.changeMode('direct_select', { featureId: id }); }catch(_){ } }, 0);
+      }
     }catch(_){ }
   }
   function ensureProposalLayers(){
