@@ -1114,8 +1114,9 @@ let selectedMarkerIndex = null;
 
 // ====== Proposal overlay state ======
 let PROPOSAL_VISIBLE = false;
-let CURRENT_PROPOSAL = null; // { points: [[lng,lat],...], startRuler: [[lng,lat],...], endRuler: [[lng,lat],...], distance_km }
+let CURRENT_PROPOSAL = null; // { points: [[lng,lat],...], startRuler: [[lng,lat],...], endRuler: [[lng,lat],...], distance_km, snappedPoints? }
 let HAS_PROPOSAL = false; // for status chip
+let __proposalSnapInFlight = false;
 
 
 let activeRuler = null; let lastActiveRuler = null;
@@ -3908,6 +3909,39 @@ function ensureProposalLayers(){
   } catch(_){}
 }
 
+// Snap raw proposal polyline to roads using Mapbox Directions (chunked)
+async function snapProposalRouteCoords(coords){
+  try{
+    if (!Array.isArray(coords) || coords.length < 2) return [];
+    const chunks = splitIntoChunks(coords, 20);
+    const out = [];
+    for (let i = 0; i < chunks.length; i++){
+      const coordsStr = chunks[i].map(p => p.join(',')).join(';');
+      const url = `https://api.mapbox.com/directions/v5/mapbox/driving/${coordsStr}?geometries=geojson&overview=full&continue_straight=true&access_token=${mapboxgl.accessToken}`;
+      try{
+        const r = await fetch(url);
+        const j = await r.json();
+        const g = j?.routes?.[0]?.geometry;
+        if (g?.coordinates) out.push(...g.coordinates);
+      }catch(_){ /* ignore this chunk */ }
+    }
+    return out.length ? out : coords;
+  }catch(_){ return coords || []; }
+}
+
+async function ensureProposalSnapped(prop){
+  try{
+    if (!prop || __proposalSnapInFlight) return;
+    if (Array.isArray(prop.snappedPoints) && prop.snappedPoints.length >= 2) return;
+    __proposalSnapInFlight = true;
+    const snapped = await snapProposalRouteCoords(prop.points || []);
+    prop.snappedPoints = snapped;
+  } finally {
+    __proposalSnapInFlight = false;
+    try{ setProposalOverlayData(prop); }catch(_){}
+  }
+}
+
 function setProposalOverlayData(prop){
   ensureProposalLayers();
   const makeLine = (coords) => ({ type:'Feature', geometry:{ type:'LineString', coordinates: coords || [] }, properties:{} });
@@ -3915,7 +3949,9 @@ function setProposalOverlayData(prop){
     const routeFC = { type:'FeatureCollection', features: [] };
     const startFC = { type:'FeatureCollection', features: [] };
     const endFC   = { type:'FeatureCollection', features: [] };
-    if (Array.isArray(prop?.points) && prop.points.length >= 2){ routeFC.features.push(makeLine(prop.points)); }
+    const routeCoords = (Array.isArray(prop?.snappedPoints) && prop.snappedPoints.length >= 2)
+      ? prop.snappedPoints : (prop?.points || []);
+    if (Array.isArray(routeCoords) && routeCoords.length >= 2){ routeFC.features.push(makeLine(routeCoords)); }
     if (Array.isArray(prop?.startRuler) && prop.startRuler.length >= 2){ startFC.features.push(makeLine(prop.startRuler)); }
     if (Array.isArray(prop?.endRuler) && prop.endRuler.length >= 2){ endFC.features.push(makeLine(prop.endRuler)); }
     if (map.getSource('proposal-route')) map.getSource('proposal-route').setData(routeFC);
@@ -3929,6 +3965,8 @@ function setProposalVisibility(show){
   ensureProposalLayers();
   if (CURRENT_PROPOSAL) {
     try { setProposalOverlayData(CURRENT_PROPOSAL); } catch(_) {}
+    // якщо ще не снапнуто — запускаємо асинхронний підрахунок
+    try { ensureProposalSnapped(CURRENT_PROPOSAL); } catch(_) {}
   }
 
   PROPOSAL_VISIBLE = !!show;
@@ -3979,10 +4017,11 @@ function updateProposalUIForData(data){
       endRuler: fromObjPoints(p.endRuler || []),
       distance_km: km
     };
-    // Підготуємо шари і дані одразу після завантаження документа
+    // Підготуємо шари і дані; спочатку покажемо «як є», потім асинхронно дотягнемо снапнуту геометрію
     setProposalOverlayData(CURRENT_PROPOSAL);
-    // За замовчуванням — приховано, але ставимо кнопку в «Показати» і підіймаємо шари над маршрутом
-    setProposalVisibility(false);
+    setProposalVisibility(false); // кнопка показує "Показати"
+    // Асинхронно розрахувати снапнуту до доріг лінію і оновити оверлей
+    ensureProposalSnapped(CURRENT_PROPOSAL);
   } else {
     clearProposalOverlay();
   }
