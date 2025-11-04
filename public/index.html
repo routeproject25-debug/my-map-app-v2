@@ -617,6 +617,13 @@
 <div id="statusDock">
   <div id="statusChip" class="status-chip" data-status="draft">📝 Статус: Чернетка</div>
   <div id="distanceChip" class="status-chip">📏 Відстань, км: <span id="distanceTop">0</span></div>
+    <div id="proposalDock" style="display:none;gap:6px;align-items:center;flex-wrap:wrap">
+      <div class="status-chip" id="proposalInfo">⚠️ Пропозиція СБ доступна</div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;">
+        <button id="proposalToggleBtn" class="btn xs">👁 Показати</button>
+        <button id="proposalAcceptBtn" class="btn xs">✅ Прийняти</button>
+      </div>
+    </div>
 </div>
 
 <!-- Перемикач панелей (праворуч внизу) -->
@@ -1787,6 +1794,30 @@ function showPreviewRoute(coords){
   if (btn) btn.style.display = 'inline-block';
 }
 
+/* ===== Security proposal overlay (yellow) ===== */
+let SEC_PROP_LAYERS = [];
+let securityProposal = null; // з БД
+function clearSecurityProposalOverlay(){
+  try{ SEC_PROP_LAYERS.forEach(id=>{ if(map.getLayer(id)) map.removeLayer(id); if(map.getSource(id)) map.removeSource(id); }); }catch(_){ }
+  SEC_PROP_LAYERS = [];
+}
+async function drawSecurityProposalOverlay(pointsArr){
+  clearSecurityProposalOverlay();
+  if (!Array.isArray(pointsArr) || pointsArr.length < 2) return;
+  const chunks = splitIntoChunks(pointsArr, 20);
+  for (let i=0;i<chunks.length;i++){
+    const coordsStr = chunks[i].map(p=>p.join(',')).join(';');
+    const url = `https://api.mapbox.com/directions/v5/mapbox/driving/${coordsStr}?geometries=geojson&overview=full&continue_straight=true&access_token=${mapboxgl.accessToken}`;
+    try{
+      const r = await fetch(url); const j = await r.json(); const geom = j?.routes?.[0]?.geometry; if (!geom) continue;
+      const id = `sec-prop-${i}`;
+      map.addSource(id, { type:'geojson', data:{ type:'Feature', geometry: geom } });
+      map.addLayer({ id, type:'line', source:id, layout:{ 'line-join':'round','line-cap':'round' }, paint:{ 'line-color':'#f59e0b', 'line-width':4 } });
+      SEC_PROP_LAYERS.push(id);
+    }catch(_){ }
+  }
+}
+
 async function findSimilarRoutes(){
   const fromNameRaw = getPureNameFromInput('fromName');
   const toNameRaw   = getPureNameFromInput('toName');
@@ -1923,6 +1954,36 @@ document.getElementById('similarClose').onclick = () => {
   document.getElementById('similarModal').classList.remove('show');
 };
 document.getElementById('similarClearPreview').onclick = () => clearPreviewRoute();
+
+// ===== Proposal dock buttons =====
+const proposalToggleBtn = document.getElementById('proposalToggleBtn');
+const proposalAcceptBtn = document.getElementById('proposalAcceptBtn');
+if (proposalToggleBtn){
+  proposalToggleBtn.onclick = async ()=>{
+    if (!securityProposal || !securityProposal.points) return;
+    // toggle: if already drawn, clear; else draw
+    if (SEC_PROP_LAYERS.length){
+      clearSecurityProposalOverlay();
+      proposalToggleBtn.textContent = '👁 Показати';
+    } else {
+      await drawSecurityProposalOverlay(securityProposal.points);
+      proposalToggleBtn.textContent = '🙈 Приховати';
+    }
+  };
+}
+if (proposalAcceptBtn){
+  proposalAcceptBtn.onclick = ()=>{
+    if (!securityProposal || !Array.isArray(securityProposal.points) || securityProposal.points.length<2){
+      alert('Немає пропозиції для прийняття.'); return;
+    }
+    if (!confirm('Замінити поточний маршрут на пропозицію СБ? Ви зможете відредагувати перед збереженням.')) return;
+    points = securityProposal.points.slice();
+    rebuildMarkers(); drawRulers(); updateRoute();
+    clearSecurityProposalOverlay();
+    proposalToggleBtn.textContent = '👁 Показати';
+    alert('Пропозицію застосовано. Збережіть маршрут у БД і, за потреби, надішліть на повторне погодження.');
+  };
+}
 
 /* ===== Map click ===== */
 map.on('click', (e) => {
@@ -3684,7 +3745,7 @@ async function loadFromDB() {
     const docRef = db.collection('routes').doc(id);
     const docSnap = await docRef.get();
     if (!docSnap.exists) { alert('Маршрут не знайдено'); return; }
-    const data = docSnap.data();
+  const data = docSnap.data();
     if (!userAllowsHub(data.hub || '')) {
   alert('⛔ У вас немає доступу до хабу цього маршруту: ' + (data.hub || '—'));
   return;
@@ -3717,6 +3778,19 @@ registerDirEntry(data.toCode,   data.toLabel   || document.getElementById('toNam
 	updateHighlights();
     if (points.length > 0) map.flyTo({ center: points[0], zoom: 12 });
     alert('Маршрут завантажено з БД: ' + id + (data.routeKey ? `\nКод: ${data.routeKey}` : ''));
+
+    // === Пропозиція СБ: показати док, якщо є ===
+    try{
+      const prop = data.approval && data.approval.securityProposal ? data.approval.securityProposal : null;
+      securityProposal = prop && Array.isArray(prop.points) ? { points: fromObjPoints(prop.points), km: prop.km || null } : null;
+      const dock = document.getElementById('proposalDock');
+      if (securityProposal && securityProposal.points.length >= 2){
+        dock.style.display = 'flex';
+      } else {
+        dock.style.display = 'none';
+        clearSecurityProposalOverlay();
+      }
+    }catch(_){ }
   } catch (err) {
     console.error('❌ Помилка завантаження з БД:', err);
     alert('❌ Не вдалося завантажити: ' + (err?.message || err));

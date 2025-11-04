@@ -142,6 +142,10 @@
         <button id="approveBtn" class="btn good">✅ Погодити</button>
         <button id="rejectBtn"  class="btn bad">❌ Відхилити</button>
         <a id="openEditor" class="btn" target="_blank">🗺 Відкрити в редакторі</a>
+        <button id="toggleProposalEdit" class="btn" title="Намалювати або відредагувати пропозицію маршруту">✏️ Запропонувати зміни</button>
+        <button id="copyFromSubmitted" class="btn" title="Почати з поточного маршруту">📄 Копія з поточного</button>
+        <button id="saveProposalBtn" class="btn good" title="Зберегти пропозицію для логіста" style="display:none;">💾 Зберегти пропозицію</button>
+        <button id="clearProposalBtn" class="btn bad" title="Очистити/прибрати пропозицію" style="display:none;">🗑 Очистити пропозицію</button>
       </div>
 
       <div id="rejectWrap" style="display:none; margin-top:10px;">
@@ -245,6 +249,8 @@
   window.addEventListener('resize', updateLayoutHeights);
   map.on('load', updateLayoutHeights);
 
+  
+
   /* ---------- helpers ---------- */
   function fromObjPoints(arr){ return (arr||[]).map(p => Array.isArray(p) ? p : [p.lng, p.lat]); }
   function chip(id,t){ document.getElementById(id).textContent = t; }
@@ -302,7 +308,7 @@
         map.addLayer({
           id: srcId, type:'line', source:srcId,
           layout:{ 'line-cap':'round','line-join':'round' },
-          paint:{ 'line-color': `hsl(${(i*60)%360},100%,50%)`, 'line-width': 5 }
+          paint:{ 'line-color': '#ef4444', 'line-width': 5 }
         });
         routeLayers.push(srcId);
 
@@ -316,6 +322,83 @@
 
     const km = (totalMeters/1000);
     chip('chipDistanceLive', isFinite(km) ? `По дорогах: ${km.toFixed(2)} км` : 'По дорогах: —');
+  }
+
+  /* ---------- Security proposal (editable, yellow) ---------- */
+  let proposalPoints = [];
+  let proposalMarkers = [];
+  let proposalLayers = [];
+  let proposalEditMode = false;
+
+  function clearProposalLayers(){
+    proposalLayers.forEach(id=>{
+      try{ if(map.getLayer(id)) map.removeLayer(id); }catch{}
+      try{ if(map.getSource(id)) map.removeSource(id); }catch{}
+    });
+    proposalLayers = [];
+  }
+  function clearProposalMarkers(){
+    proposalMarkers.forEach(m=>{ try{ m.remove(); }catch{} });
+    proposalMarkers = [];
+  }
+  function rebuildProposalMarkers(){
+    clearProposalMarkers();
+    proposalPoints.forEach((pt, idx)=>{
+      const marker = new mapboxgl.Marker({ color:'#f59e0b', draggable: proposalEditMode })
+        .setLngLat(pt)
+        .addTo(map);
+      marker.on('dragend', ()=>{
+        if (!proposalEditMode) return;
+        const ll = marker.getLngLat();
+        proposalPoints[idx] = [ll.lng, ll.lat];
+        drawSnappedProposal();
+      });
+      proposalMarkers.push(marker);
+    });
+  }
+  function setProposalEditMode(on){
+    proposalEditMode = !!on;
+    rebuildProposalMarkers();
+    document.getElementById('saveProposalBtn').style.display = proposalEditMode ? 'inline-block' : 'none';
+    document.getElementById('clearProposalBtn').style.display = (proposalPoints.length>0) ? 'inline-block' : 'none';
+    const btn = document.getElementById('toggleProposalEdit');
+    btn.classList.toggle('good', proposalEditMode);
+  }
+  // Додавання точок пропозиції кліком по карті (після оголошення змінних)
+  map.on('click', (e)=>{
+    if (!proposalEditMode) return;
+    const pt = [e.lngLat.lng, e.lngLat.lat];
+    proposalPoints.push(pt);
+    rebuildProposalMarkers();
+    drawSnappedProposal();
+  });
+  async function drawSnappedProposal(){
+    clearProposalLayers();
+    if (!Array.isArray(proposalPoints) || proposalPoints.length<2) return;
+    const chunks = splitIntoChunks(proposalPoints, 20);
+    let totalMeters = 0;
+    for (let i=0;i<chunks.length;i++){
+      const coordsStr = chunks[i].map(p=>p.join(',')).join(';');
+      const url = `https://api.mapbox.com/directions/v5/mapbox/driving/${coordsStr}?geometries=geojson&overview=full&continue_straight=true&access_token=${mapboxgl.accessToken}`;
+      try{
+        const res = await fetch(url); if(!res.ok) throw new Error('HTTP '+res.status);
+        const data = await res.json(); const route = data?.routes?.[0]; if(!route) continue;
+        totalMeters += (route.distance||0);
+        const srcId = `proposal-${i}`;
+        map.addSource(srcId, { type:'geojson', data:{ type:'Feature', geometry: route.geometry } });
+        map.addLayer({ id: srcId, type:'line', source:srcId, layout:{ 'line-cap':'round','line-join':'round' }, paint:{ 'line-color':'#f59e0b', 'line-width':4, 'line-dasharray':[1,0] } });
+        proposalLayers.push(srcId);
+      }catch(e){ console.warn('Directions proposal error', e); }
+    }
+    // показати сумарну довжину пропозиції у статусі
+    const km = totalMeters/1000;
+    const info = document.getElementById('rejectInfo');
+    if (info){
+      const base = (document.getElementById('decisionInfo')?.textContent || '').split(' | ')[0];
+      const text = `Пропозиція СБ: ${isFinite(km)?km.toFixed(2)+' км':'—'}`;
+      // не перезаписуємо decisionInfo, лише показуємо нижче
+      info.textContent = (document.getElementById('rejectInfo').textContent || '');
+    }
   }
 
   // dashed rulers
@@ -462,7 +545,7 @@ function drawManualSegments(d){
     document.getElementById('openEditor').href = '/index.html?rid=' + encodeURIComponent(rid);
     document.getElementById('statusLine').textContent = 'Маршрут завантажено.';
 
-    // --- snapped маршрут + dashed rulers ---
+  // --- snapped маршрут + dashed rulers ---
         // ⚙️ fallback по полях і нормалізація
     const pts =
       normalizePoints(d.points) ||
@@ -471,10 +554,27 @@ function drawManualSegments(d){
       normalizePoints(d.geojson) ||
       normalizePoints(d.geometry) ||
       fromObjPoints(d.points||[]) || [];
+    // збережемо сирі точки для фолбеків і копіювання в пропозицію
+    try{ window.__docRawPoints = d.points || d.coordinates || d.route || d.geojson || d.geometry || null; }catch(_){ }
+    try{ window.__lastSubmittedPoints = Array.isArray(pts) ? pts.slice() : []; }catch(_){ }
     await drawSnappedRoute(pts);
     setSEMarkers(pts);
     drawRulers(d);
 	drawManualSegments(d);
+
+    // Якщо є збережена пропозиція СБ — показати її
+    const prop = d.approval && d.approval.securityProposal ? d.approval.securityProposal : null;
+    if (prop && Array.isArray(prop.points)){
+      proposalPoints = fromObjPoints(prop.points);
+      setProposalEditMode(false);
+      rebuildProposalMarkers();
+      await drawSnappedProposal();
+    } else {
+      proposalPoints = [];
+      setProposalEditMode(false);
+      rebuildProposalMarkers();
+      clearProposalLayers();
+    }
   }
 
   // Approve / Reject actions (перестраховка на боці клієнта по ролях)
@@ -601,6 +701,78 @@ function drawManualSegments(d){
     };
     document.getElementById('cancelReject').onclick = ()=>{
       document.getElementById('rejectWrap').style.display = 'none';
+    };
+
+    // --- Пропозиція СБ: інструменти ---
+    const canEdit = (sec === true);
+    const toggleBtn = document.getElementById('toggleProposalEdit');
+    const saveBtn   = document.getElementById('saveProposalBtn');
+    const clearBtn  = document.getElementById('clearProposalBtn');
+    const copyBtn   = document.getElementById('copyFromSubmitted');
+    toggleBtn.disabled = !canEdit; saveBtn.disabled = !canEdit; clearBtn.disabled = !canEdit; copyBtn.disabled = !canEdit;
+
+    toggleBtn.onclick = ()=>{
+      if (!canEdit) return;
+      setProposalEditMode(!proposalEditMode);
+    };
+    copyBtn.onclick = ()=>{
+      if (!canEdit) return;
+      try{
+        // ініціалізувати пропозицію копією поточного маршруту
+        proposalPoints = (Array.isArray(window.__lastSubmittedPoints) && window.__lastSubmittedPoints.length)
+          ? window.__lastSubmittedPoints.slice()
+          : (Array.isArray(window.__docRawPoints) ? fromObjPoints(window.__docRawPoints) : []);
+        if (!proposalPoints.length){
+          // візьмемо необроблені точки з документа, якщо збережені глобально при завантаженні
+          if (window.__docRawPoints && Array.isArray(window.__docRawPoints)){
+            proposalPoints = fromObjPoints(window.__docRawPoints);
+          }
+        }
+        setProposalEditMode(true);
+        rebuildProposalMarkers();
+        drawSnappedProposal();
+      }catch(_){ setProposalEditMode(true); }
+    };
+    saveBtn.onclick = async ()=>{
+      if (!canEdit) return;
+      if (!rid) return;
+      if (!proposalPoints || proposalPoints.length < 2){ alert('Намалюйте хоча б дві точки для пропозиції.'); return; }
+      // оцінити кілометраж по частинах так само, як у відмальовці (базово без серверної перевірки)
+      let kmApprox = 0;
+      try{
+        const chunks = splitIntoChunks(proposalPoints, 20);
+        for (let i=0;i<chunks.length;i++){
+          const coordsStr = chunks[i].map(p=>p.join(',')).join(';');
+          const url = `https://api.mapbox.com/directions/v5/mapbox/driving/${coordsStr}?geometries=geojson&overview=full&continue_straight=true&access_token=${mapboxgl.accessToken}`;
+          const r = await fetch(url); const j = await r.json().catch(()=>null); const m = j?.routes?.[0]?.distance || 0; kmApprox += m/1000;
+        }
+      }catch(_){ }
+      const user = auth.currentUser;
+      const payload = {
+        'approval.securityProposal': {
+          points: proposalPoints.map(p=>({lng:p[0],lat:p[1]})),
+          km: isFinite(kmApprox) ? Number(kmApprox.toFixed(2)) : null,
+          proposedAt: new Date().toISOString(),
+          proposedByUid: user?.uid || null,
+          proposedByEmail: user?.email || null
+        },
+        updatedAt: new Date().toISOString()
+      };
+      try{
+        await db.collection('routes').doc(rid).set(payload, { merge:true });
+        alert('Пропозицію збережено. Логіст побачить її в редакторі.');
+        setProposalEditMode(false);
+      }catch(e){ alert('Не вдалося зберегти пропозицію: ' + (e?.message||e)); }
+    };
+    clearBtn.onclick = async ()=>{
+      if (!canEdit) return;
+      if (!rid) return;
+      if (!confirm('Прибрати пропозицію СБ?')) return;
+      try{
+        await db.collection('routes').doc(rid).update({ 'approval.securityProposal': firebase.firestore.FieldValue.delete(), updatedAt: new Date().toISOString() });
+        proposalPoints = []; setProposalEditMode(false); rebuildProposalMarkers(); clearProposalLayers();
+        alert('Пропозицію видалено.');
+      }catch(e){ alert('Не вдалося видалити: ' + (e?.message||e)); }
     };
 
     updateLayoutHeights();
