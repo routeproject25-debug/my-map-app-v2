@@ -617,14 +617,6 @@
 <div id="statusDock">
   <div id="statusChip" class="status-chip" data-status="draft">📝 Статус: Чернетка</div>
   <div id="distanceChip" class="status-chip">📏 Відстань, км: <span id="distanceTop">0</span></div>
-    <div id="proposalDock" style="display:none;gap:6px;align-items:center;flex-wrap:wrap">
-      <div class="status-chip" id="proposalInfo">⚠️ Пропозиція СБ доступна</div>
-      <div style="display:flex;gap:6px;flex-wrap:wrap;">
-        <button id="proposalToggleBtn" class="btn xs">👁 Показати</button>
-        <button id="proposalAcceptBtn" class="btn xs">✅ Прийняти</button>
-        <button id="proposalRejectBtn" class="btn xs bad" title="Відхилити пропозицію СБ">🗑 Відхилити</button>
-      </div>
-    </div>
 </div>
 
 <!-- Перемикач панелей (праворуч внизу) -->
@@ -1795,47 +1787,6 @@ function showPreviewRoute(coords){
   if (btn) btn.style.display = 'inline-block';
 }
 
-/* ===== Security proposal overlay (yellow) ===== */
-let SEC_PROP_LAYERS = [];
-let securityProposal = null; // з БД
-function clearSecurityProposalOverlay(){
-  try{ SEC_PROP_LAYERS.forEach(id=>{ if(map.getLayer(id)) map.removeLayer(id); if(map.getSource(id)) map.removeSource(id); }); }catch(_){ }
-  SEC_PROP_LAYERS = [];
-}
-async function drawSecurityProposalOverlay(pointsArr, startRulerArr = [], endRulerArr = []){
-  clearSecurityProposalOverlay();
-  if (!Array.isArray(pointsArr) || pointsArr.length < 2){
-    // Намалюємо тільки лінійки, якщо немає маршруту
-  }
-  const chunks = splitIntoChunks(pointsArr, 20);
-  for (let i=0;i<chunks.length;i++){
-    const coordsStr = chunks[i].map(p=>p.join(',')).join(';');
-    const url = `https://api.mapbox.com/directions/v5/mapbox/driving/${coordsStr}?geometries=geojson&overview=full&continue_straight=true&access_token=${mapboxgl.accessToken}`;
-    try{
-      const r = await fetch(url); const j = await r.json(); const geom = j?.routes?.[0]?.geometry; if (!geom) continue;
-      const id = `sec-prop-${i}`;
-      map.addSource(id, { type:'geojson', data:{ type:'Feature', geometry: geom } });
-      map.addLayer({ id, type:'line', source:id, layout:{ 'line-join':'round','line-cap':'round' }, paint:{ 'line-color':'#f59e0b', 'line-width':4 } });
-      SEC_PROP_LAYERS.push(id);
-    }catch(_){ }
-  }
-  // Лінійки пропозиції (пунктир)
-  try{
-    if (Array.isArray(startRulerArr) && startRulerArr.length>=2){
-      const idS = 'sec-prop-ruler-start';
-      map.addSource(idS, { type:'geojson', data:{ type:'Feature', geometry:{ type:'LineString', coordinates: startRulerArr } } });
-      map.addLayer({ id:idS, type:'line', source:idS, paint:{ 'line-color':'#0ea5e9','line-width':3,'line-dasharray':[1,2] } });
-      SEC_PROP_LAYERS.push(idS);
-    }
-    if (Array.isArray(endRulerArr) && endRulerArr.length>=2){
-      const idE = 'sec-prop-ruler-end';
-      map.addSource(idE, { type:'geojson', data:{ type:'Feature', geometry:{ type:'LineString', coordinates: endRulerArr } } });
-      map.addLayer({ id:idE, type:'line', source:idE, paint:{ 'line-color':'#22c55e','line-width':3,'line-dasharray':[1,2] } });
-      SEC_PROP_LAYERS.push(idE);
-    }
-  }catch(_){ }
-}
-
 async function findSimilarRoutes(){
   const fromNameRaw = getPureNameFromInput('fromName');
   const toNameRaw   = getPureNameFromInput('toName');
@@ -1951,30 +1902,6 @@ async function findSimilarRoutes(){
         startRuler = fromObjPoints(d.startRuler||[]);
         endRuler   = fromObjPoints(d.endRuler||[]);
         rebuildMarkers(); rebuildRulerMarkers(); drawRulers(); updateRoute();
-        // Підхопити пропозицію СБ з вибраного маршруту (якщо є)
-        try{
-          const prop = d.approval && d.approval.securityProposal ? d.approval.securityProposal : null;
-          if (prop){
-            securityProposal = {
-              points: Array.isArray(prop.points) ? fromObjPoints(prop.points) : [],
-              startRuler: Array.isArray(prop.startRuler)? fromObjPoints(prop.startRuler) : [],
-              endRuler:   Array.isArray(prop.endRuler)?   fromObjPoints(prop.endRuler)   : [],
-              km: prop.km || null
-            };
-          } else {
-            securityProposal = null;
-          }
-          const dock = document.getElementById('proposalDock');
-          const has = !!(securityProposal && ((securityProposal.points&&securityProposal.points.length>=2) || (securityProposal.startRuler&&securityProposal.startRuler.length>=2) || (securityProposal.endRuler&&securityProposal.endRuler.length>=2)));
-          if (has){
-            dock.style.display = 'flex';
-          } else {
-            dock.style.display = 'none';
-            clearSecurityProposalOverlay();
-          }
-          const tBtn = document.getElementById('proposalToggleBtn');
-          if (tBtn) tBtn.textContent = '👁 Показати';
-        }catch(_){ /* ignore */ }
         clearPreviewRoute();
         modal.classList.remove('show');
       };
@@ -1996,70 +1923,6 @@ document.getElementById('similarClose').onclick = () => {
   document.getElementById('similarModal').classList.remove('show');
 };
 document.getElementById('similarClearPreview').onclick = () => clearPreviewRoute();
-
-// ===== Proposal dock buttons =====
-const proposalToggleBtn = document.getElementById('proposalToggleBtn');
-const proposalAcceptBtn = document.getElementById('proposalAcceptBtn');
-const proposalRejectBtn = document.getElementById('proposalRejectBtn');
-if (proposalToggleBtn){
-  proposalToggleBtn.onclick = async ()=>{
-    if (!securityProposal) return;
-    // toggle: if already drawn, clear; else draw
-    if (SEC_PROP_LAYERS.length){
-      clearSecurityProposalOverlay();
-      proposalToggleBtn.textContent = '👁 Показати';
-    } else {
-  await drawSecurityProposalOverlay(securityProposal.points||[], securityProposal.startRuler||[], securityProposal.endRuler||[]);
-      proposalToggleBtn.textContent = '🙈 Приховати';
-    }
-  };
-}
-if (proposalAcceptBtn){
-  proposalAcceptBtn.onclick = ()=>{
-    if (!securityProposal || !Array.isArray(securityProposal.points) || securityProposal.points.length<2){
-      alert('Немає пропозиції для прийняття.'); return;
-    }
-    if (!confirm('Замінити поточний маршрут на пропозицію СБ? Ви зможете відредагувати перед збереженням.')) return;
-  points = securityProposal.points.slice();
-  // Якщо у пропозиції є лінійки — підставляємо
-  if (Array.isArray(securityProposal.startRuler)) startRuler = securityProposal.startRuler.slice();
-  if (Array.isArray(securityProposal.endRuler))   endRuler   = securityProposal.endRuler.slice();
-  rebuildMarkers(); rebuildRulerMarkers(); drawRulers(); updateRoute();
-    clearSecurityProposalOverlay();
-    proposalToggleBtn.textContent = '👁 Показати';
-    alert('Пропозицію застосовано. Збережіть маршрут у БД і, за потреби, надішліть на повторне погодження.');
-  };
-}
-
-// Відхилити пропозицію: видалити approval.securityProposal з документу
-if (proposalRejectBtn){
-  proposalRejectBtn.onclick = async ()=>{
-    try{
-      if (!db) { alert('БД не ініціалізована'); return; }
-      const sel = document.getElementById('remoteRoutes');
-      const id  = (sel && sel.value) || (LAST_SAVED_ROUTE.id || '');
-      if (!id){ alert('Спочатку завантажте/збережіть маршрут з БД.'); return; }
-      if (!confirm('Видалити пропозицію СБ для цього маршруту?')) return;
-      try{
-        await db.collection('routes').doc(id).update({ 'approval.securityProposal': firebase.firestore.FieldValue.delete(), updatedAt: new Date().toISOString() });
-      }catch(e){
-        const msg = String(e && (e.code || e.message) || '');
-        if (/permission|denied|insufficient/i.test(msg)){
-          try{
-            const token = await auth.currentUser.getIdToken();
-            const r = await fetch('/api/routes/proposal', { method:'POST', headers:{ 'Content-Type':'application/json', 'Authorization': 'Bearer ' + token }, body: JSON.stringify({ id, clear:true }) });
-            if (!r.ok){ const t = await r.text().catch(()=> ''); throw new Error('Server clear failed: ' + t); }
-          }catch(err){ throw err; }
-        } else { throw e; }
-      }
-      securityProposal = null;
-      clearSecurityProposalOverlay();
-      const dock = document.getElementById('proposalDock'); if (dock) dock.style.display = 'none';
-      const tBtn = document.getElementById('proposalToggleBtn'); if (tBtn) tBtn.textContent = '👁 Показати';
-      alert('Пропозицію СБ відхилено (видалено).');
-    }catch(err){ alert('Не вдалося відхилити: ' + (err?.message || err)); }
-  };
-}
 
 /* ===== Map click ===== */
 map.on('click', (e) => {
@@ -3819,16 +3682,9 @@ async function loadFromDB() {
     if (!id) { alert('Оберіть маршрут у списку або виберіть зі списку підказок пошуку'); return; }
 
     const docRef = db.collection('routes').doc(id);
-    // Спробувати отримати свіжі дані з сервера (щоб побачити нову пропозицію СБ),
-    // у разі помилки мережі — фолбек до кешу за замовчуванням
-    let docSnap;
-    try {
-      docSnap = await docRef.get({ source: 'server' });
-    } catch(_) {
-      docSnap = await docRef.get();
-    }
+    const docSnap = await docRef.get();
     if (!docSnap.exists) { alert('Маршрут не знайдено'); return; }
-  const data = docSnap.data();
+    const data = docSnap.data();
     if (!userAllowsHub(data.hub || '')) {
   alert('⛔ У вас немає доступу до хабу цього маршруту: ' + (data.hub || '—'));
   return;
@@ -3861,32 +3717,6 @@ registerDirEntry(data.toCode,   data.toLabel   || document.getElementById('toNam
 	updateHighlights();
     if (points.length > 0) map.flyTo({ center: points[0], zoom: 12 });
     alert('Маршрут завантажено з БД: ' + id + (data.routeKey ? `\nКод: ${data.routeKey}` : ''));
-
-    // === Пропозиція СБ: показати док, якщо є ===
-    try{
-      const prop = data.approval && data.approval.securityProposal ? data.approval.securityProposal : null;
-      if (prop){
-        securityProposal = {
-          points: Array.isArray(prop.points) ? fromObjPoints(prop.points) : [],
-          startRuler: Array.isArray(prop.startRuler)? fromObjPoints(prop.startRuler) : [],
-          endRuler:   Array.isArray(prop.endRuler)?   fromObjPoints(prop.endRuler)   : [],
-          km: prop.km || null
-        };
-      } else {
-        securityProposal = null;
-      }
-      const dock = document.getElementById('proposalDock');
-      const has = !!(securityProposal && ((securityProposal.points&&securityProposal.points.length>=2) || (securityProposal.startRuler&&securityProposal.startRuler.length>=2) || (securityProposal.endRuler&&securityProposal.endRuler.length>=2)));
-      if (has){
-        dock.style.display = 'flex';
-      } else {
-        dock.style.display = 'none';
-        clearSecurityProposalOverlay();
-      }
-      // Скинути стан кнопки перегляду
-      const tBtn = document.getElementById('proposalToggleBtn');
-      if (tBtn) tBtn.textContent = '👁 Показати';
-    }catch(_){ }
   } catch (err) {
     console.error('❌ Помилка завантаження з БД:', err);
     alert('❌ Не вдалося завантажити: ' + (err?.message || err));
@@ -3967,29 +3797,6 @@ if (open){
     chip.textContent = (icon ? (icon + ' ') : '') + 'Статус: ' + label;
     chip.dataset.status = st;           // тригер для стилів (pending/approved/rejected)
   }
-
-  // —— док "Пропозиція СБ" (праворуч зверху) — якщо у approval є securityProposal
-  try{
-    const dock = document.getElementById('proposalDock');
-    const prop = approval && approval.securityProposal ? approval.securityProposal : null;
-    const hasPoints = !!(prop && Array.isArray(prop.points) && prop.points.length >= 2);
-    const hasSR = !!(prop && Array.isArray(prop.startRuler) && prop.startRuler.length >= 2);
-    const hasER = !!(prop && Array.isArray(prop.endRuler)   && prop.endRuler.length   >= 2);
-    const has = hasPoints || hasSR || hasER;
-    if (dock){ dock.style.display = has ? 'flex' : 'none'; }
-    if (has){
-      // оновити глобальну змінну для оверлею, навіть якщо маршрут підвантажено іншим шляхом
-      securityProposal = {
-        points: fromObjPoints(prop.points||[]),
-        startRuler: Array.isArray(prop.startRuler)? fromObjPoints(prop.startRuler) : [],
-        endRuler:   Array.isArray(prop.endRuler)?   fromObjPoints(prop.endRuler)   : [],
-        km: prop.km || null
-      };
-    } else {
-      securityProposal = null;
-      try{ clearSecurityProposalOverlay(); }catch(_){ }
-    }
-  }catch(_){ }
 }
 
 // копіюємо лінк на перегляд/погодження
@@ -4371,23 +4178,8 @@ routeSearch.addEventListener('focus', () => {
 /* Load by ?rid= */
 async function loadRouteById(rid) {
   try {
-    // Спробувати свіжі дані з сервера, фолбек до кешу; якщо не знайдено за ID — зробити розумний пошук
-    const ref = db.collection('routes').doc(rid);
-    let snap;
-    try { snap = await ref.get({ source: 'server' }); }
-    catch { snap = await ref.get(); }
-    if (!snap || !snap.exists) {
-      // Якщо rid виглядає як назва (а не ID), спробуємо знайти по nameLower або routeKey
-      const qName = await db.collection('routes').where('nameLower','==', String(rid).toLowerCase()).limit(1).get({ source:'server' }).catch(()=>null);
-      if (qName && !qName.empty) {
-        snap = qName.docs[0];
-      } else {
-        // Спроба по routeKey
-        const qKey = await db.collection('routes').where('routeKey','==', String(rid)).limit(1).get({ source:'server' }).catch(()=>null);
-        if (qKey && !qKey.empty) snap = qKey.docs[0];
-      }
-      if (!snap || !snap.exists) { alert('Маршрут не знайдено: ' + rid); return; }
-    }
+    const snap = await db.collection('routes').doc(rid).get();
+    if (!snap.exists) { alert('Маршрут з таким ID не знайдено: ' + rid); return; }
     const data = snap.data();
     if (!userAllowsHub(data.hub || '')) {
   alert('⛔ У вас немає доступу до хабу цього маршруту: ' + (data.hub || '—'));
@@ -4417,32 +4209,7 @@ async function loadRouteById(rid) {
       for (const p of points) b.extend(p);
       map.fitBounds(b, { padding: 40 });
     }
-  if (data.routeKey) alert('Код маршруту: ' + data.routeKey);
-
-    // === Пропозиція СБ: показати док, якщо є ===
-    try{
-      const prop = data.approval && data.approval.securityProposal ? data.approval.securityProposal : null;
-      if (prop){
-        securityProposal = {
-          points: Array.isArray(prop.points) ? fromObjPoints(prop.points) : [],
-          startRuler: Array.isArray(prop.startRuler) ? fromObjPoints(prop.startRuler) : [],
-          endRuler:   Array.isArray(prop.endRuler)   ? fromObjPoints(prop.endRuler)   : [],
-          km: prop.km || null
-        };
-      } else {
-        securityProposal = null;
-      }
-      const dock = document.getElementById('proposalDock');
-      const has = !!(securityProposal && ((securityProposal.points&&securityProposal.points.length>=2) || (securityProposal.startRuler&&securityProposal.startRuler.length>=2) || (securityProposal.endRuler&&securityProposal.endRuler.length>=2)));
-      if (has){
-        dock.style.display = 'flex';
-      } else {
-        dock.style.display = 'none';
-        clearSecurityProposalOverlay();
-      }
-      const tBtn = document.getElementById('proposalToggleBtn');
-      if (tBtn) tBtn.textContent = '👁 Показати';
-    }catch(_){ }
+    if (data.routeKey) alert('Код маршруту: ' + data.routeKey);
   } catch (e) {
     console.error('loadRouteById error:', e);
     alert('Не вдалося завантажити маршрут: ' + (e?.message || e));
@@ -4759,17 +4526,6 @@ window.addEventListener('load', async () => {
     // Не блокуємо відкриття маршруту за прямим ID — пробуємо завантажити його попри помилку списку
     try { await ensureRoutesLoaded(); } catch (e) { console.warn('ensureRoutesLoaded skipped:', e?.message||e); }
     await loadRouteById(rid);
-    // Якщо прийшли з експорту і є прапорець показати пропозицію — намалюємо відразу
-    try{
-      const sp = new URLSearchParams(location.search).get('showProposal');
-      const has = !!(securityProposal && ((securityProposal.points&&securityProposal.points.length>=2) || (securityProposal.startRuler&&securityProposal.startRuler.length>=2) || (securityProposal.endRuler&&securityProposal.endRuler.length>=2)));
-      if (sp && has){
-        const tBtn = document.getElementById('proposalToggleBtn');
-        const dock = document.getElementById('proposalDock'); if (dock) dock.style.display = 'flex';
-        await drawSecurityProposalOverlay(securityProposal.points||[], securityProposal.startRuler||[], securityProposal.endRuler||[]);
-        if (tBtn) tBtn.textContent = '🙈 Приховати';
-      }
-    }catch(_){ }
   }
   requestAnimationFrame(updateLayoutHeights);
 });
