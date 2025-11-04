@@ -156,6 +156,7 @@
       <!-- Security proposal tools -->
       <div class="btnRow" id="proposalTools" style="margin-top:6px; display:none;">
         <button id="propEditToggle" class="btn warn">✏️ Режим пропозиції</button>
+        <button id="propFromCurrent" class="btn warn" title="Скопіювати поточний маршрут у пропозицію">📄 Накласти маршрут</button>
         <button id="propModeRoute" class="btn warn">Лінія маршруту</button>
         <button id="propModeStart" class="btn warn">Лінійка (поч.)</button>
         <button id="propModeEnd" class="btn warn">Лінійка (кін.)</button>
@@ -339,10 +340,13 @@
       if (!draw) return;
       const all = draw.getAll();
       let feat = all.features.find(f => f.geometry?.type==='LineString' && (f.properties?.kind === kind));
+      // Безпечний upsert: якщо існуючу геометрію не можемо оновити напряму — перевставимо
       if (feat){
-        draw.setFeatureProperty(feat.id, 'kind', kind);
-        draw.setFeatureCoordinates(feat.id, coords);
-      } else {
+        try { draw.setFeatureProperty(feat.id, 'kind', kind); } catch(_){ }
+        try { draw.delete(feat.id); } catch(_){ }
+        feat = null;
+      }
+      if (!feat){
         const id = draw.add({ type:'Feature', properties:{ kind }, geometry:{ type:'LineString', coordinates: coords||[] } });
         propIds[kind] = Array.isArray(id) ? id[0] : id;
       }
@@ -459,6 +463,10 @@
   }
 
   let routeLayers = [];
+  // збережемо вихідні точки маршруту та лінійок (як прочитані з документа), щоб швидко створити пропозицію-копію
+  let CURRENT_ROUTE_POINTS = [];
+  let CURRENT_START_RULER = [];
+  let CURRENT_END_RULER   = [];
   function clearRouteLayers(){
     routeLayers.forEach(id=>{
       try{ if(map.getLayer(id)) map.removeLayer(id); }catch{}
@@ -686,14 +694,17 @@ function drawManualSegments(d){
       normalizePoints(d.geojson) ||
       normalizePoints(d.geometry) ||
       fromObjPoints(d.points||[]) || [];
+    CURRENT_ROUTE_POINTS = Array.isArray(pts) ? pts.slice() : [];
   const routeMeters = await drawSnappedRoute(pts);
     setSEMarkers(pts);
     drawRulers(d);
 	drawManualSegments(d);
 
     // Довжина лінійок (прямі лінії за координатами з документа)
-    const rs = fromObjPoints(d.startRuler||[]);
-    const re = fromObjPoints(d.endRuler||[]);
+  const rs = fromObjPoints(d.startRuler||[]);
+  const re = fromObjPoints(d.endRuler||[]);
+  CURRENT_START_RULER = Array.isArray(rs) ? rs.slice() : [];
+  CURRENT_END_RULER   = Array.isArray(re) ? re.slice() : [];
     const totalMeters = (routeMeters||0) + pathLengthMeters(rs) + pathLengthMeters(re);
     const kmTotal = totalMeters/1000;
     chip('chipDistanceTotal', isFinite(kmTotal) ? `Повний маршрут: ${kmTotal.toFixed(2)} км` : 'Повний маршрут: —');
@@ -862,6 +873,26 @@ function drawManualSegments(d){
     });
     const propSave = document.getElementById('propSave'); if (propSave) propSave.onclick = saveProposal;
     const propClear= document.getElementById('propClear'); if (propClear) propClear.onclick = clearProposal;
+    const propFromCurrent = document.getElementById('propFromCurrent');
+    if (propFromCurrent){
+      propFromCurrent.onclick = () => {
+        const has = !!(draw && draw.getAll && draw.getAll().features && draw.getAll().features.length);
+        if (has && !confirm('Замінити поточну пропозицію копією маршруту?')) return;
+        ensureDrawOnce();
+        try{ draw.deleteAll(); }catch(_){ }
+        if (CURRENT_ROUTE_POINTS && CURRENT_ROUTE_POINTS.length >= 2){
+          upsertDrawLine('route', CURRENT_ROUTE_POINTS.slice());
+          if (CURRENT_START_RULER && CURRENT_START_RULER.length >= 2) upsertDrawLine('start', CURRENT_START_RULER.slice());
+          if (CURRENT_END_RULER   && CURRENT_END_RULER.length   >= 2) upsertDrawLine('end',   CURRENT_END_RULER.slice());
+          proposalEditOn = true;
+          proposalMode = 'route';
+          resetProposalEditUI();
+          updateProposalPreview();
+        } else {
+          alert('Поточний маршрут не містить достатньо точок.');
+        }
+      };
+    }
 
     // When clicking on map while in edit mode, append vertex to current proposal line
     map.on('click', (ev) => {
