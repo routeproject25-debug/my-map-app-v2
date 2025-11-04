@@ -622,6 +622,7 @@
       <div style="display:flex;gap:6px;flex-wrap:wrap;">
         <button id="proposalToggleBtn" class="btn xs">👁 Показати</button>
         <button id="proposalAcceptBtn" class="btn xs">✅ Прийняти</button>
+        <button id="proposalRejectBtn" class="btn xs bad" title="Відхилити пропозицію СБ">🗑 Відхилити</button>
       </div>
     </div>
 </div>
@@ -1999,6 +2000,7 @@ document.getElementById('similarClearPreview').onclick = () => clearPreviewRoute
 // ===== Proposal dock buttons =====
 const proposalToggleBtn = document.getElementById('proposalToggleBtn');
 const proposalAcceptBtn = document.getElementById('proposalAcceptBtn');
+const proposalRejectBtn = document.getElementById('proposalRejectBtn');
 if (proposalToggleBtn){
   proposalToggleBtn.onclick = async ()=>{
     if (!securityProposal) return;
@@ -2026,6 +2028,36 @@ if (proposalAcceptBtn){
     clearSecurityProposalOverlay();
     proposalToggleBtn.textContent = '👁 Показати';
     alert('Пропозицію застосовано. Збережіть маршрут у БД і, за потреби, надішліть на повторне погодження.');
+  };
+}
+
+// Відхилити пропозицію: видалити approval.securityProposal з документу
+if (proposalRejectBtn){
+  proposalRejectBtn.onclick = async ()=>{
+    try{
+      if (!db) { alert('БД не ініціалізована'); return; }
+      const sel = document.getElementById('remoteRoutes');
+      const id  = (sel && sel.value) || (LAST_SAVED_ROUTE.id || '');
+      if (!id){ alert('Спочатку завантажте/збережіть маршрут з БД.'); return; }
+      if (!confirm('Видалити пропозицію СБ для цього маршруту?')) return;
+      try{
+        await db.collection('routes').doc(id).update({ 'approval.securityProposal': firebase.firestore.FieldValue.delete(), updatedAt: new Date().toISOString() });
+      }catch(e){
+        const msg = String(e && (e.code || e.message) || '');
+        if (/permission|denied|insufficient/i.test(msg)){
+          try{
+            const token = await auth.currentUser.getIdToken();
+            const r = await fetch('/api/routes/proposal', { method:'POST', headers:{ 'Content-Type':'application/json', 'Authorization': 'Bearer ' + token }, body: JSON.stringify({ id, clear:true }) });
+            if (!r.ok){ const t = await r.text().catch(()=> ''); throw new Error('Server clear failed: ' + t); }
+          }catch(err){ throw err; }
+        } else { throw e; }
+      }
+      securityProposal = null;
+      clearSecurityProposalOverlay();
+      const dock = document.getElementById('proposalDock'); if (dock) dock.style.display = 'none';
+      const tBtn = document.getElementById('proposalToggleBtn'); if (tBtn) tBtn.textContent = '👁 Показати';
+      alert('Пропозицію СБ відхилено (видалено).');
+    }catch(err){ alert('Не вдалося відхилити: ' + (err?.message || err)); }
   };
 }
 

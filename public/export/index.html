@@ -1719,9 +1719,18 @@ function parseSnap(snap){
     const rejectCommentRaw =
       (d?.approval && 'comment' in d.approval ? (d.approval.comment || '') : '') ||
       (typeof d.comment === 'string' ? d.comment : '');
-    const rejectComment = hasProposal
-      ? (pInfo + (rejectCommentRaw ? ` • ${rejectCommentRaw}` : ''))
-      : rejectCommentRaw;
+    // Правило відображення колонки «Причина відхилення»:
+    // - якщо Погоджено — порожньо
+    // - якщо НЕ погоджено і є пропозиція — показуємо «Є пропозиція СБ …» (і за потреби додаємо коментар через «•»)
+    // - якщо є коментар відхилення — показуємо коментар
+    let rejectComment = '';
+    if (toStatusLabelRaw(statusValue) === 'Погоджено'){
+      rejectComment = '';
+    } else if (hasProposal){
+      rejectComment = pInfo + (rejectCommentRaw ? ` • ${rejectCommentRaw}` : '');
+    } else {
+      rejectComment = rejectCommentRaw;
+    }
 
     // Коротка форма назви: беремо частину до першої «•», щоб уникнути дублювань типу "… • Елеватор • Елеватор"
     const shortByLabel = (lbl) => {
