@@ -4306,7 +4306,10 @@ routeSearch.addEventListener('focus', () => {
 /* Load by ?rid= */
 async function loadRouteById(rid) {
   try {
-    const snap = await db.collection('routes').doc(rid).get();
+    // Спробувати свіжі дані з сервера, фолбек до кешу
+    let snap;
+    try { snap = await db.collection('routes').doc(rid).get({ source: 'server' }); }
+    catch { snap = await db.collection('routes').doc(rid).get(); }
     if (!snap.exists) { alert('Маршрут з таким ID не знайдено: ' + rid); return; }
     const data = snap.data();
     if (!userAllowsHub(data.hub || '')) {
@@ -4338,6 +4341,28 @@ async function loadRouteById(rid) {
       map.fitBounds(b, { padding: 40 });
     }
     if (data.routeKey) alert('Код маршруту: ' + data.routeKey);
+
+    // === Пропозиція СБ: показати док, якщо є ===
+    try{
+      const prop = data.approval && data.approval.securityProposal ? data.approval.securityProposal : null;
+      securityProposal = prop && Array.isArray(prop.points)
+        ? {
+            points: fromObjPoints(prop.points),
+            startRuler: Array.isArray(prop.startRuler) ? fromObjPoints(prop.startRuler) : [],
+            endRuler:   Array.isArray(prop.endRuler)   ? fromObjPoints(prop.endRuler)   : [],
+            km: prop.km || null
+          }
+        : null;
+      const dock = document.getElementById('proposalDock');
+      if (securityProposal && securityProposal.points.length >= 2){
+        dock.style.display = 'flex';
+      } else {
+        dock.style.display = 'none';
+        clearSecurityProposalOverlay();
+      }
+      const tBtn = document.getElementById('proposalToggleBtn');
+      if (tBtn) tBtn.textContent = '👁 Показати';
+    }catch(_){ }
   } catch (e) {
     console.error('loadRouteById error:', e);
     alert('Не вдалося завантажити маршрут: ' + (e?.message || e));
