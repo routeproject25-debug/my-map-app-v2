@@ -160,8 +160,7 @@
       <div class="row">
         <div>
           <div class="chip" id="chipStatus">Статус: —</div>
-          <div class="chip" id="chipDistanceDb">БД: —</div>
-          <div class="chip" id="chipDistanceLive">По дорогах: —</div>
+          <div class="chip" id="chipDistanceTotal">Повний маршрут: —</div>
           <div class="chip" id="chipRevision">Подача № —</div>
         </div>
         <div style="text-align:right">
@@ -247,7 +246,7 @@
 
   /* ---------- helpers ---------- */
   function fromObjPoints(arr){ return (arr||[]).map(p => Array.isArray(p) ? p : [p.lng, p.lat]); }
-  function chip(id,t){ document.getElementById(id).textContent = t; }
+  function chip(id,t){ const el=document.getElementById(id); if(el) el.textContent = t; }
   function fmtStatus(s){ return ({draft:'Чернетка',pending:'Очікує',approved:'Погоджено',rejected:'Відхилено'})[s] || s || '—'; }
 
   // спліт на шматки (Mapbox Directions ≤25 координат/запит; беремо 20 з перекриттям)
@@ -270,8 +269,7 @@
   async function drawSnappedRoute(points){
     clearRouteLayers();
     if(!Array.isArray(points) || points.length<2){
-      chip('chipDistanceLive','По дорогах: —');
-      return;
+      return 0;
     }
 
     const chunks = splitIntoChunks(points, 20);
@@ -314,8 +312,7 @@
       map.fitBounds([[bMinLng,bMinLat],[bMaxLng,bMaxLat]], { padding: 40, maxZoom: 14 });
     }
 
-    const km = (totalMeters/1000);
-    chip('chipDistanceLive', isFinite(km) ? `По дорогах: ${km.toFixed(2)} км` : 'По дорогах: —');
+    return totalMeters;
   }
 
   // dashed rulers
@@ -337,6 +334,23 @@
       map.addLayer({ id:'ruler-end', type:'line', source:'ruler-end-src',
         paint:{ 'line-color':'#22c55e','line-width':3,'line-dasharray':[1,2]}});
     }
+  }
+  // === довжина лінії в метрах (haversine) ===
+  function pathLengthMeters(coords){
+    if (!Array.isArray(coords) || coords.length < 2) return 0;
+    const R = 6371000; // m
+    let m = 0;
+    for (let i=1;i<coords.length;i++){
+      const [lon1, lat1] = coords[i-1];
+      const [lon2, lat2] = coords[i];
+      const φ1 = lat1 * Math.PI/180, φ2 = lat2 * Math.PI/180;
+      const Δφ = (lat2-lat1) * Math.PI/180;
+      const Δλ = (lon2-lon1) * Math.PI/180;
+      const a = Math.sin(Δφ/2)**2 + Math.cos(φ1)*Math.cos(φ2)*Math.sin(Δλ/2)**2;
+      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+      m += R * c;
+    }
+    return m;
   }
 // ---- нормалізація «домальованих» сегментів з різних форматів ----
 function normalizeSegments(source){
@@ -440,9 +454,8 @@ function drawManualSegments(d){
     document.getElementById('fromLabel').textContent = d.fromLabel || '—';
     document.getElementById('toLabel').textContent   = d.toLabel   || '—';
 
-    // ➜ дві дистанції
-    chip('chipDistanceDb',   (typeof d.distance_km==='number') ? `БД: ${d.distance_km.toFixed(2)} км` : 'БД: —');
-    chip('chipDistanceLive', 'По дорогах: …');
+  // ➜ одна дистанція (повний маршрут: snapped + лінійки)
+  chip('chipDistanceTotal', 'Повний маршрут: …');
 
     chip('chipRevision', 'Подача № ' + ((d.approval?.revision) ?? '—'));
     chip('chipStatus',   'Статус: ' + fmtStatus(d.approval?.status));
@@ -471,10 +484,17 @@ function drawManualSegments(d){
       normalizePoints(d.geojson) ||
       normalizePoints(d.geometry) ||
       fromObjPoints(d.points||[]) || [];
-    await drawSnappedRoute(pts);
+    const routeMeters = await drawSnappedRoute(pts);
     setSEMarkers(pts);
     drawRulers(d);
 	drawManualSegments(d);
+
+    // Довжина лінійок (прямі лінії за координатами з документа)
+    const rs = fromObjPoints(d.startRuler||[]);
+    const re = fromObjPoints(d.endRuler||[]);
+    const totalMeters = (routeMeters||0) + pathLengthMeters(rs) + pathLengthMeters(re);
+    const kmTotal = totalMeters/1000;
+    chip('chipDistanceTotal', isFinite(kmTotal) ? `Повний маршрут: ${kmTotal.toFixed(2)} км` : 'Повний маршрут: —');
   }
 
   // Approve / Reject actions (перестраховка на боці клієнта по ролях)
