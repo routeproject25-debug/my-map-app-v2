@@ -3930,7 +3930,10 @@ if (open){
   try{
     const dock = document.getElementById('proposalDock');
     const prop = approval && approval.securityProposal ? approval.securityProposal : null;
-    const has = !!(prop && Array.isArray(prop.points) && prop.points.length >= 2);
+    const hasPoints = !!(prop && Array.isArray(prop.points) && prop.points.length >= 2);
+    const hasSR = !!(prop && Array.isArray(prop.startRuler) && prop.startRuler.length >= 2);
+    const hasER = !!(prop && Array.isArray(prop.endRuler)   && prop.endRuler.length   >= 2);
+    const has = hasPoints || hasSR || hasER;
     if (dock){ dock.style.display = has ? 'flex' : 'none'; }
     if (has){
       // оновити глобальну змінну для оверлею, навіть якщо маршрут підвантажено іншим шляхом
