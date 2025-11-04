@@ -240,6 +240,22 @@
 
   </style>
   
+  <!-- Proposal flag styling in table comment column -->
+  <style>
+  .proposal-flag{
+    display:inline-block;
+    background:#fef9c3;
+    color:#92400e;
+    border:1px solid #fcd34d;
+    border-radius:999px;
+    padding:2px 6px;
+    font-size:12px;
+    margin-top:4px;
+    white-space:nowrap;
+  }
+  .cell-comment .proposal-flag{ display:inline-block; margin-left:4px; }
+  </style>
+  
   <!-- Inline map panel (lazy-loaded) -->
   <style>
   /* Bottom resizable map panel */
@@ -1736,7 +1752,8 @@ function parseSnap(snap){
       statusRaw: statusValue, statusLabel, rejectComment,
       updatedAtRaw: d.updatedAt || null,
 	  updatedAt: formatDate(d.updatedAt),
-	  raw: d
+	  raw: d,
+      hasProposal: !!d.proposal
     });
   });
   const lastDoc = snap.docs[snap.docs.length-1] || null;
@@ -2245,7 +2262,7 @@ function renderTable(rows){
     <td>${r.type}</td>
     <td>${r.logisticName || ''}</td>
     <td>${r.statusLabel || ''}</td>
-    <td class="cell-comment">${r.rejectComment ? r.rejectComment : ''}</td>
+    <td class="cell-comment">${r.rejectComment ? r.rejectComment : ''}${r.hasProposal ? ` <span class="proposal-flag" title="Є пропозиція змін">Є пропозиція</span>` : ''}</td>
     <td>${r.updatedAt}</td>
     <td class="cell-key" title="${r.routeKey || ''}">
       ${r.routeKey || ''}

@@ -203,6 +203,8 @@
 #statusChip.status-chip[data-status="approved"]{ background:#e6f4ea; border-color:#22c55e; }
 #statusChip.status-chip[data-status="rejected"]{ background:#fee2e2; border-color:#ef4444; }
 #statusChip.status-chip[data-status="draft"]{ background:#eef2ff; border-color:#c7d2fe; }
+/* proposal (yellow) */
+#statusChip.status-chip[data-status="proposal"]{ background:#fef9c3; border-color:#f59e0b; }
 
 @media (max-width:640px){
   #statusDock{ right:8px; top:calc(var(--nav-real) + 8px); }
@@ -606,6 +608,17 @@
       <div id="approvalCommentWrap" style="margin-top:6px; display:none;">
         <label>Коментар СБ (якщо відхилено)</label>
         <textarea id="approvalComment" readonly></textarea>
+      </div>
+
+      <!-- Пропозиція СБ: попередній перегляд та дії для логіста -->
+      <div id="proposalWrapMain" style="display:none; margin-top:10px; padding-top:10px; border-top:1px dashed var(--line);">
+        <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:6px;">
+          <span class="km-chip" id="proposalKmChip">Пропозиція СБ: —</span>
+          <button id="btnShowProposal" class="btn xs">👁 Показати пропозицію</button>
+          <button id="btnAcceptProposal" class="btn xs">✅ Прийняти пропозицію</button>
+          <button id="btnRejectProposal" class="btn xs">❌ Відхилити пропозицію</button>
+        </div>
+        <small class="muted">Жовтим показується маршрут, запропонований СБ. Прийняття замінить поточні точки та лінійки маршруту.</small>
       </div>
     </div>
   </div>
@@ -1098,6 +1111,11 @@ let points = [], markers = [], startRuler = [], endRuler = [], rulerLines = [], 
 // Маркери лінійок (окремо від маркерів маршруту)
 let startRulerMarkers = [], endRulerMarkers = [];
 let selectedMarkerIndex = null;
+
+// ====== Proposal overlay state ======
+let PROPOSAL_VISIBLE = false;
+let CURRENT_PROPOSAL = null; // { points: [[lng,lat],...], startRuler: [[lng,lat],...], endRuler: [[lng,lat],...], distance_km }
+let HAS_PROPOSAL = false; // for status chip
 
 
 let activeRuler = null; let lastActiveRuler = null;
@@ -3716,6 +3734,8 @@ registerDirEntry(data.toCode,   data.toLabel   || document.getElementById('toNam
     rebuildMarkers(); rebuildRulerMarkers(); drawRulers(); updateRoute();
 	updateHighlights();
     if (points.length > 0) map.flyTo({ center: points[0], zoom: 12 });
+    // ⬇️ Proposal: refresh overlay/UI if present
+    try { updateProposalUIForData(data); } catch(_){ }
     alert('Маршрут завантажено з БД: ' + id + (data.routeKey ? `\nКод: ${data.routeKey}` : ''));
   } catch (err) {
     console.error('❌ Помилка завантаження з БД:', err);
@@ -3792,10 +3812,17 @@ if (open){
   // —— статус-чіп (праворуч зверху) з іконками
   const chip = document.getElementById('statusChip');
   if (chip){
-    const label = mapNames[st] || '—';
-    const icon  = icons[st] || '';      // для draft іконки немає (за побажанням)
+    let label = mapNames[st] || '—';
+    let icon  = icons[st] || '';
+    // Якщо є пропозиція — показати статус як «Пропозиція» (жовтий), крім випадку approved
+    if (HAS_PROPOSAL && st !== 'approved'){
+      label = 'Пропозиція';
+      icon = '💡';
+      chip.dataset.status = 'proposal';
+    } else {
+      chip.dataset.status = st;           // тригер для стилів (pending/approved/rejected)
+    }
     chip.textContent = (icon ? (icon + ' ') : '') + 'Статус: ' + label;
-    chip.dataset.status = st;           // тригер для стилів (pending/approved/rejected)
   }
 }
 
@@ -3854,6 +3881,160 @@ async function sendForApproval(){
 // кнопки панелі погодження
 document.getElementById('copyReviewLink').onclick  = copyReviewLink;
 document.getElementById('sendForApproval').onclick = sendForApproval;
+
+/* ===== Proposal (preview/accept/reject) ===== */
+function ensureProposalLayers(){
+  if (!map || !map.getSource) return;
+  const addIfMissing = () => {
+    if (!map.getSource('proposal-route')){
+      map.addSource('proposal-route', { type:'geojson', data: { type:'FeatureCollection', features: [] } });
+      map.addLayer({ id:'proposal-route', type:'line', source:'proposal-route', layout:{ visibility:'none' }, paint:{ 'line-color':'#f59e0b', 'line-width': 4, 'line-opacity': 0.9 } });
+    }
+    if (!map.getSource('proposal-ruler-start')){
+      map.addSource('proposal-ruler-start', { type:'geojson', data: { type:'FeatureCollection', features: [] } });
+      map.addLayer({ id:'proposal-ruler-start', type:'line', source:'proposal-ruler-start', layout:{ visibility:'none' }, paint:{ 'line-color':'#2563eb', 'line-width': 3, 'line-dasharray':[2,2], 'line-opacity': 0.9 } });
+    }
+    if (!map.getSource('proposal-ruler-end')){
+      map.addSource('proposal-ruler-end', { type:'geojson', data: { type:'FeatureCollection', features: [] } });
+      map.addLayer({ id:'proposal-ruler-end', type:'line', source:'proposal-ruler-end', layout:{ visibility:'none' }, paint:{ 'line-color':'#ea580c', 'line-width': 3, 'line-dasharray':[2,2], 'line-opacity': 0.9 } });
+    }
+  };
+  try {
+    if (!map.isStyleLoaded || !map.isStyleLoaded()){
+      map.once('style.load', addIfMissing);
+    } else {
+      addIfMissing();
+    }
+  } catch(_){}
+}
+
+function setProposalOverlayData(prop){
+  ensureProposalLayers();
+  const makeLine = (coords) => ({ type:'Feature', geometry:{ type:'LineString', coordinates: coords || [] }, properties:{} });
+  try{
+    const routeFC = { type:'FeatureCollection', features: [] };
+    const startFC = { type:'FeatureCollection', features: [] };
+    const endFC   = { type:'FeatureCollection', features: [] };
+    if (Array.isArray(prop?.points) && prop.points.length >= 2){ routeFC.features.push(makeLine(prop.points)); }
+    if (Array.isArray(prop?.startRuler) && prop.startRuler.length >= 2){ startFC.features.push(makeLine(prop.startRuler)); }
+    if (Array.isArray(prop?.endRuler) && prop.endRuler.length >= 2){ endFC.features.push(makeLine(prop.endRuler)); }
+    if (map.getSource('proposal-route')) map.getSource('proposal-route').setData(routeFC);
+    if (map.getSource('proposal-ruler-start')) map.getSource('proposal-ruler-start').setData(startFC);
+    if (map.getSource('proposal-ruler-end'))   map.getSource('proposal-ruler-end').setData(endFC);
+  }catch(_){ }
+}
+
+function setProposalVisibility(show){
+  PROPOSAL_VISIBLE = !!show;
+  const vis = PROPOSAL_VISIBLE ? 'visible' : 'none';
+  try{ map.setLayoutProperty('proposal-route','visibility', vis); }catch(_){}
+  try{ map.setLayoutProperty('proposal-ruler-start','visibility', vis); }catch(_){ }
+  try{ map.setLayoutProperty('proposal-ruler-end','visibility', vis); }catch(_){ }
+  const btn = document.getElementById('btnShowProposal');
+  if (btn) btn.textContent = PROPOSAL_VISIBLE ? '🙈 Сховати пропозицію' : '👁 Показати пропозицію';
+}
+
+function clearProposalOverlay(){
+  CURRENT_PROPOSAL = null; HAS_PROPOSAL = false;
+  try{
+    if (map.getSource('proposal-route')) map.getSource('proposal-route').setData({ type:'FeatureCollection', features: [] });
+    if (map.getSource('proposal-ruler-start')) map.getSource('proposal-ruler-start').setData({ type:'FeatureCollection', features: [] });
+    if (map.getSource('proposal-ruler-end'))   map.getSource('proposal-ruler-end').setData({ type:'FeatureCollection', features: [] });
+  }catch(_){ }
+  setProposalVisibility(false);
+  const wrap = document.getElementById('proposalWrapMain'); if (wrap) wrap.style.display = 'none';
+  const chip = document.getElementById('proposalKmChip');  if (chip) chip.textContent = 'Пропозиція СБ: —';
+  // refresh status chip without proposal
+  try { setApprovalUI((LAST_SAVED_ROUTE.data && LAST_SAVED_ROUTE.data.approval) || null); } catch(_){ }
+}
+
+function updateProposalUIForData(data){
+  const role = String(window.__userRole || currentRole || '').toLowerCase();
+  const p = data && data.proposal ? data.proposal : null;
+  const has = !!(p && Array.isArray(p.points) && p.points.length >= 2);
+  HAS_PROPOSAL = has;
+  const wrap = document.getElementById('proposalWrapMain');
+  if (wrap) wrap.style.display = (has && (role === 'logist' || role === 'admin')) ? '' : 'none';
+  const km = (typeof p?.distance_km === 'number') ? p.distance_km : NaN;
+  const chip = document.getElementById('proposalKmChip');
+  if (chip) chip.textContent = 'Пропозиція СБ: ' + (Number.isFinite(km) ? km.toFixed(3) + ' км' : '—');
+  if (has){
+    CURRENT_PROPOSAL = {
+      points: fromObjPoints(p.points || p.route || []),
+      startRuler: fromObjPoints(p.startRuler || []),
+      endRuler: fromObjPoints(p.endRuler || []),
+      distance_km: km
+    };
+    setProposalOverlayData(CURRENT_PROPOSAL);
+    setProposalVisibility(false); // default hidden until toggled
+  } else {
+    clearProposalOverlay();
+  }
+  // Update the status chip to reflect proposal presence
+  try { setApprovalUI((data && data.approval) || null); } catch(_){ }
+}
+
+async function acceptProposal(){
+  try{
+    const sel = document.getElementById('remoteRoutes');
+    const id  = (sel && sel.value) || (LAST_SAVED_ROUTE.id || '');
+    if (!id){ alert('Немає вибраного маршруту в БД. Завантажте маршрут спершу.'); return; }
+    if (!db){ alert('БД не ініціалізована'); return; }
+    const snap = await db.collection('routes').doc(id).get();
+    if (!snap.exists){ alert('Маршрут не знайдено в БД'); return; }
+    const d = snap.data() || {};
+    if (!CURRENT_PROPOSAL){ alert('Немає пропозиції для прийняття'); return; }
+    // Хаб-доступ перед записом
+    if (!userAllowsHub(d.hub || '')){ alert('⛔ У вас немає доступу до хабу цього маршруту: ' + (d.hub || '—')); return; }
+
+    const payload = {
+      points: toObjPoints(CURRENT_PROPOSAL.points || []),
+      startRuler: toObjPoints(CURRENT_PROPOSAL.startRuler || []),
+      endRuler: toObjPoints(CURRENT_PROPOSAL.endRuler || []),
+      distance_km: (typeof CURRENT_PROPOSAL.distance_km === 'number') ? CURRENT_PROPOSAL.distance_km : undefined,
+      updatedAt: new Date().toISOString(),
+      proposal: firebase.firestore.FieldValue.delete()
+    };
+
+    await db.collection('routes').doc(id).set(payload, { merge:true });
+
+    // Apply to local editor state as well
+    points = (CURRENT_PROPOSAL.points || []).slice();
+    startRuler = (CURRENT_PROPOSAL.startRuler || []).slice();
+    endRuler = (CURRENT_PROPOSAL.endRuler || []).slice();
+    rebuildMarkers(); rebuildRulerMarkers(); drawRulers(); updateRoute();
+    clearProposalOverlay();
+    alert('✅ Пропозицію застосовано до маршруту.');
+  }catch(e){
+    console.error('acceptProposal error:', e);
+    alert('Не вдалося прийняти пропозицію: ' + (e?.message || e));
+  }
+}
+
+async function rejectProposal(){
+  try{
+    const sel = document.getElementById('remoteRoutes');
+    const id  = (sel && sel.value) || (LAST_SAVED_ROUTE.id || '');
+    if (!id){ alert('Немає вибраного маршруту в БД. Завантажте маршрут спершу.'); return; }
+    if (!db){ alert('БД не ініціалізована'); return; }
+    const snap = await db.collection('routes').doc(id).get();
+    if (!snap.exists){ alert('Маршрут не знайдено в БД'); return; }
+    const d = snap.data() || {};
+    if (!d.proposal){ alert('Пропозиції немає'); return; }
+    if (!userAllowsHub(d.hub || '')){ alert('⛔ У вас немає доступу до хабу цього маршруту: ' + (d.hub || '—')); return; }
+    await db.collection('routes').doc(id).set({ proposal: firebase.firestore.FieldValue.delete(), updatedAt: new Date().toISOString() }, { merge:true });
+    clearProposalOverlay();
+    alert('❌ Пропозицію відхилено та видалено.');
+  }catch(e){
+    console.error('rejectProposal error:', e);
+    alert('Не вдалося відхилити пропозицію: ' + (e?.message || e));
+  }
+}
+
+// Wire buttons
+document.getElementById('btnShowProposal').onclick = () => setProposalVisibility(!PROPOSAL_VISIBLE);
+document.getElementById('btnAcceptProposal').onclick = acceptProposal;
+document.getElementById('btnRejectProposal').onclick = rejectProposal;
 
 /* ===== Buttons bindings ===== */
 document.getElementById('saveToDB').onclick = saveToDB;

@@ -8,6 +8,9 @@
   <!-- Mapbox -->
   <script src="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.js"></script>
   <link href="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.css" rel="stylesheet" />
+  <!-- Mapbox GL Draw for proposal editing -->
+  <script src="https://api.mapbox.com/mapbox-gl-js/plugins/mapbox-gl-draw/v1.5.0/mapbox-gl-draw.js"></script>
+  <link href="https://api.mapbox.com/mapbox-gl-js/plugins/mapbox-gl-draw/v1.5.0/mapbox-gl-draw.css" rel="stylesheet" />
 
   <!-- Firebase (compat) -->
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
@@ -72,6 +75,12 @@
 
     .row{ display:grid; grid-template-columns:1fr 1fr; gap:12px }
     @media(max-width:900px){ .row{ grid-template-columns:1fr } }
+
+    /* Proposal styles */
+    .btn.warn{ background:#fef9c3; border-color:#f59e0b }
+    .chip.proposal{ background:#fef9c3; border-color:#f59e0b }
+    /* Make draw handles a bit more visible */
+    .mapbox-gl-draw_point{ width:10px; height:10px; }
   </style>
 
   <!-- === AUTH GUARD у <head>: ініт Firebase, перевірка ролі, показ DOM === -->
@@ -144,6 +153,16 @@
         <a id="openEditor" class="btn" target="_blank">🗺 Відкрити в редакторі</a>
       </div>
 
+      <!-- Security proposal tools -->
+      <div class="btnRow" id="proposalTools" style="margin-top:6px; display:none;">
+        <button id="propEditToggle" class="btn warn">✏️ Режим пропозиції</button>
+        <button id="propModeRoute" class="btn warn">Лінія маршруту</button>
+        <button id="propModeStart" class="btn warn">Лінійка (поч.)</button>
+        <button id="propModeEnd" class="btn warn">Лінійка (кін.)</button>
+        <button id="propSave" class="btn good">💾 Зберегти пропозицію</button>
+        <button id="propClear" class="btn">🗑 Очистити пропозицію</button>
+      </div>
+
       <div id="rejectWrap" style="display:none; margin-top:10px;">
         <label>Причина відхилення (обов’язково)</label>
         <textarea id="rejectComment" placeholder="Опишіть, що потрібно виправити"></textarea>
@@ -161,6 +180,7 @@
         <div>
           <div class="chip" id="chipStatus">Статус: —</div>
           <div class="chip" id="chipDistanceTotal">Повний маршрут: —</div>
+          <div class="chip proposal" id="chipProposal">Пропозиція: —</div>
           <div class="chip" id="chipRevision">Подача № —</div>
         </div>
         <div style="text-align:right">
@@ -233,6 +253,188 @@
     center:[28.468,49.234],
     zoom:11
   });
+  
+  // =============== PROPOSAL (Mapbox Draw) ===============
+  let draw = null;
+  let proposalEditOn = false;
+  let proposalMode = 'route'; // 'route' | 'start' | 'end'
+  const propIds = { route: null, start: null, end: null };
+  function ensureDrawOnce(){
+    if (draw) return;
+    try{
+      draw = new MapboxDraw({
+        displayControlsDefault: false,
+        modes: MapboxDraw.modes,
+        styles: [
+          // vertices
+          {
+            id: 'gl-draw-point-inactive', type:'circle', filter:['all',['==','$type','Point'],['!=','meta','midpoint']],
+            paint:{ 'circle-radius':5, 'circle-color':'#f59e0b', 'circle-stroke-width':2, 'circle-stroke-color':'#fff' }
+          },
+          {
+            id: 'gl-draw-point-active', type:'circle', filter:['all',['==','$type','Point'],['==','active','true']],
+            paint:{ 'circle-radius':6, 'circle-color':'#f59e0b', 'circle-stroke-width':2, 'circle-stroke-color':'#111' }
+          },
+          // route line (yellow)
+          {
+            id: 'gl-draw-line-inactive', type:'line', filter:['all',['==','$type','LineString'],['!=','active','true']],
+            paint:{ 'line-color':'#f59e0b','line-width':3 }
+          },
+          { id: 'gl-draw-line-active', type:'line', filter:['all',['==','$type','LineString'],['==','active','true']], paint:{ 'line-color':'#f59e0b','line-width':4 } },
+          // midpoints
+          { id:'gl-draw-polygon-and-line-vertex-halo-active', type:'circle', filter:['all',['==','meta','vertex'],['==','$type','Point']], paint:{ 'circle-radius':8,'circle-color':'#fff' } },
+          { id:'gl-draw-polygon-and-line-vertex-active', type:'circle', filter:['all',['==','meta','vertex'],['==','$type','Point']], paint:{ 'circle-radius':5,'circle-color':'#f59e0b' } },
+        ]
+      });
+      map.addControl(draw, 'top-right');
+      map.on('draw.create', onDrawChanged);
+      map.on('draw.update', onDrawChanged);
+      map.on('draw.delete', onDrawChanged);
+    }catch(_){ }
+  }
+  function onDrawChanged(){
+    updateProposalPreview();
+  }
+  function resetProposalEditUI(){
+    const btns = ['propEditToggle','propModeRoute','propModeStart','propModeEnd'];
+    btns.forEach(id=>{ try{ document.getElementById(id).classList.remove('active'); }catch(_){} });
+    try{ document.getElementById('propEditToggle').classList.toggle('active', proposalEditOn); }catch(_){ }
+    try{
+      document.getElementById('propModeRoute').classList.toggle('active', proposalMode==='route');
+      document.getElementById('propModeStart').classList.toggle('active', proposalMode==='start');
+      document.getElementById('propModeEnd').classList.toggle('active', proposalMode==='end');
+    }catch(_){ }
+  }
+  function ensureProposalLayers(){
+    const addIf = (id, src) => { try{ if (!map.getSource(id)) map.addSource(id, src); }catch(_){ } };
+    addIf('proposal-route-snap', { type:'geojson', data:{ type:'FeatureCollection', features:[] } });
+    addIf('proposal-start-src',  { type:'geojson', data:{ type:'FeatureCollection', features:[] } });
+    addIf('proposal-end-src',    { type:'geojson', data:{ type:'FeatureCollection', features:[] } });
+    const addLayer = (def) => { try{ if (!map.getLayer(def.id)) map.addLayer(def); }catch(_){ } };
+    addLayer({ id:'proposal-route-snap', type:'line', source:'proposal-route-snap', paint:{ 'line-color':'#f59e0b','line-width':5 } });
+    addLayer({ id:'proposal-start', type:'line', source:'proposal-start-src', paint:{ 'line-color':'#2563eb','line-width':3,'line-dasharray':[1,2] } });
+    addLayer({ id:'proposal-end',   type:'line', source:'proposal-end-src',   paint:{ 'line-color':'#f59e0b','line-width':3,'line-dasharray':[1,2] } });
+  }
+  function setProposalSources(routeCoords, startCoords, endCoords){
+    ensureProposalLayers();
+    try{
+      const fc = c => ({ type:'FeatureCollection', features: c && c.length>=2 ? [{ type:'Feature', geometry:{ type:'LineString', coordinates:c }}] : [] });
+      map.getSource('proposal-route-snap')?.setData(fc(routeCoords));
+      map.getSource('proposal-start-src')?.setData(fc(startCoords));
+      map.getSource('proposal-end-src')?.setData(fc(endCoords));
+    }catch(_){ }
+  }
+  function getDrawCoordsBy(kind){
+    try{
+      if (!draw) return null;
+      const all = draw.getAll();
+      if (!all || !all.features) return null;
+      // we tag features by property kind
+      const feat = all.features.find(f => f.geometry?.type==='LineString' && (f.properties?.kind === kind));
+      return feat ? (feat.geometry.coordinates||null) : null;
+    }catch(_){ return null; }
+  }
+  function upsertDrawLine(kind, coords){
+    try{
+      if (!draw) return;
+      const all = draw.getAll();
+      let feat = all.features.find(f => f.geometry?.type==='LineString' && (f.properties?.kind === kind));
+      if (feat){
+        draw.setFeatureProperty(feat.id, 'kind', kind);
+        draw.setFeatureCoordinates(feat.id, coords);
+      } else {
+        const id = draw.add({ type:'Feature', properties:{ kind }, geometry:{ type:'LineString', coordinates: coords||[] } });
+        propIds[kind] = Array.isArray(id) ? id[0] : id;
+      }
+    }catch(_){ }
+  }
+  async function updateProposalPreview(){
+    try{
+      const route = getDrawCoordsBy('route') || [];
+      const start = getDrawCoordsBy('start') || [];
+      const end   = getDrawCoordsBy('end')   || [];
+      let meters = 0;
+      // snapped route distance via Directions, if we have 2+
+      let snapped = [];
+      if (route.length >= 2){
+        const chunks = splitIntoChunks(route, 20);
+        for (let i=0;i<chunks.length;i++){
+          const coordsStr = chunks[i].map(p=>p.join(',')).join(';');
+          const url = `https://api.mapbox.com/directions/v5/mapbox/driving/${coordsStr}?geometries=geojson&overview=full&continue_straight=true&access_token=${mapboxgl.accessToken}`;
+          try{
+            const r = await fetch(url);
+            const j = await r.json();
+            const geom = j?.routes?.[0]?.geometry;
+            if (geom?.coordinates){ snapped = snapped.concat(geom.coordinates); meters += (j?.routes?.[0]?.distance || 0); }
+          }catch(_){ }
+        }
+      }
+      // rulers
+      meters += pathLengthMeters(start) + pathLengthMeters(end);
+      setProposalSources(snapped.length ? snapped : route, start, end);
+      const km = meters/1000;
+      const chip = document.getElementById('chipProposal');
+      if (chip) chip.textContent = 'Пропозиція: ' + (isFinite(km) && km>0 ? km.toFixed(2)+' км' : '—');
+    }catch(_){ }
+  }
+  function loadProposalToDraw(proposal){
+    ensureDrawOnce();
+    try{ draw.deleteAll(); }catch(_){ }
+    if (!proposal || typeof proposal !== 'object') { updateProposalPreview(); return; }
+    const route = normalizePoints(proposal.points) || [];
+    const start = normalizePoints(proposal.startRuler) || [];
+    const end   = normalizePoints(proposal.endRuler) || [];
+    if (route.length) upsertDrawLine('route', route);
+    if (start.length) upsertDrawLine('start', start);
+    if (end.length)   upsertDrawLine('end',   end);
+    updateProposalPreview();
+  }
+  function proposalObjFromDraw(){
+    const toObj = coords => (coords||[]).map(([lng,lat]) => ({ lng, lat }));
+    const route = getDrawCoordsBy('route') || [];
+    const start = getDrawCoordsBy('start') || [];
+    const end   = getDrawCoordsBy('end')   || [];
+    const o = { points: toObj(route), startRuler: toObj(start), endRuler: toObj(end) };
+    return o;
+  }
+  async function saveProposal(){
+    const role = await getNormalizedRole();
+    if (!['security','admin'].includes(role)) { alert('Недостатньо прав.'); return; }
+    const user = auth.currentUser;
+    const base = proposalObjFromDraw();
+    // compute distance via preview chip if exists; otherwise compute quickly
+    let distance_km = 0;
+    try{
+      const txt = (document.getElementById('chipProposal')?.textContent||'').replace(/[^0-9.,]/g,'').replace(',','.');
+      const val = parseFloat(txt); if (isFinite(val)) distance_km = val;
+    }catch(_){ }
+    const payload = {
+      proposal: {
+        ...base,
+        distance_km,
+        createdAt: new Date().toISOString(),
+        createdByUid: user?.uid || null,
+        createdByEmail: user?.email || null
+      },
+      updatedAt: new Date().toISOString()
+    };
+    try{
+      await db.collection('routes').doc(rid).set(payload, { merge:true });
+      alert('✅ Пропозицію збережено');
+    }catch(e){ alert('Не вдалося зберегти пропозицію: ' + (e?.message||e)); }
+  }
+  async function clearProposal(){
+    const role = await getNormalizedRole();
+    if (!['security','admin'].includes(role)) { alert('Недостатньо прав.'); return; }
+    if (!confirm('Очистити пропозицію?')) return;
+    try{
+      await db.collection('routes').doc(rid).set({ proposal: firebase.firestore.FieldValue.delete(), updatedAt: new Date().toISOString() }, { merge:true });
+      try{ draw && draw.deleteAll(); }catch(_){ }
+      setProposalSources([],[],[]);
+      const chip = document.getElementById('chipProposal'); if (chip) chip.textContent = 'Пропозиція: —';
+      alert('🧹 Пропозицію очищено');
+    }catch(e){ alert('Не вдалося очистити: ' + (e?.message||e)); }
+  }
 
   /* ---------- layout helper: карта на весь екран під хедером ---------- */
   const topbarEl = document.querySelector('header');
@@ -484,7 +686,7 @@ function drawManualSegments(d){
       normalizePoints(d.geojson) ||
       normalizePoints(d.geometry) ||
       fromObjPoints(d.points||[]) || [];
-    const routeMeters = await drawSnappedRoute(pts);
+  const routeMeters = await drawSnappedRoute(pts);
     setSEMarkers(pts);
     drawRulers(d);
 	drawManualSegments(d);
@@ -495,6 +697,18 @@ function drawManualSegments(d){
     const totalMeters = (routeMeters||0) + pathLengthMeters(rs) + pathLengthMeters(re);
     const kmTotal = totalMeters/1000;
     chip('chipDistanceTotal', isFinite(kmTotal) ? `Повний маршрут: ${kmTotal.toFixed(2)} км` : 'Повний маршрут: —');
+
+    // Proposal overlay (if exists)
+    try{
+      const prop = d.proposal || null;
+      if (prop){
+        ensureProposalLayers();
+        loadProposalToDraw(prop); // also updates preview + chip
+      } else {
+        setProposalSources([],[],[]);
+        const chip = document.getElementById('chipProposal'); if (chip) chip.textContent = 'Пропозиція: —';
+      }
+    }catch(_){ }
   }
 
   // Approve / Reject actions (перестраховка на боці клієнта по ролях)
@@ -625,6 +839,40 @@ function drawManualSegments(d){
 
     updateLayoutHeights();
     await loadRouteAndRender();
+
+    // Enable proposal tools for security/admin
+    const tools = document.getElementById('proposalTools');
+    if (sec && tools){ tools.style.display = 'flex'; ensureDrawOnce(); }
+    // Wire proposal tool buttons
+    const propEditToggle = document.getElementById('propEditToggle');
+    if (propEditToggle){
+      propEditToggle.onclick = () => {
+        proposalEditOn = !proposalEditOn;
+        // draw is always attached; we just show hint via active state
+        resetProposalEditUI();
+      };
+    }
+    const modeBtns = {
+      propModeRoute: 'route', propModeStart: 'start', propModeEnd: 'end'
+    };
+    Object.entries(modeBtns).forEach(([id, mode])=>{
+      const btn = document.getElementById(id);
+      if (!btn) return;
+      btn.onclick = () => { proposalMode = mode; resetProposalEditUI(); };
+    });
+    const propSave = document.getElementById('propSave'); if (propSave) propSave.onclick = saveProposal;
+    const propClear= document.getElementById('propClear'); if (propClear) propClear.onclick = clearProposal;
+
+    // When clicking on map while in edit mode, append vertex to current proposal line
+    map.on('click', (ev) => {
+      if (!proposalEditOn) return;
+      ensureDrawOnce();
+      const ll = [ev.lngLat.lng, ev.lngLat.lat];
+      let coords = getDrawCoordsBy(proposalMode) || [];
+      coords = coords.concat([ll]);
+      upsertDrawLine(proposalMode, coords);
+      updateProposalPreview();
+    });
   });
 </script>
 <script>
