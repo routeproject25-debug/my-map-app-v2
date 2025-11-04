@@ -620,7 +620,10 @@ function drawManualSegments(d){
     // Інформер про наявність пропозиції
     const propInfoEl = document.getElementById('chipProposalInfo');
     const prop0 = d.approval && d.approval.securityProposal ? d.approval.securityProposal : null;
-    if (prop0 && Array.isArray(prop0.points) && prop0.points.length>=2){
+    const hasPoints0 = !!(prop0 && Array.isArray(prop0.points) && prop0.points.length>=2);
+    const hasSR0 = !!(prop0 && Array.isArray(prop0.startRuler) && prop0.startRuler.length>=2);
+    const hasER0 = !!(prop0 && Array.isArray(prop0.endRuler)   && prop0.endRuler.length>=2);
+    if (hasPoints0 || hasSR0 || hasER0){
       const when = prop0.proposedAt ? new Date(prop0.proposedAt).toLocaleString() : '';
       const who  = prop0.proposedByEmail || prop0.proposedByUid || '';
       propInfoEl.style.display = 'inline-block';
@@ -678,15 +681,27 @@ function drawManualSegments(d){
 
     // Якщо є збережена пропозиція СБ — показати її
     const prop = d.approval && d.approval.securityProposal ? d.approval.securityProposal : null;
-    if (prop && Array.isArray(prop.points)){
-      proposalPoints = fromObjPoints(prop.points);
-      propStartRuler = Array.isArray(prop.startRuler)? fromObjPoints(prop.startRuler) : [];
-      propEndRuler   = Array.isArray(prop.endRuler)?   fromObjPoints(prop.endRuler)   : [];
+    const hasPoints = !!(prop && Array.isArray(prop.points) && prop.points.length>=2);
+    const hasSR = !!(prop && Array.isArray(prop.startRuler) && prop.startRuler.length>=2);
+    const hasER = !!(prop && Array.isArray(prop.endRuler)   && prop.endRuler.length>=2);
+    if (prop && (hasPoints || hasSR || hasER)){
+      proposalPoints = hasPoints ? fromObjPoints(prop.points) : [];
+      propStartRuler = hasSR ? fromObjPoints(prop.startRuler) : [];
+      propEndRuler   = hasER ? fromObjPoints(prop.endRuler)   : [];
       setProposalEditMode(false);
       rebuildProposalMarkers();
-      await drawSnappedProposal();
+      if (hasPoints){
+        await drawSnappedProposal();
+      } else {
+        // rulers-only proposal
+        clearProposalLayers();
+        drawProposalRulers();
+        const km = (proposalRulersMeters()/1000);
+        const chipP = document.getElementById('chipProposalKm');
+        if (chipP){ chipP.style.display='inline-block'; chipP.textContent = `Пропозиція: ${isFinite(km)?km.toFixed(2):'—'} км`; }
+      }
       // позначити, що є пропозиція
-      const chipP = document.getElementById('chipProposalKm'); if (chipP) chipP.style.display='inline-block';
+      const chipP = document.getElementById('chipProposalKm'); if (chipP && chipP.style.display!=='inline-block') chipP.style.display='inline-block';
     } else {
       proposalPoints = [];
       propStartRuler = []; propEndRuler = [];
