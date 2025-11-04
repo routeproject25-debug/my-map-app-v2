@@ -911,7 +911,27 @@ function drawManualSegments(d){
         await db.collection('routes').doc(rid).set(payload, { merge:true });
         alert('Пропозицію збережено. Логіст побачить її в редакторі.');
         setProposalEditMode(false);
-      }catch(e){ alert('Не вдалося зберегти пропозицію: ' + (e?.message||e)); }
+      }catch(e){
+        const msg = String(e && (e.code || e.message) || '');
+        if (/permission|denied|insufficient/i.test(msg)){
+          try{
+            const token = await auth.currentUser.getIdToken();
+            const body  = {
+              id: rid,
+              points: proposalPoints.map(p=>({lng:p[0],lat:p[1]})),
+              startRuler: propStartRuler.map(p=>({lng:p[0],lat:p[1]})),
+              endRuler:   propEndRuler.map(p=>({lng:p[0],lat:p[1]})),
+              km: isFinite(kmApprox) ? Number(kmApprox.toFixed(2)) : null
+            };
+            const r = await fetch('/api/routes/proposal', { method:'POST', headers:{ 'Content-Type':'application/json', 'Authorization': 'Bearer ' + token }, body: JSON.stringify(body) });
+            if (!r.ok){ const t = await r.text().catch(()=> ''); throw new Error('Server save failed: ' + t); }
+            alert('Пропозицію збережено (через сервер).');
+            setProposalEditMode(false);
+          }catch(err){ alert('Не вдалося зберегти пропозицію: ' + (err?.message||err)); }
+        } else {
+          alert('Не вдалося зберегти пропозицію: ' + (e?.message||e));
+        }
+      }
     };
     clearBtn.onclick = async ()=>{
       if (!canEdit) return;
@@ -922,7 +942,21 @@ function drawManualSegments(d){
         proposalPoints = []; propStartRuler=[]; propEndRuler=[]; propRulerMode=null;
         setProposalEditMode(false); rebuildProposalMarkers(); clearProposalLayers(); drawProposalRulers();
         alert('Пропозицію видалено.');
-      }catch(e){ alert('Не вдалося видалити: ' + (e?.message||e)); }
+      }catch(e){
+        const msg = String(e && (e.code || e.message) || '');
+        if (/permission|denied|insufficient/i.test(msg)){
+          try{
+            const token = await auth.currentUser.getIdToken();
+            const r = await fetch('/api/routes/proposal', { method:'POST', headers:{ 'Content-Type':'application/json', 'Authorization': 'Bearer ' + token }, body: JSON.stringify({ id: rid, clear:true }) });
+            if (!r.ok){ const t = await r.text().catch(()=> ''); throw new Error('Server clear failed: ' + t); }
+            proposalPoints = []; propStartRuler=[]; propEndRuler=[]; propRulerMode=null;
+            setProposalEditMode(false); rebuildProposalMarkers(); clearProposalLayers(); drawProposalRulers();
+            alert('Пропозицію видалено (через сервер).');
+          }catch(err){ alert('Не вдалося видалити пропозицію: ' + (err?.message||err)); }
+        } else {
+          alert('Не вдалося видалити: ' + (e?.message||e));
+        }
+      }
     };
 
     updateLayoutHeights();
