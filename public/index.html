@@ -3932,7 +3932,18 @@ if (open){
     const prop = approval && approval.securityProposal ? approval.securityProposal : null;
     const has = !!(prop && Array.isArray(prop.points) && prop.points.length >= 2);
     if (dock){ dock.style.display = has ? 'flex' : 'none'; }
-    if (!has) { try{ clearSecurityProposalOverlay(); }catch(_){ } }
+    if (has){
+      // оновити глобальну змінну для оверлею, навіть якщо маршрут підвантажено іншим шляхом
+      securityProposal = {
+        points: fromObjPoints(prop.points||[]),
+        startRuler: Array.isArray(prop.startRuler)? fromObjPoints(prop.startRuler) : [],
+        endRuler:   Array.isArray(prop.endRuler)?   fromObjPoints(prop.endRuler)   : [],
+        km: prop.km || null
+      };
+    } else {
+      securityProposal = null;
+      try{ clearSecurityProposalOverlay(); }catch(_){ }
+    }
   }catch(_){ }
 }
 
