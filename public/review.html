@@ -318,12 +318,8 @@
   function ensureFeatureForKind(kind){
     ensureDrawOnce();
     try{
-      const coords = getDrawCoordsBy(kind) || [];
-      if (!coords.length){
-        // створимо стартову лінію з однієї точки (буде дорисовуватись кліком)
-        const base = map.getCenter();
-        upsertDrawLine(kind, [[base.lng, base.lat]]);
-      }
+      // Не створюємо примусово жодних точок — користувач ставить першу точку сам,
+      // щоб не було «дивного» сегмента від центру карти до першої точки
       const id = propIds[kind];
       if (id) try{ draw.changeMode('direct_select', { featureId: id }); }catch(_){ }
     }catch(_){ }
@@ -333,10 +329,12 @@
     addIf('proposal-route-snap', { type:'geojson', data:{ type:'FeatureCollection', features:[] } });
     addIf('proposal-start-src',  { type:'geojson', data:{ type:'FeatureCollection', features:[] } });
     addIf('proposal-end-src',    { type:'geojson', data:{ type:'FeatureCollection', features:[] } });
-    const addLayer = (def) => { try{ if (!map.getLayer(def.id)) map.addLayer(def); }catch(_){ } };
-  addLayer({ id:'proposal-route-snap', type:'line', source:'proposal-route-snap', paint:{ 'line-color':'#facc15','line-width':5 } });
-    addLayer({ id:'proposal-start', type:'line', source:'proposal-start-src', paint:{ 'line-color':'#2563eb','line-width':3,'line-dasharray':[1,2] } });
-    addLayer({ id:'proposal-end',   type:'line', source:'proposal-end-src',   paint:{ 'line-color':'#f59e0b','line-width':3,'line-dasharray':[1,2] } });
+    const beforeId = (map.getLayer('gl-draw-line-inactive') ? 'gl-draw-line-inactive' : undefined);
+    const addLayer = (def, before) => { try{ if (!map.getLayer(def.id)) map.addLayer(def, before); }catch(_){ } };
+    // Кладемо snapped/лінійки ПІД шари Draw, щоб вершини були видимі і перетягувані
+    addLayer({ id:'proposal-route-snap', type:'line', source:'proposal-route-snap', paint:{ 'line-color':'#facc15','line-width':5 } }, beforeId);
+    addLayer({ id:'proposal-start', type:'line', source:'proposal-start-src', paint:{ 'line-color':'#2563eb','line-width':3,'line-dasharray':[1,2] } }, beforeId);
+    addLayer({ id:'proposal-end',   type:'line', source:'proposal-end-src',   paint:{ 'line-color':'#f59e0b','line-width':3,'line-dasharray':[1,2] } }, beforeId);
   }
   function setProposalSources(routeCoords, startCoords, endCoords){
     ensureProposalLayers();
@@ -926,6 +924,9 @@ function drawManualSegments(d){
       let coords = getDrawCoordsBy(proposalMode) || [];
       coords = coords.concat([ll]);
       upsertDrawLine(proposalMode, coords);
+      // одразу активуємо редагування щойно створеної/оновленої лінії
+      const id = propIds[proposalMode];
+      if (id){ try{ draw.changeMode('direct_select', { featureId: id }); }catch(_){ } }
       updateProposalPreview();
     });
   });
