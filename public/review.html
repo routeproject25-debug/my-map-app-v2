@@ -938,10 +938,28 @@ function drawManualSegments(d){
               endRuler:   propEndRuler.map(p=>({lng:p[0],lat:p[1]})),
               km: isFinite(kmApprox) ? Number(kmApprox.toFixed(2)) : null
             };
-            const r = await fetch('/api/routes/proposal', { method:'POST', headers:{ 'Content-Type':'application/json', 'Authorization': 'Bearer ' + token }, body: JSON.stringify(body) });
+            let r = await fetch('/api/routes/proposal', { method:'POST', headers:{ 'Content-Type':'application/json', 'Authorization': 'Bearer ' + token }, body: JSON.stringify(body) });
             if (!r.ok){ const t = await r.text().catch(()=> ''); throw new Error('Server save failed: ' + t); }
+            // Якщо хостинг повернув HTML або щось інше — спробуємо напряму функцію
+            const ct = (r.headers.get('content-type')||'').toLowerCase();
+            let resp = null;
+            if (!ct.includes('application/json')){
+              const proj = (window.APP_CONFIG && window.APP_CONFIG.firebase && window.APP_CONFIG.firebase.projectId) || '';
+              const url2 = proj ? `https://us-central1-${proj}.cloudfunctions.net/saveProposal` : '';
+              if (!url2) throw new Error('Ендпоінт /api/routes/proposal не повернув JSON і projectId відсутній.');
+              r = await fetch(url2, { method:'POST', headers:{ 'Content-Type':'application/json', 'Authorization': 'Bearer ' + token }, body: JSON.stringify(body) });
+              if (!r.ok){ const t = await r.text().catch(()=> ''); throw new Error('Server direct save failed: ' + t); }
+              const ct2 = (r.headers.get('content-type')||'').toLowerCase();
+              if (!ct2.includes('application/json')){ const t = await r.text().catch(()=> ''); throw new Error('Direct function returned non-JSON: ' + t.slice(0,200)); }
+              resp = await r.json().catch(()=> null);
+            } else {
+              resp = await r.json().catch(()=> null);
+            }
+            if (!resp || resp.ok !== true){ throw new Error('Server save failed: ' + JSON.stringify(resp)); }
             alert('Пропозицію збережено (через сервер).');
             setProposalEditMode(false);
+            // Перечитати документ із сервера, щоб переконатися, що поле з’явилося
+            try{ await loadRouteAndRender(); }catch(_){ }
           }catch(err){ alert('Не вдалося зберегти пропозицію: ' + (err?.message||err)); }
         } else {
           alert('Не вдалося зберегти пропозицію: ' + (e?.message||e));
@@ -962,11 +980,27 @@ function drawManualSegments(d){
         if (/permission|denied|insufficient/i.test(msg)){
           try{
             const token = await auth.currentUser.getIdToken();
-            const r = await fetch('/api/routes/proposal', { method:'POST', headers:{ 'Content-Type':'application/json', 'Authorization': 'Bearer ' + token }, body: JSON.stringify({ id: rid, clear:true }) });
+            let r = await fetch('/api/routes/proposal', { method:'POST', headers:{ 'Content-Type':'application/json', 'Authorization': 'Bearer ' + token }, body: JSON.stringify({ id: rid, clear:true }) });
             if (!r.ok){ const t = await r.text().catch(()=> ''); throw new Error('Server clear failed: ' + t); }
+            const ct = (r.headers.get('content-type')||'').toLowerCase();
+            let resp = null;
+            if (!ct.includes('application/json')){
+              const proj = (window.APP_CONFIG && window.APP_CONFIG.firebase && window.APP_CONFIG.firebase.projectId) || '';
+              const url2 = proj ? `https://us-central1-${proj}.cloudfunctions.net/saveProposal` : '';
+              if (!url2) throw new Error('Ендпоінт /api/routes/proposal не повернув JSON і projectId відсутній.');
+              r = await fetch(url2, { method:'POST', headers:{ 'Content-Type':'application/json', 'Authorization': 'Bearer ' + token }, body: JSON.stringify({ id: rid, clear:true }) });
+              if (!r.ok){ const t = await r.text().catch(()=> ''); throw new Error('Server direct clear failed: ' + t); }
+              const ct2 = (r.headers.get('content-type')||'').toLowerCase();
+              if (!ct2.includes('application/json')){ const t = await r.text().catch(()=> ''); throw new Error('Direct function returned non-JSON: ' + t.slice(0,200)); }
+              resp = await r.json().catch(()=> null);
+            } else {
+              resp = await r.json().catch(()=> null);
+            }
+            if (!resp || resp.ok !== true){ throw new Error('Server clear failed: ' + JSON.stringify(resp)); }
             proposalPoints = []; propStartRuler=[]; propEndRuler=[]; propRulerMode=null;
             setProposalEditMode(false); rebuildProposalMarkers(); clearProposalLayers(); drawProposalRulers();
             alert('Пропозицію видалено (через сервер).');
+            try{ await loadRouteAndRender(); }catch(_){ }
           }catch(err){ alert('Не вдалося видалити пропозицію: ' + (err?.message||err)); }
         } else {
           alert('Не вдалося видалити: ' + (e?.message||e));
