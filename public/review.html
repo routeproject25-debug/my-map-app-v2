@@ -63,6 +63,7 @@
     .btn.good{ background:#e6f4ea; border-color:#22c55e }
     .btn.bad{ background:#fee2e2; border-color:#ef4444 }
     .btnRow{ display:flex; gap:8px; flex-wrap:wrap }
+  .btn.active{ box-shadow:0 0 0 2px rgba(245,158,11,.35) inset; }
 
     label{ display:block; font-size:13px; margin:6px 0 4px }
     textarea{
@@ -305,6 +306,27 @@
       document.getElementById('propModeStart').classList.toggle('active', proposalMode==='start');
       document.getElementById('propModeEnd').classList.toggle('active', proposalMode==='end');
     }catch(_){ }
+    // Перемкнемо режим редагування у Draw
+    try{
+      if (!draw) return;
+      if (!proposalEditOn){ draw.changeMode('simple_select', {}); return; }
+      const id = propIds[proposalMode];
+      if (id){ draw.changeMode('direct_select', { featureId: id }); }
+    }catch(_){ }
+  }
+
+  function ensureFeatureForKind(kind){
+    ensureDrawOnce();
+    try{
+      const coords = getDrawCoordsBy(kind) || [];
+      if (!coords.length){
+        // створимо стартову лінію з однієї точки (буде дорисовуватись кліком)
+        const base = map.getCenter();
+        upsertDrawLine(kind, [[base.lng, base.lat]]);
+      }
+      const id = propIds[kind];
+      if (id) try{ draw.changeMode('direct_select', { featureId: id }); }catch(_){ }
+    }catch(_){ }
   }
   function ensureProposalLayers(){
     const addIf = (id, src) => { try{ if (!map.getSource(id)) map.addSource(id, src); }catch(_){ } };
@@ -312,7 +334,7 @@
     addIf('proposal-start-src',  { type:'geojson', data:{ type:'FeatureCollection', features:[] } });
     addIf('proposal-end-src',    { type:'geojson', data:{ type:'FeatureCollection', features:[] } });
     const addLayer = (def) => { try{ if (!map.getLayer(def.id)) map.addLayer(def); }catch(_){ } };
-    addLayer({ id:'proposal-route-snap', type:'line', source:'proposal-route-snap', paint:{ 'line-color':'#f59e0b','line-width':5 } });
+  addLayer({ id:'proposal-route-snap', type:'line', source:'proposal-route-snap', paint:{ 'line-color':'#facc15','line-width':5 } });
     addLayer({ id:'proposal-start', type:'line', source:'proposal-start-src', paint:{ 'line-color':'#2563eb','line-width':3,'line-dasharray':[1,2] } });
     addLayer({ id:'proposal-end',   type:'line', source:'proposal-end-src',   paint:{ 'line-color':'#f59e0b','line-width':3,'line-dasharray':[1,2] } });
   }
@@ -510,7 +532,7 @@
         map.addLayer({
           id: srcId, type:'line', source:srcId,
           layout:{ 'line-cap':'round','line-join':'round' },
-          paint:{ 'line-color': `hsl(${(i*60)%360},100%,50%)`, 'line-width': 5 }
+          paint:{ 'line-color': '#ff2d2d', 'line-width': 5 }
         });
         routeLayers.push(srcId);
 
@@ -861,6 +883,7 @@ function drawManualSegments(d){
         proposalEditOn = !proposalEditOn;
         // draw is always attached; we just show hint via active state
         resetProposalEditUI();
+        if (proposalEditOn) ensureFeatureForKind(proposalMode);
       };
     }
     const modeBtns = {
@@ -869,7 +892,7 @@ function drawManualSegments(d){
     Object.entries(modeBtns).forEach(([id, mode])=>{
       const btn = document.getElementById(id);
       if (!btn) return;
-      btn.onclick = () => { proposalMode = mode; resetProposalEditUI(); };
+      btn.onclick = () => { proposalMode = mode; resetProposalEditUI(); if (proposalEditOn) ensureFeatureForKind(proposalMode); };
     });
     const propSave = document.getElementById('propSave'); if (propSave) propSave.onclick = saveProposal;
     const propClear= document.getElementById('propClear'); if (propClear) propClear.onclick = clearProposal;
@@ -887,6 +910,7 @@ function drawManualSegments(d){
           proposalEditOn = true;
           proposalMode = 'route';
           resetProposalEditUI();
+          ensureFeatureForKind('route');
           updateProposalPreview();
         } else {
           alert('Поточний маршрут не містить достатньо точок.');
