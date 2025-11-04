@@ -4727,6 +4727,17 @@ window.addEventListener('load', async () => {
     // Не блокуємо відкриття маршруту за прямим ID — пробуємо завантажити його попри помилку списку
     try { await ensureRoutesLoaded(); } catch (e) { console.warn('ensureRoutesLoaded skipped:', e?.message||e); }
     await loadRouteById(rid);
+    // Якщо прийшли з експорту і є прапорець показати пропозицію — намалюємо відразу
+    try{
+      const sp = new URLSearchParams(location.search).get('showProposal');
+      const has = !!(securityProposal && ((securityProposal.points&&securityProposal.points.length>=2) || (securityProposal.startRuler&&securityProposal.startRuler.length>=2) || (securityProposal.endRuler&&securityProposal.endRuler.length>=2)));
+      if (sp && has){
+        const tBtn = document.getElementById('proposalToggleBtn');
+        const dock = document.getElementById('proposalDock'); if (dock) dock.style.display = 'flex';
+        await drawSecurityProposalOverlay(securityProposal.points||[], securityProposal.startRuler||[], securityProposal.endRuler||[]);
+        if (tBtn) tBtn.textContent = '🙈 Приховати';
+      }
+    }catch(_){ }
   }
   requestAnimationFrame(updateLayoutHeights);
 });

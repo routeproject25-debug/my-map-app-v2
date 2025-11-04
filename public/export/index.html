@@ -1704,9 +1704,24 @@ function parseSnap(snap){
     const statusLabel = toStatusLabelRaw(statusValue);
 
 
-    const rejectComment =
+    // Позначка про наявність пропозиції СБ
+    const prop = d?.approval?.securityProposal || null;
+    const hasPoints = !!(prop && Array.isArray(prop.points) && prop.points.length>=2);
+    const hasSR = !!(prop && Array.isArray(prop.startRuler) && prop.startRuler.length>=2);
+    const hasER = !!(prop && Array.isArray(prop.endRuler)   && prop.endRuler.length>=2);
+    const hasProposal = !!(hasPoints || hasSR || hasER);
+    const when = prop && prop.proposedAt ? prop.proposedAt : '';
+    const who  = prop && (prop.proposedByEmail || prop.proposedByUid) || '';
+    const pInfo = hasProposal
+      ? `Є пропозиція СБ${(prop && typeof prop.km==='number')?` (${prop.km} км)`:''}${(when||who)?` • ${when} ${who}`:''}`
+      : '';
+
+    const rejectCommentRaw =
       (d?.approval && 'comment' in d.approval ? (d.approval.comment || '') : '') ||
       (typeof d.comment === 'string' ? d.comment : '');
+    const rejectComment = hasProposal
+      ? (pInfo + (rejectCommentRaw ? ` • ${rejectCommentRaw}` : ''))
+      : rejectCommentRaw;
 
     // Коротка форма назви: беремо частину до першої «•», щоб уникнути дублювань типу "… • Елеватор • Елеватор"
     const shortByLabel = (lbl) => {
@@ -1735,8 +1750,10 @@ function parseSnap(snap){
       logisticId: d.logisticId || '',
       statusRaw: statusValue, statusLabel, rejectComment,
       updatedAtRaw: d.updatedAt || null,
-	  updatedAt: formatDate(d.updatedAt),
-	  raw: d
+    updatedAt: formatDate(d.updatedAt),
+    raw: d,
+    hasProposal,
+    proposalInfo: pInfo
     });
   });
   const lastDoc = snap.docs[snap.docs.length-1] || null;
@@ -2255,7 +2272,7 @@ function renderTable(rows){
       ${r.id}
       <button class="copy-btn copy-id" data-val="${r.id}" title="Скопіювати ID">📋</button>
     </td>
-    <td><a href="${MAP_URL}?rid=${encodeURIComponent(r.id)}" target="_blank" rel="noopener">Відкрити</a></td>
+  <td><a href="${MAP_URL}?rid=${encodeURIComponent(r.id)}${r.hasProposal?'&showProposal=1':''}" target="_blank" rel="noopener">Відкрити</a></td>
     <td>${
       (r.statusLabel === 'Погоджено')
         ? '—'
