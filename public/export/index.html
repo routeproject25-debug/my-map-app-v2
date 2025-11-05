@@ -97,6 +97,18 @@
     /* багатоваріантний вибір у фільтрах таблиці */
     thead tr.filters select[multiple]{ min-height:2.6em; height:auto; }
     .range { display:grid; grid-template-columns: 1fr 1fr; gap:6px; }
+    
+      /* ===== Excel-like column filter ===== */
+      .excel-filter-btn{
+        margin-left:6px; border:1px solid #e5e7eb; background:#fff; cursor:pointer; padding:1px 4px; border-radius:4px; font-size:11px; line-height:1; color:#111;
+      }
+      .excel-filter-btn.active{ background:#e6f4ea; border-color:#22c55e; }
+      .excel-filter-panel{ position:absolute; z-index:2000; min-width:220px; max-width:360px; max-height:60vh; overflow:auto; background:#fff; border:1px solid #e5e7eb; border-radius:8px; box-shadow:0 10px 24px rgba(0,0,0,.12); padding:8px; display:none; }
+      .excel-filter-panel .head{ display:flex; gap:6px; align-items:center; margin-bottom:6px; }
+      .excel-filter-panel .head input[type="text"]{ flex:1 1 auto; padding:6px 8px; border:1px solid #e5e7eb; border-radius:6px; font-size:12px; }
+      .excel-filter-panel .list{ display:flex; flex-direction:column; gap:4px; margin-bottom:8px; max-height:44vh; overflow:auto; }
+      .excel-filter-panel .actions{ display:flex; gap:6px; justify-content:flex-end; }
+      .excel-filter-panel .actions .btn{ padding:6px 10px; font-size:12px; }
 
     /* === Ручки для зміни ширини колонок === */
     .col-resizer{
@@ -1894,8 +1906,8 @@ function getTableFilterState(){
 function splitMulti(s){ return String(s||'').split(/[,;|\n]+/).map(v=>v.trim()).filter(Boolean); }
 function anyInc(hay, needles){ if (!needles || !needles.length) return true; const H=_norm(String(hay||'')); return needles.some(n=> H.includes(_norm(n))); }
 
-function applyTableFilters(rows){
-  const f = getTableFilterState();
+function applyTableFilters(rows, fOverride){
+  const f = fOverride || getTableFilterState();
   const df = f.df ? new Date(dayStartISO(f.df)) : null;
   const dt = f.dt ? new Date(dayEndISO(f.dt))   : null;
 
@@ -2548,6 +2560,212 @@ const onTopLocalFilterChange = debounce(() => reRender(), 200);
   if (!el) return;
   el.addEventListener('input', onTopLocalFilterChange);
 });
+
+/* ===== Excel-like filter dropdowns ===== */
+(function initExcelFilters(){
+  const headerRow = document.querySelector('#resTable thead tr');
+  if (!headerRow) return;
+  // Add buttons into header cells with data-colkey
+  headerRow.querySelectorAll('th[data-colkey]').forEach(th=>{
+    const key = th.getAttribute('data-colkey');
+    if (!key) return;
+    // Avoid adding button into non-data columns (map/review/navigator/json/delete)
+    if (['map','review','navigator','json','delete'].includes(key)) return;
+    let btn = th.querySelector('.excel-filter-btn');
+    if (btn) return;
+    btn = document.createElement('button');
+    btn.type = 'button'; btn.className = 'excel-filter-btn'; btn.textContent = '▾'; btn.title = 'Фільтр';
+    btn.addEventListener('click', (ev)=>{ ev.stopPropagation(); openExcelFilter(key, btn); });
+    th.appendChild(btn);
+  });
+
+  // Create singleton panel
+  let panel = document.getElementById('excelFilterPanel');
+  if (!panel){
+    panel = document.createElement('div'); panel.id = 'excelFilterPanel'; panel.className = 'excel-filter-panel'; document.body.appendChild(panel);
+  }
+  document.addEventListener('click', (ev)=>{
+    const p = document.getElementById('excelFilterPanel');
+    if (!p || p.style.display!=='block') return;
+    if (!ev.composedPath().includes(p)) closeExcelFilter();
+  });
+  document.addEventListener('keydown', (ev)=>{ if (ev.key==='Escape') closeExcelFilter(); });
+  updateFilterButtonsActive();
+})();
+
+function getFilterElementsByKey(key){
+  switch(key){
+    case 'hub':       return { type:'text', el: document.getElementById('f_hub') };
+    case 'unit':      return { type:'text', el: document.getElementById('f_unitFrom') };
+    case 'fromCode':  return { type:'text', el: document.getElementById('f_fromCode') };
+    case 'toCode':    return { type:'text', el: document.getElementById('f_toCode') };
+    case 'fromName':  return { type:'text', el: document.getElementById('f_fromName') };
+    case 'toName':    return { type:'text', el: document.getElementById('f_toName') };
+    case 'via':       return { type:'text', el: document.getElementById('f_via') };
+    case 'distance':  return { type:'range', min: document.getElementById('f_distMin'), max: document.getElementById('f_distMax') };
+    case 'type':      return { type:'multi', el: document.getElementById('f_type') };
+    case 'logist':    return { type:'text', el: document.getElementById('f_logist') };
+    case 'status':    return { type:'multi', el: document.getElementById('f_status') };
+    case 'comment':   return { type:'text', el: document.getElementById('f_comment') };
+    case 'updated':   return { type:'date', from: document.getElementById('f_dateFrom'), to: document.getElementById('f_dateTo') };
+    case 'routeKey':  return { type:'text', el: document.getElementById('f_routeKey') };
+    case 'id':        return { type:'text', el: document.getElementById('f_id') };
+    default:          return null;
+  }
+}
+
+function rowsForExcelDropdown(colKey){
+  // Use all rows filtered by current state except the target column
+  const f = getTableFilterState();
+  const f2 = JSON.parse(JSON.stringify(f));
+  const clear = (k)=>{ switch(k){
+    case 'hub': f2.hub=''; break;
+    case 'unit': f2.unitFrom=''; break;
+    case 'fromCode': f2.fromCode=''; break;
+    case 'toCode': f2.toCode=''; break;
+    case 'fromName': f2.fromName=''; break;
+    case 'toName': f2.toName=''; break;
+    case 'via': f2.via=''; break;
+    case 'distance': f2.distMin=NaN; f2.distMax=NaN; break;
+    case 'type': f2.type=[]; break;
+    case 'logist': f2.logist=''; break;
+    case 'status': f2.status=[]; break;
+    case 'comment': f2.comment=''; break;
+    case 'updated': f2.df=''; f2.dt=''; break;
+    case 'routeKey': f2.routeKey=''; break;
+    case 'id': f2.id=''; break;
+  }};
+  clear(colKey);
+  try{ return applyTableFilters(allRows||[], f2); }catch(_){ return allRows||[]; }
+}
+
+function computeValuesForColumn(colKey, rows){
+  const pick = (arr, key)=> (arr||[]).map(r=> r[key]).filter(v=> !!String(v||'').trim());
+  switch(colKey){
+    case 'hub': return uniqSorted(pick(rows,'hub'));
+    case 'unit': return uniqSorted(pick(rows,'fromUnit'));
+    case 'fromCode': return uniqSorted(pick(rows,'fromCode'));
+    case 'toCode': return uniqSorted(pick(rows,'toCode'));
+    case 'fromName': return uniqSorted(pick(rows,'fromName'));
+    case 'toName': return uniqSorted(pick(rows,'toName'));
+    case 'via': {
+      const list = [];
+      (rows||[]).forEach(r=>{ String(r.viaNames||'').split(',').map(x=>x.trim()).filter(Boolean).forEach(v=> list.push(v)); });
+      return uniqSorted(list);
+    }
+    case 'type': return uniqSorted(pick(rows,'type'));
+    case 'logist': return uniqSorted(pick(rows,'logisticName'));
+    case 'status': return uniqSorted(pick(rows,'statusLabel'));
+    case 'comment': return uniqSorted(pick(rows,'rejectComment'));
+    case 'routeKey': return uniqSorted(pick(rows,'routeKey'));
+    case 'id': return uniqSorted(pick(rows,'id'));
+    default: return [];
+  }
+}
+
+function openExcelFilter(colKey, anchor){
+  const cfg = getFilterElementsByKey(colKey); if (!cfg) return;
+  const panel = document.getElementById('excelFilterPanel'); if (!panel) return;
+  const rect = anchor.getBoundingClientRect();
+  panel.style.left = Math.min(rect.left, window.innerWidth-360-8) + 'px';
+  panel.style.top  = (rect.bottom + window.scrollY + 4) + 'px';
+
+  // Build UI
+  let html = '';
+  if (cfg.type === 'range'){
+    const curMin = cfg.min?.value||''; const curMax = cfg.max?.value||'';
+    html += `<div class="head"><strong>Відстань, км</strong></div>`;
+    html += `<div class="list">`+
+            `<input type="number" id="ef_min" placeholder="мін." value="${curMin}">`+
+            `<input type="number" id="ef_max" placeholder="макс." value="${curMax}">`+
+            `</div>`;
+  } else if (cfg.type === 'date'){
+    const curF = cfg.from?.value||''; const curT = cfg.to?.value||'';
+    html += `<div class="head"><strong>Оновлено: з/по</strong></div>`;
+    html += `<div class="list">`+
+            `<input type="date" id="ef_df" value="${curF}">`+
+            `<input type="date" id="ef_dt" value="${curT}">`+
+            `</div>`;
+  } else if (cfg.type === 'multi'){
+    const rows = rowsForExcelDropdown(colKey);
+    const vals = computeValuesForColumn(colKey, rows);
+    const selected = new Set(Array.from(cfg.el?.selectedOptions||[]).map(o=>o.value));
+    html += `<div class="head"><input type="text" id="ef_q" placeholder="Пошук..."><label><input type="checkbox" id="ef_all" checked> Вибрати все</label></div>`;
+    html += `<div class="list" id="ef_list">` + vals.map(v=>{
+      const ch = selected.size? (selected.has(v)?'checked':'') : 'checked';
+      return `<label><input type="checkbox" value="${v.replace(/"/g,'&quot;')}" ${ch}> ${v}</label>`;
+    }).join('') + `</div>`;
+  } else { // text based -> checkbox list from unique values
+    const rows = rowsForExcelDropdown(colKey);
+    const vals = computeValuesForColumn(colKey, rows);
+    const current = splitMulti(cfg.el?.value||''); const selected = new Set(current);
+    html += `<div class="head"><input type="text" id="ef_q" placeholder="Пошук..."><label><input type="checkbox" id="ef_all" ${selected.size?'' :'checked'}> Вибрати все</label></div>`;
+    html += `<div class="list" id="ef_list">` + vals.map(v=>{
+      const ch = selected.size? (selected.has(v)?'checked':'') : 'checked';
+      return `<label><input type="checkbox" value="${v.replace(/"/g,'&quot;')}" ${ch}> ${v}</label>`;
+    }).join('') + `</div>`;
+  }
+  html += `<div class="actions"><button class="btn" id="ef_clear">Очистити</button><button class="btn" id="ef_cancel">Скасувати</button><button class="btn primary" id="ef_apply">Застосувати</button></div>`;
+  panel.innerHTML = html;
+  panel.style.display = 'block';
+
+  // Live search
+  const q = document.getElementById('ef_q'); const list = document.getElementById('ef_list'); const all = document.getElementById('ef_all');
+  if (q && list){
+    q.addEventListener('input', ()=>{
+      const s = _norm(q.value);
+      Array.from(list.querySelectorAll('label')).forEach(l=>{ const t=_norm(l.textContent||''); l.style.display = t.includes(s) ? '' : 'none'; });
+    });
+  }
+  if (all && list){
+    all.addEventListener('change', ()=>{ Array.from(list.querySelectorAll('input[type="checkbox"]')).forEach(c=>{ if (c.parentElement.style.display!=='none') c.checked = all.checked; }); });
+  }
+
+  // Actions
+  document.getElementById('ef_cancel')?.addEventListener('click', ()=> closeExcelFilter());
+  document.getElementById('ef_clear')?.addEventListener('click', ()=>{
+    if (cfg.type==='range'){ if (cfg.min) cfg.min.value=''; if (cfg.max) cfg.max.value=''; }
+    else if (cfg.type==='date'){ if (cfg.from) cfg.from.value=''; if (cfg.to) cfg.to.value=''; }
+    else if (cfg.type==='multi'){ Array.from(cfg.el.options).forEach(o=>o.selected=false); }
+    else if (cfg.el){ cfg.el.value=''; }
+    closeExcelFilter(); reRender(); updateFilterButtonsActive();
+  });
+  document.getElementById('ef_apply')?.addEventListener('click', ()=>{
+    if (cfg.type==='range'){
+      if (cfg.min) cfg.min.value = document.getElementById('ef_min').value;
+      if (cfg.max) cfg.max.value = document.getElementById('ef_max').value;
+    } else if (cfg.type==='date'){
+      if (cfg.from) cfg.from.value = document.getElementById('ef_df').value;
+      if (cfg.to) cfg.to.value = document.getElementById('ef_dt').value;
+    } else if (cfg.type==='multi'){
+      const chosen = Array.from(panel.querySelectorAll('#ef_list input[type="checkbox"]')).filter(c=>c.checked).map(c=>c.value);
+      Array.from(cfg.el.options).forEach(o=>{ o.selected = chosen.includes(o.value); });
+    } else if (cfg.el){
+      const chosen = Array.from(panel.querySelectorAll('#ef_list input[type="checkbox"]')).filter(c=>c.checked).map(c=>c.value);
+      // Якщо всі обрані — очищаємо (еквівалент до "усі")
+      cfg.el.value = chosen.length ? chosen.join(', ') : '';
+    }
+    closeExcelFilter(); reRender(); updateFilterButtonsActive();
+  });
+}
+
+function closeExcelFilter(){ const p = document.getElementById('excelFilterPanel'); if (p){ p.style.display='none'; p.innerHTML=''; } }
+
+function updateFilterButtonsActive(){
+  const state = getTableFilterState();
+  const isActive = {
+    hub: !!state.hub, unit: !!state.unitFrom, fromCode: !!state.fromCode, toCode: !!state.toCode,
+    fromName: !!state.fromName, toName: !!state.toName, via: !!state.via,
+    distance: Number.isFinite(state.distMin)||Number.isFinite(state.distMax),
+    type: Array.isArray(state.type)&&state.type.length>0, logist: !!state.logist,
+    status: Array.isArray(state.status)&&state.status.length>0, comment: !!state.comment,
+    updated: !!state.df || !!state.dt, routeKey: !!state.routeKey, id: !!state.id
+  };
+  document.querySelectorAll('#resTable thead th[data-colkey]').forEach(th=>{
+    const key = th.getAttribute('data-colkey'); const btn = th.querySelector('.excel-filter-btn'); if (!btn) return;
+    btn.classList.toggle('active', !!isActive[key]);
+  });
+}
 
 /* Делегування кліків: Поділитися + Копіювати ID/Код */
 document.querySelector('#resTable tbody').addEventListener('click', async (ev)=>{
