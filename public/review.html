@@ -86,7 +86,7 @@
     .mapbox-gl-draw_point{ width:10px; height:10px; }
 
     /* Context menu for vertex actions */
-    .ctx-menu{ position:fixed; z-index:1000; background:#fff; border:1px solid var(--line); border-radius:8px; box-shadow:0 6px 20px rgba(0,0,0,.18); padding:6px; min-width:160px; display:none; }
+    .ctx-menu{ position:fixed; z-index:1000; background:#fff; border:1px solid var(--line); border-radius:8px; box-shadow:0 6px 20px rgba(0,0,0,.18); padding:6px; min-width:180px; display:none; }
     .ctx-menu button{ width:100%; text-align:left; background:#fff; border:0; padding:8px 10px; border-radius:6px; cursor:pointer; font-size:14px; }
     .ctx-menu button:hover{ background:#f3f4f6; }
   </style>
@@ -498,13 +498,37 @@
   // ===== Контекстне меню по правому кліку на вершині =====
   const ctxMenu = document.createElement('div');
   ctxMenu.className = 'ctx-menu';
-  ctxMenu.innerHTML = '<button id="ctx-add-after">➕ Додати після</button>';
+  ctxMenu.innerHTML = [
+    '<button id="ctx-add-before">➕ Додати перед</button>',
+    '<button id="ctx-add-after">➕ Додати після</button>',
+    '<button id="ctx-del">🗑 Видалити точку</button>'
+  ].join('');
   document.body.appendChild(ctxMenu);
   let __ctx = null; // { parentId, kind, index }
   function hideCtx(){ ctxMenu.style.display='none'; __ctx=null; }
   function showCtx(x,y,ctx){ __ctx=ctx; ctxMenu.style.display='block'; ctxMenu.style.left=Math.round(x)+"px"; ctxMenu.style.top=Math.round(y)+"px"; }
   document.addEventListener('click', (e)=>{ if (!ctxMenu.contains(e.target)) hideCtx(); });
   document.addEventListener('keydown', (e)=>{ if (e.key==='Escape') hideCtx(); });
+  function replaceLineFeature(parentId, kind, coords){
+    try{ draw.delete(parentId); }catch(_){ }
+    const newId = draw.add({ type:'Feature', properties:{ kind }, geometry:{ type:'LineString', coordinates: coords } });
+    const id = Array.isArray(newId) ? newId[0] : newId;
+    if (kind && propIds && propIds[kind]===parentId) propIds[kind] = id;
+    try{ draw.changeMode('direct_select', { featureId: id }); }catch(_){ }
+    updateProposalPreview();
+  }
+  ctxMenu.querySelector('#ctx-add-before').addEventListener('click', ()=>{
+    if (!__ctx) return; const { parentId, kind, index } = __ctx; hideCtx();
+    try{
+      ensureDrawOnce();
+      const feat = draw.get(parentId); if (!feat || feat.geometry?.type!=='LineString') return;
+      const coords = (feat.geometry.coordinates||[]).slice(); if (!coords.length) return;
+      const i = Math.max(0, Math.min(index, coords.length-1));
+      const dup = Array.isArray(coords[i]) ? coords[i].slice() : coords[i];
+      coords.splice(i, 0, dup);
+      replaceLineFeature(parentId, (kind || feat.properties?.kind), coords);
+    }catch(_){ }
+  });
   ctxMenu.querySelector('#ctx-add-after').addEventListener('click', ()=>{
     if (!__ctx) return; const { parentId, kind, index } = __ctx; hideCtx();
     try{
@@ -516,13 +540,20 @@
       const i = Math.max(0, Math.min(index, coords.length-1));
       const dup = Array.isArray(coords[i]) ? coords[i].slice() : coords[i];
       coords.splice(i+1, 0, dup);
-      // replace feature preserving kind
-      try{ draw.delete(parentId); }catch(_){ }
-      const newId = draw.add({ type:'Feature', properties:{ kind: kind || feat.properties?.kind }, geometry:{ type:'LineString', coordinates: coords } });
-      const id = Array.isArray(newId) ? newId[0] : newId;
-      if (kind && propIds && propIds[kind]===parentId) propIds[kind] = id;
-      try{ draw.changeMode('direct_select', { featureId: id }); }catch(_){ }
-      updateProposalPreview();
+      replaceLineFeature(parentId, (kind || feat.properties?.kind), coords);
+    }catch(_){ }
+  });
+  ctxMenu.querySelector('#ctx-del').addEventListener('click', ()=>{
+    if (!__ctx) return; const { parentId, kind, index } = __ctx; hideCtx();
+    try{
+      ensureDrawOnce();
+      const feat = draw.get(parentId);
+      if (!feat || feat.geometry?.type!=='LineString') return;
+      const coords = (feat.geometry.coordinates||[]).slice();
+      if (!coords.length) return;
+      const i = Math.max(0, Math.min(index, coords.length-1));
+      coords.splice(i, 1);
+      replaceLineFeature(parentId, (kind || feat.properties?.kind), coords);
     }catch(_){ }
   });
 
@@ -553,6 +584,26 @@
       ev.preventDefault();
     }catch(_){ }
   });
+
+  // Обчислення найближчого сегмента до кліку у пікселях
+  function nearestSegmentPx(coords, point){
+    if (!Array.isArray(coords) || coords.length<2) return { idx:-1, distPx:Infinity };
+    const p = map.project(point);
+    let best = { idx:-1, distPx:Infinity };
+    for (let i=0;i<coords.length-1;i++){
+      const a = map.project(coords[i]);
+      const b = map.project(coords[i+1]);
+      const abx = b.x - a.x, aby = b.y - a.y;
+      const apx = p.x - a.x, apy = p.y - a.y;
+      const ab2 = abx*abx + aby*aby || 1;
+      let t = (apx*abx + apy*aby) / ab2; t = Math.max(0, Math.min(1, t));
+      const projx = a.x + t*abx, projy = a.y + t*aby;
+      const dx = p.x - projx, dy = p.y - projy;
+      const d2 = dx*dx + dy*dy;
+      if (d2 < best.distPx) best = { idx:i, distPx: Math.sqrt(d2) };
+    }
+    return best;
+  }
 
   /* ---------- helpers ---------- */
   function fromObjPoints(arr){ return (arr||[]).map(p => Array.isArray(p) ? p : [p.lng, p.lat]); }
@@ -1020,8 +1071,19 @@ function drawManualSegments(d){
       ensureDrawOnce();
       const ll = [ev.lngLat.lng, ev.lngLat.lat];
       let coords = getDrawCoordsBy(proposalMode) || [];
-      coords = coords.concat([ll]);
-      upsertDrawLine(proposalMode, coords);
+      // Якщо клік поруч з лінією — вставляємо між найближчими вершинами, інакше додаємо в кінець
+      if (coords.length >= 2){
+        const { idx, distPx } = nearestSegmentPx(coords, ll);
+        if (idx >= 0 && distPx <= 14){
+          const c = coords.slice();
+          c.splice(idx+1, 0, ll);
+          upsertDrawLine(proposalMode, c);
+        } else {
+          upsertDrawLine(proposalMode, coords.concat([ll]));
+        }
+      } else {
+        upsertDrawLine(proposalMode, coords.concat([ll]));
+      }
       const id = propIds[proposalMode];
       if (id){ try{ draw.changeMode('direct_select', { featureId: id }); }catch(_){ } }
       updateProposalPreview();
