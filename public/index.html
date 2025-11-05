@@ -3735,8 +3735,10 @@ registerDirEntry(data.toCode,   data.toLabel   || document.getElementById('toNam
     rebuildMarkers(); rebuildRulerMarkers(); drawRulers(); updateRoute();
 	updateHighlights();
     if (points.length > 0) map.flyTo({ center: points[0], zoom: 12 });
-    // ⬇️ Proposal: refresh overlay/UI if present
-    try { updateProposalUIForData(data); } catch(_){ }
+  // ⬇️ Proposal: refresh overlay/UI if present
+  try { updateProposalUIForData(data); } catch(_){ }
+  // 🔴 Live-підписка на зміни маршруту (статус/пропозиція)
+  try { subscribeToRouteLive(id); } catch(_){ }
     alert('Маршрут завантажено з БД: ' + id + (data.routeKey ? `\nКод: ${data.routeKey}` : ''));
   } catch (err) {
     console.error('❌ Помилка завантаження з БД:', err);
@@ -4018,8 +4020,9 @@ function updateProposalUIForData(data){
       distance_km: km
     };
     // Підготуємо шари і дані; спочатку покажемо «як є», потім асинхронно дотягнемо снапнуту геометрію
-    setProposalOverlayData(CURRENT_PROPOSAL);
-    setProposalVisibility(false); // кнопка показує "Показати"
+  setProposalOverlayData(CURRENT_PROPOSAL);
+  // Не скидаємо вибір користувача: якщо пропозиція вже була показана — лишаємо як є
+  setProposalVisibility(PROPOSAL_VISIBLE); // кнопка відображає актуальний стан
     // Асинхронно розрахувати снапнуту до доріг лінію і оновити оверлей
     ensureProposalSnapped(CURRENT_PROPOSAL);
   } else {
@@ -4135,6 +4138,23 @@ document.getElementById('clearLogistsCache').onclick = () => {
   const isLogged = !!(auth && auth.currentUser);
   loadLogists(isLogged);
 };
+
+/* ===== Live updates for selected route (approval/proposal) ===== */
+let __routeLiveUnsub = null;
+let __routeLiveId = null;
+function subscribeToRouteLive(id){
+  try{ if (__routeLiveUnsub) { __routeLiveUnsub(); __routeLiveUnsub = null; } }catch(_){ }
+  if (!id || !db) return;
+  __routeLiveId = id;
+  __routeLiveUnsub = db.collection('routes').doc(id).onSnapshot((doc)=>{
+    if (!doc.exists) return;
+    const data = doc.data() || {};
+    // Тільки UI-частина: статус/коментар і пропозиція; самі точки не чіпаємо, щоб не збивати локальне редагування
+    try { setApprovalUI(data.approval || null); } catch(_){ }
+    try { updateProposalUIForData(data); } catch(_){ }
+  }, (err)=>{ console.warn('live route subscription error', err); });
+}
+window.addEventListener('beforeunload', ()=>{ try{ __routeLiveUnsub && __routeLiveUnsub(); }catch(_){ } });
 
 /* ===================== Search helper (оновлено) ===================== */
 const routeSearch       = document.getElementById('routeSearch');
@@ -4448,8 +4468,10 @@ async function loadRouteById(rid) {
     // ✅ ВАЖЛИВО: зробити маршрут «обраним» у селекті і запам'ятати його як останній,
     // щоб кнопки "На погодження" та "Посилання" працювали без повторного завантаження
     try { ensureRouteOptionSelected(rid, data); } catch(_) {}
-    // Оновити UI пропозиції (якщо є), щоб логіст міг одразу переглянути/прийняти/відхилити
+  // Оновити UI пропозиції (якщо є), щоб логіст міг одразу переглянути/прийняти/відхилити
     try { updateProposalUIForData(data); } catch(_) {}
+  // 🔴 Live-підписка на зміни маршруту (статус/пропозиція) — для онлайн оновлення
+  try { subscribeToRouteLive(rid); } catch(_) {}
     if (data.routeKey) alert('Код маршруту: ' + data.routeKey);
   } catch (e) {
     console.error('loadRouteById error:', e);
