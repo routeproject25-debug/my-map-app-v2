@@ -4045,11 +4045,19 @@ async function acceptProposal(){
     // Хаб-доступ перед записом
     if (!userAllowsHub(d.hub || '')){ alert('⛔ У вас немає доступу до хабу цього маршруту: ' + (d.hub || '—')); return; }
 
-    const payload = {
-      points: toObjPoints(CURRENT_PROPOSAL.points || []),
-      startRuler: toObjPoints(CURRENT_PROPOSAL.startRuler || []),
-      endRuler: toObjPoints(CURRENT_PROPOSAL.endRuler || []),
+    // Локальна копія, щоб уникнути гонки зі live onSnapshot (який одразу видалить proposal і обнулить CURRENT_PROPOSAL)
+    const propLocal = {
+      points: (CURRENT_PROPOSAL.points || []).slice(),
+      startRuler: (CURRENT_PROPOSAL.startRuler || []).slice(),
+      endRuler: (CURRENT_PROPOSAL.endRuler || []).slice(),
       distance_km: (typeof CURRENT_PROPOSAL.distance_km === 'number') ? CURRENT_PROPOSAL.distance_km : undefined,
+    };
+
+    const payload = {
+      points: toObjPoints(propLocal.points),
+      startRuler: toObjPoints(propLocal.startRuler),
+      endRuler: toObjPoints(propLocal.endRuler),
+      distance_km: propLocal.distance_km,
       updatedAt: new Date().toISOString(),
       proposal: firebase.firestore.FieldValue.delete()
     };
@@ -4057,9 +4065,9 @@ async function acceptProposal(){
     await db.collection('routes').doc(id).set(payload, { merge:true });
 
     // Apply to local editor state as well
-    points = (CURRENT_PROPOSAL.points || []).slice();
-    startRuler = (CURRENT_PROPOSAL.startRuler || []).slice();
-    endRuler = (CURRENT_PROPOSAL.endRuler || []).slice();
+  points = propLocal.points.slice();
+  startRuler = propLocal.startRuler.slice();
+  endRuler = propLocal.endRuler.slice();
     rebuildMarkers(); rebuildRulerMarkers(); drawRulers(); updateRoute();
     clearProposalOverlay();
     alert('✅ Пропозицію застосовано до маршруту.');
