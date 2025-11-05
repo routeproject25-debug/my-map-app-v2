@@ -170,6 +170,7 @@
         <button id="propModeRoute" class="btn warn">Лінія маршруту</button>
         <button id="propModeStart" class="btn warn">Лінійка (поч.)</button>
         <button id="propModeEnd" class="btn warn">Лінійка (кін.)</button>
+        <button id="toggleRoadGridReview" class="btn">🛣 Показати сітку доріг</button>
         <button id="propSave" class="btn good">💾 Зберегти пропозицію</button>
         <button id="propClear" class="btn">🗑 Очистити пропозицію</button>
       </div>
@@ -717,6 +718,47 @@
         paint:{ 'line-color':'#22c55e','line-width':3,'line-dasharray':[1,2]}});
     }
   }
+  /* ===== Дорожня сітка як на головній ===== */
+  let roadGridVisible = true;
+  const ROAD_SRC_ID = 'road-grid-src';
+  const ROAD_LAYER_ID = 'road-grid';
+  function addRoadGridLayer(){
+    try{
+      if (!map.getSource(ROAD_SRC_ID)){
+        map.addSource(ROAD_SRC_ID, { type:'vector', url:'mapbox://mapbox.mapbox-streets-v8' });
+      }
+      if (!map.getLayer(ROAD_LAYER_ID)){
+        map.addLayer({
+          id: ROAD_LAYER_ID,
+          type: 'line',
+          source: ROAD_SRC_ID,
+          'source-layer': 'road',
+          filter: ['in', ['get','class'], ['literal', ['motorway','trunk','primary','secondary','tertiary','street','street_limited','service','link','track']]],
+          layout: { 'line-join':'round','line-cap':'round','visibility': roadGridVisible ? 'visible':'none' },
+          paint: {
+            'line-color':'#1d4ed8',
+            'line-opacity': ['interpolate',['linear'],['zoom'], 0,0, 9.5,0, 10,0.25, 12,0.4, 14,0.6, 16,0.75],
+            'line-width': ['interpolate',['linear'],['zoom'], 5,0.22, 10,0.35, 12,0.55, 14,0.8]
+          }
+        });
+      }
+      // Тримати нижче наших маршрутів/пропозиції
+      try{
+        const beforeId = map.getLayer('rev-route-0') ? 'rev-route-0' : (map.getLayer('proposal-route-snap') ? 'proposal-route-snap' : undefined);
+        if (beforeId) map.moveLayer(ROAD_LAYER_ID, beforeId);
+      }catch(_){ }
+      updateRoadGridToggleLabel();
+    }catch(e){ console.warn('road grid error', e); }
+  }
+  function setRoadGridVisibility(v){
+    roadGridVisible = !!v;
+    try{ if (map.getLayer(ROAD_LAYER_ID)) map.setLayoutProperty(ROAD_LAYER_ID, 'visibility', roadGridVisible ? 'visible' : 'none'); }catch(_){ }
+    updateRoadGridToggleLabel();
+  }
+  function updateRoadGridToggleLabel(){
+    const b = document.getElementById('toggleRoadGridReview');
+    if (b) b.textContent = roadGridVisible ? '🛣 Приховати сітку доріг' : '🛣 Показати сітку доріг';
+  }
   // === довжина лінії в метрах (haversine) ===
   function pathLengthMeters(coords){
     if (!Array.isArray(coords) || coords.length < 2) return 0;
@@ -892,6 +934,12 @@ function drawManualSegments(d){
         const chip = document.getElementById('chipProposal'); if (chip) chip.textContent = 'Пропозиція: —';
       }
     }catch(_){ }
+
+    // Після завантаження — додати дорожню сітку
+    addRoadGridLayer(); setRoadGridVisibility(true);
+
+    // === Геозони FROM/TO (якщо tilesets налаштовані) ===
+    try{ await loadTilesetsConfigOnce(); addTilesets(); ensureHighlightLayers(); updateHighlightsForRoute(d); }catch(_){ }
   }
 
   // Approve / Reject actions (перестраховка на боці клієнта по ролях)
@@ -1042,10 +1090,18 @@ function drawManualSegments(d){
     Object.entries(modeBtns).forEach(([id, mode])=>{
       const btn = document.getElementById(id);
       if (!btn) return;
-      btn.onclick = () => { proposalMode = mode; resetProposalEditUI(); if (proposalEditOn) ensureFeatureForKind(proposalMode); };
+      btn.onclick = () => {
+        proposalMode = mode; resetProposalEditUI(); if (proposalEditOn) ensureFeatureForKind(proposalMode);
+        // авто-кадрування до початку/кінця маршруту
+        try{
+          if (mode==='start' && CURRENT_ROUTE_POINTS && CURRENT_ROUTE_POINTS.length){ map.flyTo({ center: CURRENT_ROUTE_POINTS[0], zoom: 14 }); }
+          if (mode==='end'   && CURRENT_ROUTE_POINTS && CURRENT_ROUTE_POINTS.length){ map.flyTo({ center: CURRENT_ROUTE_POINTS[CURRENT_ROUTE_POINTS.length-1], zoom: 14 }); }
+        }catch(_){ }
+      };
     });
     const propSave = document.getElementById('propSave'); if (propSave) propSave.onclick = saveProposal;
     const propClear= document.getElementById('propClear'); if (propClear) propClear.onclick = clearProposal;
+  const roadBtn = document.getElementById('toggleRoadGridReview'); if (roadBtn){ roadBtn.onclick = ()=> setRoadGridVisibility(!roadGridVisible); updateRoadGridToggleLabel(); }
     const propFromCurrent = document.getElementById('propFromCurrent');
     if (propFromCurrent){
       propFromCurrent.onclick = () => {
@@ -1137,6 +1193,78 @@ function drawManualSegments(d){
       updateProposalPreview();
     });
   });
+</script>
+<script>
+  /* ==== Геозони FROM/TO (спрощена версія з index.html) ==== */
+  let TILESETS = [];
+  let __tilesetsLoaded = false;
+  async function loadTilesetsConfigOnce(){
+    if (__tilesetsLoaded) return; try{
+      // пробуємо серверний конфіг
+      let fromFs = null;
+      try{
+        const doc = await firebase.firestore().collection('config').doc('tilesets').get({ source:'server' });
+        if (doc.exists){ const data=doc.data(); if (Array.isArray(data)) fromFs=data; else if (data && Array.isArray(data.tilesets)) fromFs=data.tilesets; }
+      }catch(_){ }
+      if (Array.isArray(fromFs) && fromFs.length){ TILESETS = fromFs; }
+      else{
+        try{ const r = await fetch('/config/tilesets.json?v=' + Date.now()); if (r.ok){ const j = await r.json(); TILESETS = Array.isArray(j) ? j : (Array.isArray(j?.tilesets) ? j.tilesets : []); } }
+        catch(_){ TILESETS = []; }
+      }
+    } finally { __tilesetsLoaded = true; }
+  }
+  let TS_FILL_IDS = []; let HL_IDS_FROM = []; let HL_IDS_TO = []; let HL_LABEL_IDS_FROM=[]; let HL_LABEL_IDS_TO=[];
+  function addTilesets(){
+    TILESETS.forEach(ts =>{
+      const srcId = `geozones-tileset-${ts.key}`;
+      if (!map.getSource(srcId)) map.addSource(srcId, { type:'vector', url: ts.url });
+      const fillId = `tileset-fill-${ts.key}`;
+      if (!map.getLayer(fillId)) map.addLayer({ id: fillId, type:'fill', source: srcId, 'source-layer': ts.layer, paint:{ 'fill-color':'#22c55e','fill-opacity':0.12 } });
+      const outlineId = `tileset-outline-${ts.key}`;
+      if (!map.getLayer(outlineId)) map.addLayer({ id: outlineId, type:'line', source: srcId, 'source-layer': ts.layer, paint:{ 'line-color':'#16a34a','line-width':1 } });
+      TS_FILL_IDS.push(fillId);
+    });
+  }
+  function ensureHighlightLayers(){
+    TILESETS.forEach(ts=>{
+      const srcId = `geozones-tileset-${ts.key}`; if (!map.getSource(srcId)) return;
+      const mk = t=>`tileset-hl-${t}-${ts.key}`;
+      if (!map.getLayer(mk('from'))) map.addLayer({ id:mk('from'), type:'fill', source:srcId, 'source-layer':ts.layer, filter:['==',['get','__never__'],1], paint:{ 'fill-color':'#3b82f6', 'fill-opacity':0.45 } });
+      if (!map.getLayer(mk('to')))   map.addLayer({ id:mk('to'),   type:'fill', source:srcId, 'source-layer':ts.layer, filter:['==',['get','__never__'],1], paint:{ 'fill-color':'#f43f5e', 'fill-opacity':0.45 } });
+      HL_IDS_FROM.push(mk('from')); HL_IDS_TO.push(mk('to'));
+      const mkL = t=>`tileset-hl-${t}-label-${ts.key}`;
+      const textExpr = ['coalesce', ['get','Name'], ['get','name'], ['get','Назва'], ['get','Назва поля'], ['get','Code'], ['get','code']];
+      if (!map.getLayer(mkL('from'))) map.addLayer({ id:mkL('from'), type:'symbol', source:srcId, 'source-layer':ts.layer, filter:['==',['get','__never__'],1], layout:{ 'text-field': textExpr, 'text-size':12 }, paint:{ 'text-halo-color':'#fff','text-halo-width':1.2 } });
+      if (!map.getLayer(mkL('to')))   map.addLayer({ id:mkL('to'),   type:'symbol', source:srcId, 'source-layer':ts.layer, filter:['==',['get','__never__'],1], layout:{ 'text-field': textExpr, 'text-size':12 }, paint:{ 'text-halo-color':'#fff','text-halo-width':1.2 } });
+      HL_LABEL_IDS_FROM.push(mkL('from')); HL_LABEL_IDS_TO.push(mkL('to'));
+    });
+  }
+  function buildAnyMatch(keys, value){
+    if (value === null || value === undefined || String(value).trim() === '') return null;
+    const vLower = String(value).trim().toLowerCase();
+    const parts = keys.map(k => ['==', ['downcase', ['coalesce', ['to-string', ['get', k]], '' ]], vLower]);
+    return parts.length===1 ? parts[0] : ['any', ...parts];
+  }
+  function buildNameCodeFilter(nameVal, codeVal){
+    const NAME_KEYS = ['Name','name','NAME','Назва','Назва поля','Title','title','Label','label'];
+    const CODE_KEYS = ['Code','code','CODE','Код','Id','ID'];
+    const n = buildAnyMatch(NAME_KEYS, nameVal); const c = buildAnyMatch(CODE_KEYS, codeVal);
+    if (n && c) return ['any', n, c]; if (n) return n; if (c) return c; return ['==',['get','__never__'],1];
+  }
+  function updateHighlightsForRoute(d){
+    try{
+      const fromName = d.fromLabel || d.fromName || '';
+      const toName   = d.toLabel   || d.toName   || '';
+      const fromCode = d.fromCode  || '';
+      const toCode   = d.toCode    || '';
+      const fromFilter = buildNameCodeFilter(fromName, fromCode);
+      const toFilter   = buildNameCodeFilter(toName, toCode);
+      HL_IDS_FROM.forEach(id=>{ if(map.getLayer(id)) map.setFilter(id, fromFilter); });
+      HL_IDS_TO.forEach(id  =>{ if(map.getLayer(id)) map.setFilter(id, toFilter); });
+      HL_LABEL_IDS_FROM.forEach(id=>{ if(map.getLayer(id)) map.setFilter(id, fromFilter); });
+      HL_LABEL_IDS_TO.forEach(id  =>{ if(map.getLayer(id)) map.setFilter(id, toFilter); });
+    }catch(_){ }
+  }
 </script>
 <script>
   window.addEventListener('error', ()=>{ document.documentElement.style.visibility='visible'; });
