@@ -171,6 +171,7 @@
         <button id="propModeStart" class="btn warn">Лінійка (поч.)</button>
         <button id="propModeEnd" class="btn warn">Лінійка (кін.)</button>
         <button id="toggleRoadGridReview" class="btn">🛣 Показати сітку доріг</button>
+        <button id="toggleGeozonesReview" class="btn">🗺 Приховати геозони</button>
         <button id="propSave" class="btn good">💾 Зберегти пропозицію</button>
         <button id="propClear" class="btn">🗑 Очистити пропозицію</button>
       </div>
@@ -939,7 +940,7 @@ function drawManualSegments(d){
     addRoadGridLayer(); setRoadGridVisibility(true);
 
     // === Геозони FROM/TO (якщо tilesets налаштовані) ===
-    try{ await loadTilesetsConfigOnce(); addTilesets(); ensureHighlightLayers(); updateHighlightsForRoute(d); }catch(_){ }
+    try{ await loadTilesetsConfigOnce(); addTilesets(); ensureHighlightLayers(); updateHighlightsForRoute(d); setGeozonesVisibility(true); }catch(_){ }
   }
 
   // Approve / Reject actions (перестраховка на боці клієнта по ролях)
@@ -1102,6 +1103,7 @@ function drawManualSegments(d){
     const propSave = document.getElementById('propSave'); if (propSave) propSave.onclick = saveProposal;
     const propClear= document.getElementById('propClear'); if (propClear) propClear.onclick = clearProposal;
   const roadBtn = document.getElementById('toggleRoadGridReview'); if (roadBtn){ roadBtn.onclick = ()=> setRoadGridVisibility(!roadGridVisible); updateRoadGridToggleLabel(); }
+  const gzBtn = document.getElementById('toggleGeozonesReview'); if (gzBtn){ gzBtn.onclick = ()=> setGeozonesVisibility(!__geozonesVisible); updateGeozonesToggleLabel(); }
     const propFromCurrent = document.getElementById('propFromCurrent');
     if (propFromCurrent){
       propFromCurrent.onclick = () => {
@@ -1223,6 +1225,7 @@ function drawManualSegments(d){
       const outlineId = `tileset-outline-${ts.key}`;
       if (!map.getLayer(outlineId)) map.addLayer({ id: outlineId, type:'line', source: srcId, 'source-layer': ts.layer, paint:{ 'line-color':'#16a34a','line-width':1 } });
       TS_FILL_IDS.push(fillId);
+      (window.TS_OUTLINE_IDS || (window.TS_OUTLINE_IDS=[])).push(outlineId);
     });
   }
   function ensureHighlightLayers(){
@@ -1264,6 +1267,19 @@ function drawManualSegments(d){
       HL_LABEL_IDS_FROM.forEach(id=>{ if(map.getLayer(id)) map.setFilter(id, fromFilter); });
       HL_LABEL_IDS_TO.forEach(id  =>{ if(map.getLayer(id)) map.setFilter(id, toFilter); });
     }catch(_){ }
+  }
+  // === Тумблер геозон ===
+  let __geozonesVisible = true;
+  function setLayerVisibility(id, vis){ try{ if(map.getLayer(id)) map.setLayoutProperty(id,'visibility', vis?'visible':'none'); }catch(_){ } }
+  function setGeozonesVisibility(v){
+    __geozonesVisible = !!v;
+    const all = [...(TS_FILL_IDS||[]),...((window.TS_OUTLINE_IDS)||[]),...(HL_IDS_FROM||[]),...(HL_IDS_TO||[]),...(HL_LABEL_IDS_FROM||[]),...(HL_LABEL_IDS_TO||[])];
+    all.forEach(id => setLayerVisibility(id, __geozonesVisible));
+    updateGeozonesToggleLabel();
+  }
+  function updateGeozonesToggleLabel(){
+    const b = document.getElementById('toggleGeozonesReview');
+    if (b) b.textContent = __geozonesVisible ? '🗺 Приховати геозони' : '🗺 Показати геозони';
   }
 </script>
 <script>
