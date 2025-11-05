@@ -603,7 +603,8 @@
       </div>
     </th>
     <th>
-      <select id="f_type" multiple size="3" title="Виберіть один або кілька (Ctrl/Shift)">
+      <select id="f_type" title="Тип">
+        <option value=""></option>
         <option value="Основний">Основний</option>
         <option value="Альтернативний1">Альтернативний1</option>
         <option value="Альтернативний2">Альтернативний2</option>
@@ -611,7 +612,8 @@
     </th>
     <th><input id="f_logist" type="text" placeholder="логіст…" list="fLogistsList"></th>
     <th>
-      <select id="f_status" multiple size="3" title="Виберіть один або кілька (Ctrl/Shift)">
+      <select id="f_status" title="Статус">
+        <option value=""></option>
         <option>Погоджено</option>
         <option>Відхилено</option>
         <option>Очікує</option>
@@ -1881,6 +1883,12 @@ function applyTopFilters(rows){
 
 /* ---------- Фільтри (рядок у шапці таблиці) ---------- */
 function getTableFilterState(){
+  const typeEl = document.getElementById('f_type');
+  const statusEl = document.getElementById('f_status');
+  const typeMulti = (()=>{ try{ return JSON.parse(typeEl?.dataset.multi||''); }catch{ return null; } })() || [];
+  const statusMulti = (()=>{ try{ return JSON.parse(statusEl?.dataset.multi||''); }catch{ return null; } })() || [];
+  const typeArr = (typeMulti && typeMulti.length) ? typeMulti : ((typeEl && typeEl.value) ? [typeEl.value] : []);
+  const statusArr = (statusMulti && statusMulti.length) ? statusMulti : ((statusEl && statusEl.value) ? [statusEl.value] : []);
   return {
     hub: document.getElementById('f_hub').value.trim(),
     fromCode:  document.getElementById('f_fromCode').value.trim(),
@@ -1891,9 +1899,9 @@ function getTableFilterState(){
     via:       document.getElementById('f_via').value.trim(),
     distMin:   toNum(document.getElementById('f_distMin').value),
     distMax:   toNum(document.getElementById('f_distMax').value),
-    type:      Array.from((document.getElementById('f_type')||{}).selectedOptions||[]).map(o=>o.value),
+    type:      typeArr,
     logist:    document.getElementById('f_logist').value.trim(),
-    status:    Array.from((document.getElementById('f_status')||{}).selectedOptions||[]).map(o=>o.value.trim()),
+    status:    statusArr,
     comment:   document.getElementById('f_comment').value.trim(),
     df:        document.getElementById('f_dateFrom').value,
     dt:        document.getElementById('f_dateTo').value,
@@ -2548,7 +2556,7 @@ document.querySelector('#resTable thead').addEventListener('change', onFilterCha
 btnClearFilters.addEventListener('click', ()=>{
   document.querySelectorAll('#resTable thead .filters input, #resTable thead .filters select')
     .forEach(el=>{
-      if (el.tagName === 'SELECT' && el.multiple){ Array.from(el.options).forEach(o=>o.selected=false); }
+      if (el.id === 'f_type' || el.id === 'f_status'){ el.removeAttribute('data-multi'); el.value=''; }
       else el.value='';
     });
   reRender();
@@ -2726,7 +2734,7 @@ function openExcelFilter(colKey, anchor){
   document.getElementById('ef_clear')?.addEventListener('click', ()=>{
     if (cfg.type==='range'){ if (cfg.min) cfg.min.value=''; if (cfg.max) cfg.max.value=''; }
     else if (cfg.type==='date'){ if (cfg.from) cfg.from.value=''; if (cfg.to) cfg.to.value=''; }
-    else if (cfg.type==='multi'){ Array.from(cfg.el.options).forEach(o=>o.selected=false); }
+    else if (cfg.type==='multi'){ if (cfg.el){ cfg.el.dataset.multi=''; cfg.el.value=''; } }
     else if (cfg.el){ cfg.el.value=''; }
     closeExcelFilter(); reRender(); updateFilterButtonsActive();
   });
@@ -2739,7 +2747,7 @@ function openExcelFilter(colKey, anchor){
       if (cfg.to) cfg.to.value = document.getElementById('ef_dt').value;
     } else if (cfg.type==='multi'){
       const chosen = Array.from(panel.querySelectorAll('#ef_list input[type="checkbox"]')).filter(c=>c.checked).map(c=>c.value);
-      Array.from(cfg.el.options).forEach(o=>{ o.selected = chosen.includes(o.value); });
+      if (cfg.el){ cfg.el.dataset.multi = JSON.stringify(chosen); cfg.el.value=''; }
     } else if (cfg.el){
       const chosen = Array.from(panel.querySelectorAll('#ef_list input[type="checkbox"]')).filter(c=>c.checked).map(c=>c.value);
       // Якщо всі обрані — очищаємо (еквівалент до "усі")
