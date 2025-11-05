@@ -94,6 +94,8 @@
     thead tr.filters input, thead tr.filters select {
       width:100%; padding:4px 6px; border:1px solid #e5e7eb; border-radius:6px; font-size:12px; background:#fff;
     }
+    /* багатоваріантний вибір у фільтрах таблиці */
+    thead tr.filters select[multiple]{ min-height:2.6em; height:auto; }
     .range { display:grid; grid-template-columns: 1fr 1fr; gap:6px; }
 
     /* === Ручки для зміни ширини колонок === */
@@ -589,8 +591,7 @@
       </div>
     </th>
     <th>
-      <select id="f_type">
-        <option value=""></option>
+      <select id="f_type" multiple size="3" title="Виберіть один або кілька (Ctrl/Shift)">
         <option value="Основний">Основний</option>
         <option value="Альтернативний1">Альтернативний1</option>
         <option value="Альтернативний2">Альтернативний2</option>
@@ -598,8 +599,7 @@
     </th>
     <th><input id="f_logist" type="text" placeholder="логіст…" list="fLogistsList"></th>
     <th>
-      <select id="f_status">
-        <option value=""></option>
+      <select id="f_status" multiple size="3" title="Виберіть один або кілька (Ctrl/Shift)">
         <option>Погоджено</option>
         <option>Відхилено</option>
         <option>Очікує</option>
@@ -1879,9 +1879,9 @@ function getTableFilterState(){
     via:       document.getElementById('f_via').value.trim(),
     distMin:   toNum(document.getElementById('f_distMin').value),
     distMax:   toNum(document.getElementById('f_distMax').value),
-    type:      document.getElementById('f_type').value,
+    type:      Array.from((document.getElementById('f_type')||{}).selectedOptions||[]).map(o=>o.value),
     logist:    document.getElementById('f_logist').value.trim(),
-    status:    document.getElementById('f_status').value.trim(),
+    status:    Array.from((document.getElementById('f_status')||{}).selectedOptions||[]).map(o=>o.value.trim()),
     comment:   document.getElementById('f_comment').value.trim(),
     df:        document.getElementById('f_dateFrom').value,
     dt:        document.getElementById('f_dateTo').value,
@@ -1890,34 +1890,58 @@ function getTableFilterState(){
   };
 }
 
+// ——— Допоміжні для мульти-фільтрів ———
+function splitMulti(s){ return String(s||'').split(/[,;|\n]+/).map(v=>v.trim()).filter(Boolean); }
+function anyInc(hay, needles){ if (!needles || !needles.length) return true; const H=_norm(String(hay||'')); return needles.some(n=> H.includes(_norm(n))); }
+
 function applyTableFilters(rows){
   const f = getTableFilterState();
-  const normInc = (val, needle) => _norm(String(val||'')).includes(_norm(needle||''));
   const df = f.df ? new Date(dayStartISO(f.df)) : null;
   const dt = f.dt ? new Date(dayEndISO(f.dt))   : null;
 
+  // Підготовка множинних значень із текстових полів
+  const hubNeedles      = splitMulti(f.hub);
+  const fromCodeNeedles = splitMulti(f.fromCode);
+  const toCodeNeedles   = splitMulti(f.toCode);
+  const fromNameNeedles = splitMulti(f.fromName);
+  const unitNeedles     = splitMulti(f.unitFrom);
+  const toNameNeedles   = splitMulti(f.toName);
+  const viaNeedles      = splitMulti(f.via);
+  const logistNeedles   = splitMulti(f.logist);
+  const commentNeedles  = splitMulti(f.comment);
+  const keyNeedles      = splitMulti(f.routeKey);
+  const idNeedles       = splitMulti(f.id);
+
+  const typeSet   = Array.isArray(f.type)   && f.type.length   ? new Set(f.type)   : null;
+  const statusSet = Array.isArray(f.status) && f.status.length ? new Set(f.status) : null;
+
   return rows.filter(r=>{
-    if (f.hub && !normInc(r.hub, f.hub)) return false;
-    if (f.fromCode && !normInc(r.fromCode, f.fromCode)) return false;
-    if (f.toCode   && !normInc(r.toCode,   f.toCode))   return false;
-    if (f.fromName && !normInc(r.fromName, f.fromName)) return false;
-    if (f.unitFrom && !normInc(r.fromUnit, f.unitFrom)) return false;
-    if (f.toName   && !normInc(r.toName,   f.toName))   return false;
-    if (f.via      && !normInc(r.viaNames, f.via)) return false;
+    if (!anyInc(r.hub,        hubNeedles)) return false;
+    if (!anyInc(r.fromCode,   fromCodeNeedles)) return false;
+    if (!anyInc(r.toCode,     toCodeNeedles)) return false;
+    if (!anyInc(r.fromName,   fromNameNeedles)) return false;
+    if (!anyInc(r.fromUnit,   unitNeedles)) return false;
+    if (!anyInc(r.toName,     toNameNeedles)) return false;
+    if (!anyInc(r.viaNames,   viaNeedles)) return false;
+
     const dist = r.distance_km;
     if (Number.isFinite(f.distMin) && dist < f.distMin) return false;
     if (Number.isFinite(f.distMax) && dist > f.distMax) return false;
-    if (f.type && r.type !== f.type) return false;
-    if (f.logist && !normInc(r.logisticName, f.logist)) return false;
-    if (f.status && r.statusLabel !== f.status) return false;
-    if (f.comment && !normInc(r.rejectComment, f.comment)) return false;
+
+    if (typeSet   && !typeSet.has(r.type || '')) return false;
+    if (logistNeedles.length && !anyInc(r.logisticName, logistNeedles)) return false;
+    if (statusSet && !statusSet.has(r.statusLabel || '')) return false;
+    if (commentNeedles.length && !anyInc(r.rejectComment, commentNeedles)) return false;
+
     if ((df || dt) && r.updatedAtRaw){
       const d = new Date(r.updatedAtRaw);
       if (df && d < df) return false;
       if (dt && d > dt) return false;
     }
-    if (f.routeKey && !normInc(r.routeKey, f.routeKey)) return false;
-    if (f.id && !normInc(r.id, f.id)) return false;
+
+    if (keyNeedles.length && !anyInc(r.routeKey, keyNeedles)) return false;
+    if (idNeedles.length && !anyInc(r.id, idNeedles)) return false;
+
     return true;
   });
 }
@@ -1941,10 +1965,20 @@ function setDatalistOptions(listId, values){
 function rebuildSelectOptions(selectId, values){
   const sel = document.getElementById(selectId);
   if (!sel) return;
-  const prev = sel.value;
   const uniq = uniqSorted(values || []);
-  sel.innerHTML = [''].concat(uniq).map(v => v === '' ? '<option value=""></option>' : `<option>${v}</option>`).join('');
-  if (uniq.includes(prev)) sel.value = prev; else sel.value = '';
+  const isMulti = !!sel.multiple;
+  const prevSet = isMulti ? new Set(Array.from(sel.selectedOptions).map(o=>o.value)) : null;
+  const prevVal = isMulti ? null : sel.value;
+
+  sel.innerHTML = isMulti
+    ? uniq.map(v=>`<option>${v}</option>`).join('')
+    : [''].concat(uniq).map(v => v === '' ? '<option value=""></option>' : `<option>${v}</option>`).join('');
+
+  if (isMulti){
+    Array.from(sel.options).forEach(o => { o.selected = prevSet ? prevSet.has(o.value) : false; });
+  } else {
+    if (uniq.includes(prevVal)) sel.value = prevVal; else sel.value = '';
+  }
 }
 
 function updateColumnFilterLists(rows){
@@ -2498,9 +2532,13 @@ document.querySelector('#resTable thead').addEventListener('click', (ev)=>{
 function debounce(fn, ms){ let t; return (...a)=>{ clearTimeout(t); t=setTimeout(()=>fn(...a), ms); }; }
 const onFilterChange = debounce(()=> reRender(), 200);
 document.querySelector('#resTable thead').addEventListener('input', onFilterChange);
+document.querySelector('#resTable thead').addEventListener('change', onFilterChange);
 btnClearFilters.addEventListener('click', ()=>{
   document.querySelectorAll('#resTable thead .filters input, #resTable thead .filters select')
-    .forEach(el=>{ el.value=''; });
+    .forEach(el=>{
+      if (el.tagName === 'SELECT' && el.multiple){ Array.from(el.options).forEach(o=>o.selected=false); }
+      else el.value='';
+    });
   reRender();
 });
 // Верхні «локальні» фільтри (що застосовуються на клієнті) — лише перемальовують таблицю, без запитів
