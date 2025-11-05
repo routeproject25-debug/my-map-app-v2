@@ -1913,13 +1913,19 @@ function getTableFilterState(){
 // ——— Допоміжні для мульти-фільтрів ———
 const EF_EMPTY_TOKEN = '__EMPTY__';
 const EF_EMPTY_LABEL = '(порожньо)';
+function isEmptyCell(v){
+  const raw = String(v ?? '').trim();
+  if (!raw) return true;
+  return raw === '-' || raw === '—' || raw === '–';
+}
 function splitMulti(s){ return String(s||'').split(/[,;|\n]+/).map(v=>v.trim()).filter(Boolean); }
 function matchTextNeedles(hay, needles){
-  const H = _norm(String(hay||''));
+  const raw = String(hay ?? '');
+  const H = _norm(raw);
   if (!needles || !needles.length) return true;
   const hasEmpty = needles.includes(EF_EMPTY_TOKEN);
   const others = needles.filter(n => n && n !== EF_EMPTY_TOKEN);
-  if (hasEmpty && !H) return true; // явно фільтруємо порожні
+  if (hasEmpty && ( !H || isEmptyCell(raw) )) return true; // явно фільтруємо порожні (враховуємо -, –, —)
   return others.some(n => H.includes(_norm(n)));
 }
 
@@ -1959,13 +1965,13 @@ function applyTableFilters(rows, fOverride){
 
     if (typeSet){
       const v = r.type || '';
-      const ok = v ? typeSet.has(v) : typeSet.has(EF_EMPTY_TOKEN);
+      const ok = isEmptyCell(v) ? typeSet.has(EF_EMPTY_TOKEN) : typeSet.has(v);
       if (!ok) return false;
     }
   if (logistNeedles.length && !matchTextNeedles(r.logisticName, logistNeedles)) return false;
     if (statusSet){
       const v = r.statusLabel || '';
-      const ok = v ? statusSet.has(v) : statusSet.has(EF_EMPTY_TOKEN);
+      const ok = isEmptyCell(v) ? statusSet.has(EF_EMPTY_TOKEN) : statusSet.has(v);
       if (!ok) return false;
     }
   if (commentNeedles.length && !matchTextNeedles(r.rejectComment, commentNeedles)) return false;
