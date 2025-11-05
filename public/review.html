@@ -517,20 +517,36 @@
     try{ draw.changeMode('direct_select', { featureId: id }); }catch(_){ }
     updateProposalPreview();
   }
+  function midpoint(a,b){ return [ (a[0]+b[0])/2, (a[1]+b[1])/2 ]; }
+  function suggestInsertCoord(coords, index, dir, clickLL){
+    // dir: 'before' | 'after'
+    // 1) якщо є клікові координати — використаємо їх
+    if (Array.isArray(clickLL) && clickLL.length>=2) return clickLL;
+    // 2) інакше — середина між сусідніми вершинами
+    if (dir==='after'){
+      if (index < coords.length-1) return midpoint(coords[index], coords[index+1]);
+      if (coords.length>=2) return midpoint(coords[coords.length-2], coords[coords.length-1]);
+      return coords[index] || clickLL; // фолбек
+    } else {
+      if (index > 0) return midpoint(coords[index-1], coords[index]);
+      if (coords.length>=2) return midpoint(coords[0], coords[1]);
+      return coords[index] || clickLL;
+    }
+  }
   ctxMenu.querySelector('#ctx-add-before').addEventListener('click', ()=>{
-    if (!__ctx) return; const { parentId, kind, index } = __ctx; hideCtx();
+    if (!__ctx) return; const { parentId, kind, index, clickLL } = __ctx; hideCtx();
     try{
       ensureDrawOnce();
       const feat = draw.get(parentId); if (!feat || feat.geometry?.type!=='LineString') return;
       const coords = (feat.geometry.coordinates||[]).slice(); if (!coords.length) return;
       const i = Math.max(0, Math.min(index, coords.length-1));
-      const dup = Array.isArray(coords[i]) ? coords[i].slice() : coords[i];
-      coords.splice(i, 0, dup);
+      const ins = suggestInsertCoord(coords, i, 'before', clickLL);
+      coords.splice(i, 0, ins);
       replaceLineFeature(parentId, (kind || feat.properties?.kind), coords);
     }catch(_){ }
   });
   ctxMenu.querySelector('#ctx-add-after').addEventListener('click', ()=>{
-    if (!__ctx) return; const { parentId, kind, index } = __ctx; hideCtx();
+    if (!__ctx) return; const { parentId, kind, index, clickLL } = __ctx; hideCtx();
     try{
       ensureDrawOnce();
       const feat = draw.get(parentId);
@@ -538,8 +554,8 @@
       const coords = (feat.geometry.coordinates||[]).slice();
       if (!coords.length) return;
       const i = Math.max(0, Math.min(index, coords.length-1));
-      const dup = Array.isArray(coords[i]) ? coords[i].slice() : coords[i];
-      coords.splice(i+1, 0, dup);
+      const ins = suggestInsertCoord(coords, i, 'after', clickLL);
+      coords.splice(i+1, 0, ins);
       replaceLineFeature(parentId, (kind || feat.properties?.kind), coords);
     }catch(_){ }
   });
@@ -580,7 +596,8 @@
       const { clientX, clientY } = ev.originalEvent || ev.point || {};
       const x = (ev.originalEvent?.clientX ?? clientX ?? 0);
       const y = (ev.originalEvent?.clientY ?? clientY ?? 0);
-      showCtx(x,y,{ parentId, kind, index });
+      const clickLL = [ev.lngLat.lng, ev.lngLat.lat];
+      showCtx(x,y,{ parentId, kind, index, clickLL });
       ev.preventDefault();
     }catch(_){ }
   });
