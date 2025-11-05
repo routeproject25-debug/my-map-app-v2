@@ -1255,16 +1255,30 @@ function drawManualSegments(d){
       HL_LABEL_IDS_FROM.push(mkL('from')); HL_LABEL_IDS_TO.push(mkL('to'));
     });
   }
-  function buildAnyMatch(keys, value){
-    if (value === null || value === undefined || String(value).trim() === '') return null;
-    const vLower = String(value).trim().toLowerCase();
-    const parts = keys.map(k => ['==', ['downcase', ['coalesce', ['to-string', ['get', k]], '' ]], vLower]);
+  function buildAnyMatch(keys, value, mode='exact'){
+    if (value === null || value === undefined) return null;
+    const vRaw = String(value).trim();
+    if (!vRaw) return null;
+    const vLower = vRaw.toLowerCase();
+    // exact: strict equality (case-insensitive)
+    if (mode === 'exact'){
+      const parts = keys.map(k => ['==', ['downcase', ['coalesce', ['to-string', ['get', k]], '' ]], vLower]);
+      return parts.length===1 ? parts[0] : ['any', ...parts];
+    }
+    // contains: substring match (case-insensitive) using index-of >= 0
+    const parts = keys.map(k => [
+      '>=',
+      ['index-of', vLower, ['downcase', ['coalesce', ['to-string', ['get', k]], '' ]]],
+      0
+    ]);
     return parts.length===1 ? parts[0] : ['any', ...parts];
   }
   function buildNameCodeFilter(nameVal, codeVal){
-    const NAME_KEYS = ['Name','name','NAME','Назва','Назва поля','Title','title','Label','label'];
-    const CODE_KEYS = ['Code','code','CODE','Код','Id','ID'];
-    const n = buildAnyMatch(NAME_KEYS, nameVal); const c = buildAnyMatch(CODE_KEYS, codeVal);
+    const NAME_KEYS = ['Name','name','NAME','Назва','Назва поля','Title','title','Label','label','NAME_UA','Назва укр','Назва_укр'];
+    const CODE_KEYS = ['Code','code','CODE','Код','Id','ID','OBJECTID','OBJECT_ID','gid','GID'];
+    // Names: allow partial match; Codes: keep exact
+    const n = buildAnyMatch(NAME_KEYS, nameVal, 'contains');
+    const c = buildAnyMatch(CODE_KEYS, codeVal, 'exact');
     if (n && c) return ['any', n, c]; if (n) return n; if (c) return c; return ['==',['get','__never__'],1];
   }
   function updateHighlightsForRoute(d){
