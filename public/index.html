@@ -811,6 +811,8 @@ function hideSplash(){
   const s = document.getElementById('splash');
   if (s) { s.classList.add('hide'); setTimeout(() => s.remove(), 300); }
 }
+// Прапорець: коли можна ховати сплеш. Стає true після перевірки авторизації
+window.__canHideSplash = false;
 
 // Розміщення верхнього доку (правильна ширина як на макеті: від правого краю лівої панелі до правого краю екрану)
 function positionEntryDock(){
@@ -1521,7 +1523,8 @@ function fitToHighlights(){
 /* ========= ⬆️ Геозони з Mapbox Tilesets (multi) ========= */
 
 map.on('style.load', async () => {
-hideSplash();            // ⬅️ сховати сплеш, коли стиль карти готовий
+// Сплеш ховаємо лише після перевірки авторизації, інакше неавторизовані побачать сторінку перед редіректом
+if (window.__canHideSplash) hideSplash();
   applyUkrainianLabels();
   updateRoute();
   drawRulers();
@@ -4872,7 +4875,8 @@ logoutBtn.onclick = async () => {
 };
 auth?.onAuthStateChanged(async (user) => {
   if (user){
-  hideSplash();          // ⬅️ ось тут
+  window.__canHideSplash = true;
+  hideSplash();          // ⬅️ ховаємо сплеш тільки після успішної авторизації
     authHello.textContent = 'Увійшли як ' + (user.email || user.uid);
     loginBtn.style.display='none'; authEmail.style.display='none'; authPass.style.display='none';
     logoutBtn.style.display='inline-block';
@@ -4932,7 +4936,8 @@ roleUnsub = db.collection('users').doc(user.uid)
     }
 
   } else {
-  hideSplash();          // ⬅️ і тут
+  // Неавторизованим сплеш не знімаємо до редіректу на /login.html
+  window.__canHideSplash = false;
     if (roleUnsub) try{ roleUnsub(); }catch{}
     authHello.textContent = 'Гість';
     loginBtn.style.display='inline-block'; authEmail.style.display='inline-block'; authPass.style.display='inline-block';
