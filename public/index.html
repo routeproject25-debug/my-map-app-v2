@@ -4445,6 +4445,11 @@ async function loadRouteById(rid) {
       for (const p of points) b.extend(p);
       map.fitBounds(b, { padding: 40 });
     }
+    // ✅ ВАЖЛИВО: зробити маршрут «обраним» у селекті і запам'ятати його як останній,
+    // щоб кнопки "На погодження" та "Посилання" працювали без повторного завантаження
+    try { ensureRouteOptionSelected(rid, data); } catch(_) {}
+    // Оновити UI пропозиції (якщо є), щоб логіст міг одразу переглянути/прийняти/відхилити
+    try { updateProposalUIForData(data); } catch(_) {}
     if (data.routeKey) alert('Код маршруту: ' + data.routeKey);
   } catch (e) {
     console.error('loadRouteById error:', e);
