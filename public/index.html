@@ -4185,20 +4185,48 @@ function formatFromToShort(d){
   const to   = getNameByCode(d.toCode)   || parseNameFromLabel(d.toLabel)   || d.toLabel   || '';
   return `${from} → ${to}`;
 }
-function pushNotif(kind, text){
-  const n = { id: Date.now() + ':' + Math.random().toString(36).slice(2), kind, text, at: new Date() };
+function pushNotif(kind, text, opts={}){
+  const n = { id: Date.now() + ':' + Math.random().toString(36).slice(2), kind, text, at: new Date(), rid: opts.rid || null };
   __notifs.unshift(n); // нові зверху
   renderNotifs();
+}
+function notifUrl(n){
+  const rid = n.rid || '';
+  if (!rid) return '#';
+  const base = '/index.html';
+  const qp = (n.kind === 'proposal') ? `?rid=${encodeURIComponent(rid)}&showProposal=1` : `?rid=${encodeURIComponent(rid)}`;
+  return base + qp;
+}
+async function handleNotifClick(n, ev){
+  try{ if (!n) return; const rid = n.rid; if (!rid) return;
+    const newTab = !!(ev && (ev.ctrlKey || ev.metaKey || ev.button === 1));
+    const url = notifUrl(n);
+    if (newTab){ window.open(url, '_blank'); return; }
+    await loadRouteById(rid);
+    if (n.kind === 'proposal') {
+      try{ setProposalVisibility(true); }catch(_){ }
+    }
+  }catch(_){ }
 }
 function renderNotifs(){
   const list = document.getElementById('notifList'); if (!list) return;
   list.innerHTML = '';
   __notifs.forEach(n =>{
     const li = document.createElement('li');
-    const msg = document.createElement('div'); msg.className='notif-msg'; msg.textContent = n.text;
+    li.style.cursor = n.rid ? 'pointer' : 'default';
+    li.addEventListener('click', (ev)=> handleNotifClick(n, ev));
+    li.addEventListener('mousedown', (ev)=>{ if (ev.button===1) { handleNotifClick(n, ev); } });
+    const msg = document.createElement('div'); msg.className='notif-msg';
+    if (n.rid){
+      const a = document.createElement('a'); a.href = notifUrl(n); a.textContent = n.text; a.style.color = '#111'; a.style.textDecoration='none';
+      a.addEventListener('click', (ev)=>{ ev.preventDefault(); handleNotifClick(n, ev); });
+      msg.appendChild(a);
+    } else {
+      msg.textContent = n.text;
+    }
     const right = document.createElement('div'); right.style.display='grid'; right.style.gridAutoFlow='column'; right.style.alignItems='center'; right.style.gap='8px';
     const time = document.createElement('div'); time.className='notif-time'; time.textContent = n.at.toLocaleTimeString('uk-UA',{hour:'2-digit',minute:'2-digit'});
-    const x = document.createElement('button'); x.className='notif-dismiss'; x.textContent='✕'; x.onclick=()=>{ __notifs = __notifs.filter(m=>m.id!==n.id); renderNotifs(); };
+    const x = document.createElement('button'); x.className='notif-dismiss'; x.textContent='✕'; x.onclick=(e)=>{ e.stopPropagation(); __notifs = __notifs.filter(m=>m.id!==n.id); renderNotifs(); };
     right.appendChild(time); right.appendChild(x);
     li.appendChild(msg); li.appendChild(right);
     list.appendChild(li);
@@ -4230,12 +4258,12 @@ function subscribeToRouteLive(id){
     const hasProp = !!(data?.proposal && Array.isArray(data.proposal.points) && data.proposal.points.length>=2);
     if (__routeLivePrev){
       if (__routeLivePrev.status !== st){
-        if (st === 'approved') pushNotif('approved', `✅ Погоджено: ${formatFromToShort(data)}`);
-        else if (st === 'rejected') pushNotif('rejected', `⛔ Відхилено: ${formatFromToShort(data)}`);
-        else if (st === 'pending') pushNotif('pending', `⏳ На погодженні: ${formatFromToShort(data)}`);
+        if (st === 'approved') pushNotif('approved', `✅ Погоджено: ${formatFromToShort(data)}`, { rid: __routeLiveId });
+        else if (st === 'rejected') pushNotif('rejected', `⛔ Відхилено: ${formatFromToShort(data)}`, { rid: __routeLiveId });
+        else if (st === 'pending') pushNotif('pending', `⏳ На погодженні: ${formatFromToShort(data)}`, { rid: __routeLiveId });
       }
       if (!__routeLivePrev.hasProposal && hasProp){
-        pushNotif('proposal', `💡 Пропозиція СБ: ${formatFromToShort(data)}`);
+        pushNotif('proposal', `💡 Пропозиція СБ: ${formatFromToShort(data)}`, { rid: __routeLiveId });
       }
     }
     __routeLivePrev = { status: st, hasProposal: hasProp };
@@ -4251,7 +4279,7 @@ function _dedupePush(kind, id, status, text){
   if (__notifRecent.has(key)) return;
   __notifRecent.add(key);
   setTimeout(()=> __notifRecent.delete(key), 60_000); // 60s TTL
-  pushNotif(kind, text);
+  pushNotif(kind, text, { rid: id });
 }
 function subscribeToGlobalNotifications(){
   // Відписатись від попередніх
@@ -4921,11 +4949,15 @@ window.addEventListener('load', async () => {
     DIR_LOADED_ONCE = true;
   }
   const rid = new URLSearchParams(location.search).get('rid');
+  const showProp = new URLSearchParams(location.search).get('showProposal');
   if (rid) {
     // Для логіста ensureRoutesLoaded може впасти на правалах (широкий запит без фільтру по хабах)
     // Не блокуємо відкриття маршруту за прямим ID — пробуємо завантажити його попри помилку списку
     try { await ensureRoutesLoaded(); } catch (e) { console.warn('ensureRoutesLoaded skipped:', e?.message||e); }
     await loadRouteById(rid);
+    if (String(showProp||'').toLowerCase() === '1' || String(showProp||'').toLowerCase() === 'true'){
+      try{ setProposalVisibility(true); }catch(_){ }
+    }
   }
   requestAnimationFrame(updateLayoutHeights);
 });
