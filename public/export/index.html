@@ -280,7 +280,13 @@
   <!-- AUTH GUARD: /export — лише admin | logist -->
 <script>
 (function () {
+  // Ховаємо документ, щоб не було блимання до перевірки доступу
   document.documentElement.style.visibility = 'hidden';
+  // Страховка на випадок, якщо подія auth не прийде (дублікати вкладок, тротлінг браузера тощо)
+  const __visFailsafeMs = 2000;
+  let __visTimer = setTimeout(() => {
+    try { document.documentElement.style.visibility = ''; } catch(_) {}
+  }, __visFailsafeMs);
 
   const CFG = window.APP_CONFIG?.firebase;
   if (!CFG) console.error('APP_CONFIG.firebase відсутній. Перевір /config/config.js і підключення <script src="/config/config.js">.');
@@ -289,6 +295,9 @@
   const auth = firebase.auth();
   const db   = firebase.firestore();
   const loginURL = '/login.html?next=' + encodeURIComponent(location.pathname + location.search);
+
+  const unhideDoc = () => { try { document.documentElement.style.visibility = ''; } catch(_) {} };
+  const clearVisTimer = () => { try { clearTimeout(__visTimer); } catch(_) {} };
 
   function setRoleBadge(r) {
     const el = document.getElementById('authRole');
@@ -329,9 +338,8 @@
   window.addEventListener('beforeunload', () => { try { window.__roleUnsub?.(); } catch(_) {} });
 
 
-  auth.onAuthStateChanged(async (u) => {
+  async function handleUser(u){
     if (!u) { location.replace(loginURL); return; }
-
     try {
       const snap = await db.collection('users').doc(u.uid).get({ source: 'server' });
       const data = snap.exists ? (snap.data() || {}) : {};
@@ -371,13 +379,20 @@
           }
         });
       } catch (_) {}
-
-      document.documentElement.style.visibility = '';
     } catch (e) {
       console.error('Role/hubs check failed:', e);
       location.replace(loginURL);
+      return;
+    } finally {
+      clearVisTimer();
+      unhideDoc();
     }
-  });
+  }
+
+  // 1) Якщо користувач уже відомий у цій вкладці — стартуємо одразу
+  if (auth.currentUser) { handleUser(auth.currentUser); }
+  // 2) А також підпишемось на зміну стану (для випадків, коли стан ще не відновився з IndexedDB)
+  auth.onAuthStateChanged((u) => { handleUser(u); });
 })();
 </script>
 
