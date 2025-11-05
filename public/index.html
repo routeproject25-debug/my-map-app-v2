@@ -37,6 +37,19 @@
   header .left, header .right{ display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
   header .spacer{ flex:1 1 auto; }
 
+  /* ===== Notifications ===== */
+  #notifArea{ position:relative; display:flex; align-items:center; gap:6px; }
+  #notifBell{ position:relative; height:34px; padding:0 12px; border-radius:8px; border:1px solid rgba(255,255,255,.35); background:#fff; color:#111; cursor:pointer; }
+  #notifCount{ position:absolute; top:-6px; right:-6px; background:#ef4444; color:#fff; border-radius:999px; padding:2px 6px; font-size:12px; line-height:1; display:none; }
+  #notifDropdown{ position:absolute; right:0; top:40px; width:380px; max-width:90vw; background:#fff; color:#111; border:1px solid var(--line); border-radius:12px; box-shadow:0 6px 24px rgba(0,0,0,.18); display:none; z-index:6000; }
+  #notifDropdown header{ display:flex; align-items:center; justify-content:space-between; padding:10px 12px; border-bottom:1px solid var(--line); font-weight:600; }
+  #notifList{ list-style:none; margin:0; padding:0; max-height:50vh; overflow:auto; }
+  #notifList li{ display:grid; grid-template-columns:1fr auto; gap:8px; padding:10px 12px; border-bottom:1px solid #f1f5f9; }
+  #notifList li:last-child{ border-bottom:none; }
+  .notif-msg{ font-size:14px; }
+  .notif-time{ font-size:12px; color:#6b7280; }
+  .notif-dismiss{ background:transparent; border:none; color:#6b7280; cursor:pointer; font-size:16px; line-height:1; padding:0 4px; }
+
   #authBar{ display:flex; align-items:center; gap:6px; flex-wrap:wrap; }
   #authBar input{
     height:34px; padding:6px 10px; border-radius:8px; border:1px solid rgba(255,255,255,.35);
@@ -408,6 +421,19 @@
   </div>
 
   <div class="spacer"></div>
+
+  <div id="notifArea" class="right">
+    <button id="notifBell" class="btn">🔔 Сповіщення<span id="notifCount"></span></button>
+    <div id="notifDropdown" role="region" aria-label="Сповіщення">
+      <header>
+        <span>Сповіщення</span>
+        <div>
+          <button id="notifClear" class="btn xs">Очистити</button>
+        </div>
+      </header>
+      <ul id="notifList"></ul>
+    </div>
+  </div>
 
   <div id="authBar" class="right collapsed">
     <span id="authHello" class="chip">Гість</span>
@@ -4150,16 +4176,68 @@ document.getElementById('clearLogistsCache').onclick = () => {
 /* ===== Live updates for selected route (approval/proposal) ===== */
 let __routeLiveUnsub = null;
 let __routeLiveId = null;
+let __routeLivePrev = null; // { status, hasProposal }
+// ===== Notifications state =====
+let __notifs = [];
+function formatFromToShort(d){
+  const from = getNameByCode(d.fromCode) || parseNameFromLabel(d.fromLabel) || d.fromLabel || '';
+  const to   = getNameByCode(d.toCode)   || parseNameFromLabel(d.toLabel)   || d.toLabel   || '';
+  return `${from} → ${to}`;
+}
+function pushNotif(kind, text){
+  const n = { id: Date.now() + ':' + Math.random().toString(36).slice(2), kind, text, at: new Date() };
+  __notifs.unshift(n); // нові зверху
+  renderNotifs();
+}
+function renderNotifs(){
+  const list = document.getElementById('notifList'); if (!list) return;
+  list.innerHTML = '';
+  __notifs.forEach(n =>{
+    const li = document.createElement('li');
+    const msg = document.createElement('div'); msg.className='notif-msg'; msg.textContent = n.text;
+    const right = document.createElement('div'); right.style.display='grid'; right.style.gridAutoFlow='column'; right.style.alignItems='center'; right.style.gap='8px';
+    const time = document.createElement('div'); time.className='notif-time'; time.textContent = n.at.toLocaleTimeString('uk-UA',{hour:'2-digit',minute:'2-digit'});
+    const x = document.createElement('button'); x.className='notif-dismiss'; x.textContent='✕'; x.onclick=()=>{ __notifs = __notifs.filter(m=>m.id!==n.id); renderNotifs(); };
+    right.appendChild(time); right.appendChild(x);
+    li.appendChild(msg); li.appendChild(right);
+    list.appendChild(li);
+  });
+  const cnt = document.getElementById('notifCount'); if (cnt){ cnt.style.display = __notifs.length ? 'inline-block' : 'none'; cnt.textContent = __notifs.length; }
+}
+function bindNotifUI(){
+  const bell = document.getElementById('notifBell'); const drop = document.getElementById('notifDropdown'); const clr = document.getElementById('notifClear');
+  if (bell && drop){ bell.onclick = (e)=>{ e.stopPropagation(); drop.style.display = (drop.style.display==='block' ? 'none' : 'block'); }; }
+  if (clr){ clr.onclick = ()=>{ __notifs = []; renderNotifs(); }; }
+  document.addEventListener('click', (ev)=>{
+    try{ const drop = document.getElementById('notifDropdown'); const bell = document.getElementById('notifBell'); if (!drop) return; const path = ev.composedPath ? ev.composedPath() : []; if (drop.style.display==='block' && !path.includes(drop) && !path.includes(bell)) drop.style.display='none'; }catch(_){ }
+  });
+}
+bindNotifUI();
 function subscribeToRouteLive(id){
   try{ if (__routeLiveUnsub) { __routeLiveUnsub(); __routeLiveUnsub = null; } }catch(_){ }
   if (!id || !db) return;
   __routeLiveId = id;
+  __routeLivePrev = null;
   __routeLiveUnsub = db.collection('routes').doc(id).onSnapshot((doc)=>{
     if (!doc.exists) return;
     const data = doc.data() || {};
     // Тільки UI-частина: статус/коментар і пропозиція; самі точки не чіпаємо, щоб не збивати локальне редагування
     try { setApprovalUI(data.approval || null); } catch(_){ }
     try { updateProposalUIForData(data); } catch(_){ }
+    // Сповіщення: визначаємо зміни після першого снапшоту
+    const st = String(data?.approval?.status || 'draft');
+    const hasProp = !!(data?.proposal && Array.isArray(data.proposal.points) && data.proposal.points.length>=2);
+    if (__routeLivePrev){
+      if (__routeLivePrev.status !== st){
+        if (st === 'approved') pushNotif('approved', `✅ Погоджено: ${formatFromToShort(data)}`);
+        else if (st === 'rejected') pushNotif('rejected', `⛔ Відхилено: ${formatFromToShort(data)}`);
+        else if (st === 'pending') pushNotif('pending', `⏳ На погодженні: ${formatFromToShort(data)}`);
+      }
+      if (!__routeLivePrev.hasProposal && hasProp){
+        pushNotif('proposal', `💡 Пропозиція СБ: ${formatFromToShort(data)}`);
+      }
+    }
+    __routeLivePrev = { status: st, hasProposal: hasProp };
   }, (err)=>{ console.warn('live route subscription error', err); });
 }
 window.addEventListener('beforeunload', ()=>{ try{ __routeLiveUnsub && __routeLiveUnsub(); }catch(_){ } });
