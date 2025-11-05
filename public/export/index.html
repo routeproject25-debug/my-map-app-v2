@@ -1957,9 +1957,17 @@ function applyTableFilters(rows, fOverride){
     if (Number.isFinite(f.distMin) && dist < f.distMin) return false;
     if (Number.isFinite(f.distMax) && dist > f.distMax) return false;
 
-    if (typeSet   && !typeSet.has(r.type || '')) return false;
+    if (typeSet){
+      const v = r.type || '';
+      const ok = v ? typeSet.has(v) : typeSet.has(EF_EMPTY_TOKEN);
+      if (!ok) return false;
+    }
   if (logistNeedles.length && !matchTextNeedles(r.logisticName, logistNeedles)) return false;
-    if (statusSet && !statusSet.has(r.statusLabel || '')) return false;
+    if (statusSet){
+      const v = r.statusLabel || '';
+      const ok = v ? statusSet.has(v) : statusSet.has(EF_EMPTY_TOKEN);
+      if (!ok) return false;
+    }
   if (commentNeedles.length && !matchTextNeedles(r.rejectComment, commentNeedles)) return false;
 
     if ((df || dt) && r.updatedAtRaw){
