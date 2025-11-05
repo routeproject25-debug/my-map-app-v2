@@ -1911,8 +1911,17 @@ function getTableFilterState(){
 }
 
 // ——— Допоміжні для мульти-фільтрів ———
+const EF_EMPTY_TOKEN = '__EMPTY__';
+const EF_EMPTY_LABEL = '(порожньо)';
 function splitMulti(s){ return String(s||'').split(/[,;|\n]+/).map(v=>v.trim()).filter(Boolean); }
-function anyInc(hay, needles){ if (!needles || !needles.length) return true; const H=_norm(String(hay||'')); return needles.some(n=> H.includes(_norm(n))); }
+function matchTextNeedles(hay, needles){
+  const H = _norm(String(hay||''));
+  if (!needles || !needles.length) return true;
+  const hasEmpty = needles.includes(EF_EMPTY_TOKEN);
+  const others = needles.filter(n => n && n !== EF_EMPTY_TOKEN);
+  if (hasEmpty && !H) return true; // явно фільтруємо порожні
+  return others.some(n => H.includes(_norm(n)));
+}
 
 function applyTableFilters(rows, fOverride){
   const f = fOverride || getTableFilterState();
@@ -1936,22 +1945,22 @@ function applyTableFilters(rows, fOverride){
   const statusSet = Array.isArray(f.status) && f.status.length ? new Set(f.status) : null;
 
   return rows.filter(r=>{
-    if (!anyInc(r.hub,        hubNeedles)) return false;
-    if (!anyInc(r.fromCode,   fromCodeNeedles)) return false;
-    if (!anyInc(r.toCode,     toCodeNeedles)) return false;
-    if (!anyInc(r.fromName,   fromNameNeedles)) return false;
-    if (!anyInc(r.fromUnit,   unitNeedles)) return false;
-    if (!anyInc(r.toName,     toNameNeedles)) return false;
-    if (!anyInc(r.viaNames,   viaNeedles)) return false;
+    if (!matchTextNeedles(r.hub,        hubNeedles)) return false;
+    if (!matchTextNeedles(r.fromCode,   fromCodeNeedles)) return false;
+    if (!matchTextNeedles(r.toCode,     toCodeNeedles)) return false;
+    if (!matchTextNeedles(r.fromName,   fromNameNeedles)) return false;
+    if (!matchTextNeedles(r.fromUnit,   unitNeedles)) return false;
+    if (!matchTextNeedles(r.toName,     toNameNeedles)) return false;
+    if (!matchTextNeedles(r.viaNames,   viaNeedles)) return false;
 
     const dist = r.distance_km;
     if (Number.isFinite(f.distMin) && dist < f.distMin) return false;
     if (Number.isFinite(f.distMax) && dist > f.distMax) return false;
 
     if (typeSet   && !typeSet.has(r.type || '')) return false;
-    if (logistNeedles.length && !anyInc(r.logisticName, logistNeedles)) return false;
+  if (logistNeedles.length && !matchTextNeedles(r.logisticName, logistNeedles)) return false;
     if (statusSet && !statusSet.has(r.statusLabel || '')) return false;
-    if (commentNeedles.length && !anyInc(r.rejectComment, commentNeedles)) return false;
+  if (commentNeedles.length && !matchTextNeedles(r.rejectComment, commentNeedles)) return false;
 
     if ((df || dt) && r.updatedAtRaw){
       const d = new Date(r.updatedAtRaw);
@@ -1959,8 +1968,8 @@ function applyTableFilters(rows, fOverride){
       if (dt && d > dt) return false;
     }
 
-    if (keyNeedles.length && !anyInc(r.routeKey, keyNeedles)) return false;
-    if (idNeedles.length && !anyInc(r.id, idNeedles)) return false;
+  if (keyNeedles.length && !matchTextNeedles(r.routeKey, keyNeedles)) return false;
+  if (idNeedles.length && !matchTextNeedles(r.id, idNeedles)) return false;
 
     return true;
   });
@@ -2650,23 +2659,25 @@ function rowsForExcelDropdown(colKey){
 function computeValuesForColumn(colKey, rows){
   const pick = (arr, key)=> (arr||[]).map(r=> r[key]).filter(v=> !!String(v||'').trim());
   switch(colKey){
-    case 'hub': return uniqSorted(pick(rows,'hub'));
-    case 'unit': return uniqSorted(pick(rows,'fromUnit'));
-    case 'fromCode': return uniqSorted(pick(rows,'fromCode'));
-    case 'toCode': return uniqSorted(pick(rows,'toCode'));
-    case 'fromName': return uniqSorted(pick(rows,'fromName'));
-    case 'toName': return uniqSorted(pick(rows,'toName'));
+    case 'hub': { const list = uniqSorted(pick(rows,'hub')); if ((rows||[]).some(r=> !_norm(r.hub))) list.unshift(EF_EMPTY_TOKEN); return list; }
+    case 'unit': { const list = uniqSorted(pick(rows,'fromUnit')); if ((rows||[]).some(r=> !_norm(r.fromUnit))) list.unshift(EF_EMPTY_TOKEN); return list; }
+    case 'fromCode': { const list = uniqSorted(pick(rows,'fromCode')); if ((rows||[]).some(r=> !_norm(r.fromCode))) list.unshift(EF_EMPTY_TOKEN); return list; }
+    case 'toCode': { const list = uniqSorted(pick(rows,'toCode')); if ((rows||[]).some(r=> !_norm(r.toCode))) list.unshift(EF_EMPTY_TOKEN); return list; }
+    case 'fromName': { const list = uniqSorted(pick(rows,'fromName')); if ((rows||[]).some(r=> !_norm(r.fromName))) list.unshift(EF_EMPTY_TOKEN); return list; }
+    case 'toName': { const list = uniqSorted(pick(rows,'toName')); if ((rows||[]).some(r=> !_norm(r.toName))) list.unshift(EF_EMPTY_TOKEN); return list; }
     case 'via': {
       const list = [];
       (rows||[]).forEach(r=>{ String(r.viaNames||'').split(',').map(x=>x.trim()).filter(Boolean).forEach(v=> list.push(v)); });
-      return uniqSorted(list);
+      const out = uniqSorted(list);
+      if ((rows||[]).some(r=> !_norm(r.viaNames))) out.unshift(EF_EMPTY_TOKEN);
+      return out;
     }
-    case 'type': return uniqSorted(pick(rows,'type'));
-    case 'logist': return uniqSorted(pick(rows,'logisticName'));
-    case 'status': return uniqSorted(pick(rows,'statusLabel'));
-    case 'comment': return uniqSorted(pick(rows,'rejectComment'));
-    case 'routeKey': return uniqSorted(pick(rows,'routeKey'));
-    case 'id': return uniqSorted(pick(rows,'id'));
+    case 'type': { const list = uniqSorted(pick(rows,'type')); if ((rows||[]).some(r=> !_norm(r.type))) list.unshift(EF_EMPTY_TOKEN); return list; }
+    case 'logist': { const list = uniqSorted(pick(rows,'logisticName')); if ((rows||[]).some(r=> !_norm(r.logisticName))) list.unshift(EF_EMPTY_TOKEN); return list; }
+    case 'status': { const list = uniqSorted(pick(rows,'statusLabel')); if ((rows||[]).some(r=> !_norm(r.statusLabel))) list.unshift(EF_EMPTY_TOKEN); return list; }
+    case 'comment': { const list = uniqSorted(pick(rows,'rejectComment')); if ((rows||[]).some(r=> !_norm(r.rejectComment))) list.unshift(EF_EMPTY_TOKEN); return list; }
+    case 'routeKey': { const list = uniqSorted(pick(rows,'routeKey')); if ((rows||[]).some(r=> !_norm(r.routeKey))) list.unshift(EF_EMPTY_TOKEN); return list; }
+    case 'id': { const list = uniqSorted(pick(rows,'id')); if ((rows||[]).some(r=> !_norm(r.id))) list.unshift(EF_EMPTY_TOKEN); return list; }
     default: return [];
   }
 }
@@ -2701,7 +2712,8 @@ function openExcelFilter(colKey, anchor){
     html += `<div class="head"><input type="text" id="ef_q" placeholder="Пошук..."><label><input type="checkbox" id="ef_all" checked> Вибрати все</label></div>`;
     html += `<div class="list" id="ef_list">` + vals.map(v=>{
       const ch = selected.size? (selected.has(v)?'checked':'') : 'checked';
-      return `<label><input type="checkbox" value="${v.replace(/"/g,'&quot;')}" ${ch}> ${v}</label>`;
+      const label = (v===EF_EMPTY_TOKEN) ? EF_EMPTY_LABEL : v;
+      return `<label><input type="checkbox" value="${v.replace(/"/g,'&quot;')}" ${ch}> ${label}</label>`;
     }).join('') + `</div>`;
   } else { // text based -> checkbox list from unique values
     const rows = rowsForExcelDropdown(colKey);
@@ -2710,7 +2722,8 @@ function openExcelFilter(colKey, anchor){
     html += `<div class="head"><input type="text" id="ef_q" placeholder="Пошук..."><label><input type="checkbox" id="ef_all" ${selected.size?'' :'checked'}> Вибрати все</label></div>`;
     html += `<div class="list" id="ef_list">` + vals.map(v=>{
       const ch = selected.size? (selected.has(v)?'checked':'') : 'checked';
-      return `<label><input type="checkbox" value="${v.replace(/"/g,'&quot;')}" ${ch}> ${v}</label>`;
+      const label = (v===EF_EMPTY_TOKEN) ? EF_EMPTY_LABEL : v;
+      return `<label><input type="checkbox" value="${v.replace(/"/g,'&quot;')}" ${ch}> ${label}</label>`;
     }).join('') + `</div>`;
   }
   html += `<div class="actions"><button class="btn" id="ef_clear">Очистити</button><button class="btn" id="ef_cancel">Скасувати</button><button class="btn primary" id="ef_apply">Застосувати</button></div>`;
