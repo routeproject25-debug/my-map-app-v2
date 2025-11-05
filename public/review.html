@@ -84,6 +84,11 @@
     .chip.proposal{ background:#fef9c3; border-color:#f59e0b }
     /* Make draw handles a bit more visible */
     .mapbox-gl-draw_point{ width:10px; height:10px; }
+
+    /* Context menu for vertex actions */
+    .ctx-menu{ position:fixed; z-index:1000; background:#fff; border:1px solid var(--line); border-radius:8px; box-shadow:0 6px 20px rgba(0,0,0,.18); padding:6px; min-width:160px; display:none; }
+    .ctx-menu button{ width:100%; text-align:left; background:#fff; border:0; padding:8px 10px; border-radius:6px; cursor:pointer; font-size:14px; }
+    .ctx-menu button:hover{ background:#f3f4f6; }
   </style>
 
   <!-- === AUTH GUARD у <head>: ініт Firebase, перевірка ролі, показ DOM === -->
@@ -279,12 +284,7 @@
             id: 'gl-draw-point-active', type:'circle', filter:['all',['==','$type','Point'],['==','active','true']],
             paint:{ 'circle-radius':6, 'circle-color':'#f59e0b', 'circle-stroke-width':2, 'circle-stroke-color':'#111' }
           },
-          // midpoints for inserting new vertices between two points
-          {
-            id: 'gl-draw-midpoint', type:'circle',
-            filter:['all',['==','$type','Point'],['==','meta','midpoint']],
-            paint:{ 'circle-radius':6, 'circle-color':'#10b981', 'circle-stroke-width':2, 'circle-stroke-color':'#fff' }
-          },
+          // 🔕 Прибираємо відображення «середніх точок», щоб не засмічувати екран
           // raw line from Draw — робимо прозорим, щоб не бачити не‑снапнуті прямі сегменти
           {
             id: 'gl-draw-line-inactive', type:'line', filter:['all',['==','$type','LineString'],['!=','active','true']],
@@ -494,6 +494,65 @@
   let __lastDragEndAt = 0;
   map.on('dragstart', ()=>{ __isMapDragging = true; });
   map.on('dragend',   ()=>{ __isMapDragging = false; __lastDragEndAt = Date.now(); });
+
+  // ===== Контекстне меню по правому кліку на вершині =====
+  const ctxMenu = document.createElement('div');
+  ctxMenu.className = 'ctx-menu';
+  ctxMenu.innerHTML = '<button id="ctx-add-after">➕ Додати після</button>';
+  document.body.appendChild(ctxMenu);
+  let __ctx = null; // { parentId, kind, index }
+  function hideCtx(){ ctxMenu.style.display='none'; __ctx=null; }
+  function showCtx(x,y,ctx){ __ctx=ctx; ctxMenu.style.display='block'; ctxMenu.style.left=Math.round(x)+"px"; ctxMenu.style.top=Math.round(y)+"px"; }
+  document.addEventListener('click', (e)=>{ if (!ctxMenu.contains(e.target)) hideCtx(); });
+  document.addEventListener('keydown', (e)=>{ if (e.key==='Escape') hideCtx(); });
+  ctxMenu.querySelector('#ctx-add-after').addEventListener('click', ()=>{
+    if (!__ctx) return; const { parentId, kind, index } = __ctx; hideCtx();
+    try{
+      ensureDrawOnce();
+      const feat = draw.get(parentId);
+      if (!feat || feat.geometry?.type!=='LineString') return;
+      const coords = (feat.geometry.coordinates||[]).slice();
+      if (!coords.length) return;
+      const i = Math.max(0, Math.min(index, coords.length-1));
+      const dup = Array.isArray(coords[i]) ? coords[i].slice() : coords[i];
+      coords.splice(i+1, 0, dup);
+      // replace feature preserving kind
+      try{ draw.delete(parentId); }catch(_){ }
+      const newId = draw.add({ type:'Feature', properties:{ kind: kind || feat.properties?.kind }, geometry:{ type:'LineString', coordinates: coords } });
+      const id = Array.isArray(newId) ? newId[0] : newId;
+      if (kind && propIds && propIds[kind]===parentId) propIds[kind] = id;
+      try{ draw.changeMode('direct_select', { featureId: id }); }catch(_){ }
+      updateProposalPreview();
+    }catch(_){ }
+  });
+
+  map.on('contextmenu', (ev)=>{
+    hideCtx();
+    if (!proposalEditOn) return; // лише в режимі редагування
+    try{
+      const feats = map.queryRenderedFeatures(ev.point);
+      // шукаємо vertex від Mapbox Draw
+      const hit = (feats||[]).find(f=> f.properties && f.properties.meta==='vertex' && (f.layer?.id||'').startsWith('gl-draw'));
+      if (!hit) return;
+      const parentId = hit.properties.parent || hit.properties.featureId || hit.properties.id;
+      if (!parentId) return;
+      const feat = draw.get(parentId);
+      if (!feat || feat.geometry?.type!=='LineString') return;
+      const kind = feat.properties?.kind || null;
+      // coord_path like "0.12" -> take last number as vertex index
+      const cp = String(hit.properties.coord_path||'');
+      const parts = cp.split('.');
+      const index = Number(parts[parts.length-1]);
+      if (!Number.isFinite(index)) return;
+
+      // показуємо меню біля курсора
+      const { clientX, clientY } = ev.originalEvent || ev.point || {};
+      const x = (ev.originalEvent?.clientX ?? clientX ?? 0);
+      const y = (ev.originalEvent?.clientY ?? clientY ?? 0);
+      showCtx(x,y,{ parentId, kind, index });
+      ev.preventDefault();
+    }catch(_){ }
+  });
 
   /* ---------- helpers ---------- */
   function fromObjPoints(arr){ return (arr||[]).map(p => Array.isArray(p) ? p : [p.lng, p.lat]); }
@@ -952,8 +1011,7 @@ function drawManualSegments(d){
         const pt = [ev.point.x, ev.point.y];
         const probeLayers = [
           'gl-draw-point-inactive','gl-draw-point-active',
-          'gl-draw-polygon-and-line-vertex-active','gl-draw-polygon-and-line-vertex-halo-active',
-          'gl-draw-midpoint'
+          'gl-draw-polygon-and-line-vertex-active','gl-draw-polygon-and-line-vertex-halo-active'
         ].filter(id => map.getLayer(id));
         const feats = probeLayers.length ? map.queryRenderedFeatures(ev.point, { layers: probeLayers }) : [];
         if (feats && feats.length) return; // нехай Draw обробить сам
