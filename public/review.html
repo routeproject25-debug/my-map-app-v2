@@ -279,6 +279,12 @@
             id: 'gl-draw-point-active', type:'circle', filter:['all',['==','$type','Point'],['==','active','true']],
             paint:{ 'circle-radius':6, 'circle-color':'#f59e0b', 'circle-stroke-width':2, 'circle-stroke-color':'#111' }
           },
+          // midpoints for inserting new vertices between two points
+          {
+            id: 'gl-draw-midpoint', type:'circle',
+            filter:['all',['==','$type','Point'],['==','meta','midpoint']],
+            paint:{ 'circle-radius':6, 'circle-color':'#10b981', 'circle-stroke-width':2, 'circle-stroke-color':'#fff' }
+          },
           // raw line from Draw — робимо прозорим, щоб не бачити не‑снапнуті прямі сегменти
           {
             id: 'gl-draw-line-inactive', type:'line', filter:['all',['==','$type','LineString'],['!=','active','true']],
@@ -482,6 +488,12 @@
   }
   window.addEventListener('resize', updateLayoutHeights);
   map.on('load', updateLayoutHeights);
+  // Дозволимо комфортний пан — фіксуємо стан перетягування карти,
+  // щоб не додавати точку при завершенні drag
+  let __isMapDragging = false;
+  let __lastDragEndAt = 0;
+  map.on('dragstart', ()=>{ __isMapDragging = true; });
+  map.on('dragend',   ()=>{ __isMapDragging = false; __lastDragEndAt = Date.now(); });
 
   /* ---------- helpers ---------- */
   function fromObjPoints(arr){ return (arr||[]).map(p => Array.isArray(p) ? p : [p.lng, p.lat]); }
@@ -929,15 +941,29 @@ function drawManualSegments(d){
       };
     }
 
-    // When clicking on map while in edit mode, append vertex to current proposal line
+    // Click-to-append: працює тільки коли це не був пан карти і коли клікнули не по вершинам/середнім точкам
     map.on('click', (ev) => {
       if (!proposalEditOn) return;
+      // якщо щойно був drag пан — ігноруємо «клік» після пану
+      if (__isMapDragging || (Date.now() - __lastDragEndAt) < 120) return;
+
+      // якщо клік по вершинах/середніх точках Draw — даємо Draw самому обробити (вставка/перетягування)
+      try{
+        const pt = [ev.point.x, ev.point.y];
+        const probeLayers = [
+          'gl-draw-point-inactive','gl-draw-point-active',
+          'gl-draw-polygon-and-line-vertex-active','gl-draw-polygon-and-line-vertex-halo-active',
+          'gl-draw-midpoint'
+        ].filter(id => map.getLayer(id));
+        const feats = probeLayers.length ? map.queryRenderedFeatures(ev.point, { layers: probeLayers }) : [];
+        if (feats && feats.length) return; // нехай Draw обробить сам
+      }catch(_){ }
+
       ensureDrawOnce();
       const ll = [ev.lngLat.lng, ev.lngLat.lat];
       let coords = getDrawCoordsBy(proposalMode) || [];
       coords = coords.concat([ll]);
       upsertDrawLine(proposalMode, coords);
-      // одразу активуємо редагування щойно створеної/оновленої лінії
       const id = propIds[proposalMode];
       if (id){ try{ draw.changeMode('direct_select', { featureId: id }); }catch(_){ } }
       updateProposalPreview();
