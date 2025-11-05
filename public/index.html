@@ -4179,6 +4179,7 @@ let __routeLiveId = null;
 let __routeLivePrev = null; // { status, hasProposal }
 // ===== Notifications state =====
 let __notifs = [];
+let __notifRecent = new Set(); // dedupe short-term (kind+id+status)
 function formatFromToShort(d){
   const from = getNameByCode(d.fromCode) || parseNameFromLabel(d.fromLabel) || d.fromLabel || '';
   const to   = getNameByCode(d.toCode)   || parseNameFromLabel(d.toLabel)   || d.toLabel   || '';
@@ -4239,6 +4240,53 @@ function subscribeToRouteLive(id){
     }
     __routeLivePrev = { status: st, hasProposal: hasProp };
   }, (err)=>{ console.warn('live route subscription error', err); });
+}
+
+// ===== Глобальні сповіщення (всі маршрути користувача в дозволених хабах) =====
+let __globalUnsubs = [];
+let __globalPrimed = new Map(); // hubKey -> bool
+const GLOBAL_LIMIT = 200;       // останні N оновлених документів
+function _dedupePush(kind, id, status, text){
+  const key = kind + '|' + id + '|' + (status||'');
+  if (__notifRecent.has(key)) return;
+  __notifRecent.add(key);
+  setTimeout(()=> __notifRecent.delete(key), 60_000); // 60s TTL
+  pushNotif(kind, text);
+}
+function subscribeToGlobalNotifications(){
+  // Відписатись від попередніх
+  try{ __globalUnsubs.forEach(u=>u&&u()); }catch(_){ }
+  __globalUnsubs = [];
+  __globalPrimed.clear();
+  if (!db) return;
+  const hubs = (typeof isAllHubs === 'function' && isAllHubs()) ? [null] : (ALLOWED_HUBS || []);
+  const mkHubKey = (h)=> String(h||'__ALL__');
+  hubs.forEach(h =>{
+    let q = db.collection('routes').orderBy('updatedAt','desc').limit(GLOBAL_LIMIT);
+    if (h) q = q.where('hub','==', h);
+    const hubKey = mkHubKey(h);
+    const unsub = q.onSnapshot((snap)=>{
+      const primed = __globalPrimed.get(hubKey) === true;
+      snap.docChanges().forEach(ch =>{
+        if (ch.type !== 'added' && ch.type !== 'modified') return;
+        const d = ch.doc.data() || {};
+        // Захист: тільки доступні хаби
+        if (!userAllowsHub(d.hub || '')) return;
+        const st = String(d?.approval?.status || 'draft');
+        const hasProp = !!(d?.proposal && Array.isArray(d.proposal.points) && d.proposal.points.length>=2);
+        if (!primed) return; // перший снапшот — тільки ініціалізація
+        if (ch.oldIndex !== ch.newIndex || ch.type === 'modified'){
+          // Пушимо статуси і появу пропозиції
+          if (st === 'approved') _dedupePush('approved', ch.doc.id, st, `✅ Погоджено: ${formatFromToShort(d)}`);
+          else if (st === 'rejected') _dedupePush('rejected', ch.doc.id, st, `⛔ Відхилено: ${formatFromToShort(d)}`);
+          else if (st === 'pending') _dedupePush('pending', ch.doc.id, st, `⏳ На погодженні: ${formatFromToShort(d)}`);
+          if (hasProp) _dedupePush('proposal', ch.doc.id, 'proposal', `💡 Пропозиція СБ: ${formatFromToShort(d)}`);
+        }
+      });
+      __globalPrimed.set(hubKey, true);
+    }, (err)=> console.warn('global notif error', err));
+    __globalUnsubs.push(unsub);
+  });
 }
 window.addEventListener('beforeunload', ()=>{ try{ __routeLiveUnsub && __routeLiveUnsub(); }catch(_){ } });
 
@@ -4828,6 +4876,9 @@ if (!DIR_LOADED_ONCE) {
 applyTilesetHubVisibilitySafe();
 // І перевстановити глобальну видимість, щоб усе було узгоджено
 setGeozonesVisibility(geozonesVisible);
+
+// 🔔 Глобальні сповіщення за дозволеними хабами
+try{ subscribeToGlobalNotifications(); }catch(_){ }
 
     // live-оновлення ролі (підписка на users/{uid})
     if (roleUnsub) try{ roleUnsub(); }catch{}
