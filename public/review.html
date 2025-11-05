@@ -604,6 +604,20 @@
     }
     return best;
   }
+  function pxDist(a, b){
+    const pa = map.project(a), pb = map.project(b);
+    const dx = pa.x - pb.x, dy = pa.y - pb.y; return Math.sqrt(dx*dx + dy*dy);
+  }
+  function mergeNearDuplicates(coords, px=3){
+    if (!Array.isArray(coords) || coords.length<2) return coords||[];
+    const out=[coords[0]];
+    for (let i=1;i<coords.length;i++){
+      const prev = out[out.length-1];
+      if (pxDist(prev, coords[i]) > px) out.push(coords[i]);
+      else out[out.length-1] = coords[i]; // replace with latest
+    }
+    return out;
+  }
 
   /* ---------- helpers ---------- */
   function fromObjPoints(arr){ return (arr||[]).map(p => Array.isArray(p) ? p : [p.lng, p.lat]); }
@@ -1071,18 +1085,32 @@ function drawManualSegments(d){
       ensureDrawOnce();
       const ll = [ev.lngLat.lng, ev.lngLat.lat];
       let coords = getDrawCoordsBy(proposalMode) || [];
-      // Якщо клік поруч з лінією — вставляємо між найближчими вершинами, інакше додаємо в кінець
+      // 1) Якщо клік близько до першої/останньої вершини — вважаємо, що користувач хоче її пересунути
+      if (coords.length >= 1){
+        const nearPx = 12;
+        if (pxDist(ll, coords[coords.length-1]) <= nearPx){
+          const c = coords.slice(); c[c.length-1] = ll; upsertDrawLine(proposalMode, mergeNearDuplicates(c));
+          const id = propIds[proposalMode]; if (id){ try{ draw.changeMode('direct_select', { featureId: id }); }catch(_){ } }
+          updateProposalPreview(); return;
+        }
+        if (pxDist(ll, coords[0]) <= nearPx){
+          const c = coords.slice(); c[0] = ll; upsertDrawLine(proposalMode, mergeNearDuplicates(c));
+          const id = propIds[proposalMode]; if (id){ try{ draw.changeMode('direct_select', { featureId: id }); }catch(_){ } }
+          updateProposalPreview(); return;
+        }
+      }
+      // 2) Якщо клік поруч з лінією — вставляємо між найближчими вершинами, інакше додаємо в кінець
       if (coords.length >= 2){
         const { idx, distPx } = nearestSegmentPx(coords, ll);
         if (idx >= 0 && distPx <= 14){
           const c = coords.slice();
           c.splice(idx+1, 0, ll);
-          upsertDrawLine(proposalMode, c);
+          upsertDrawLine(proposalMode, mergeNearDuplicates(c));
         } else {
-          upsertDrawLine(proposalMode, coords.concat([ll]));
+          upsertDrawLine(proposalMode, mergeNearDuplicates(coords.concat([ll])));
         }
       } else {
-        upsertDrawLine(proposalMode, coords.concat([ll]));
+        upsertDrawLine(proposalMode, mergeNearDuplicates(coords.concat([ll])));
       }
       const id = propIds[proposalMode];
       if (id){ try{ draw.changeMode('direct_select', { featureId: id }); }catch(_){ } }
