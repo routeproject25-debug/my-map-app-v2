@@ -102,6 +102,7 @@
       <h3 style="margin:16px 0 8px;">Геозони з Mapbox Tilesets</h3>
       <div class="row" style="margin-bottom:8px;">
         <button id="btnToggleTilesets" class="ghost">🗺 Приховати геозони</button>
+        <button id="btnReloadTilesets" class="ghost" title="Перечитати конфіг і перебудувати шари">🔄 Перечитати геозони</button>
       </div>
       <div id="tilesetList" class="hint">Завантаження конфігурації…</div>
     </div>
@@ -442,6 +443,50 @@
     }catch(_){}
   }
   document.getElementById('btnToggleTilesets').onclick = ()=> setAllTilesetsVisibility(!geozonesVisible);
+
+  // ——— Повне перезавантаження tilesets (оновити конфіг + перебудувати шари) ———
+  function removeTilesetsCompletely(){
+    try{
+      // 1) Прибрати всі шари tilesets (знаходимо по префіксу)
+      const style = map.getStyle();
+      const ids = [];
+      if (style && Array.isArray(style.layers)){
+        style.layers.forEach(l => {
+          const id = l.id || '';
+          if (id.startsWith('ts-fill-') || id.startsWith('ts-line-')) ids.push(id);
+        });
+      }
+      // знімати шари у зворотньому порядку
+      ids.reverse().forEach(id => { try{ if (map.getLayer(id)) map.removeLayer(id); }catch(_){ } });
+
+      // 2) Прибрати всі джерела tilesets
+      const srcs = map.getStyle()?.sources || {};
+      Object.keys(srcs).forEach(sid => {
+        if (sid.startsWith('ts-src-')){
+          try{ if (map.getSource(sid)) map.removeSource(sid); }catch(_){ }
+        }
+      });
+    }catch(_){ }
+  }
+
+  async function reloadTilesets(){
+    try{
+      removeTilesetsCompletely();
+      await loadTilesetsConfig();     // перечитати /config/tilesets.json (із cache-buster у функції)
+      // побудувати шари заново
+      TILESETS.forEach(ts => ensureTilesetLayers(ts));
+      // синхронізувати видимість
+      setAllTilesetsVisibility(geozonesVisible);
+    }catch(e){ console.warn('reloadTilesets error:', e?.message || e); }
+  }
+
+  // Кнопка + шорткат для перезавантаження tilesets
+  document.getElementById('btnReloadTilesets').onclick = reloadTilesets;
+  document.addEventListener('keydown', (e)=>{
+    if (e.ctrlKey && e.altKey && String(e.key).toLowerCase() === 'r'){
+      e.preventDefault(); reloadTilesets();
+    }
+  });
 
   // Після кожного завантаження стилю: застосувати укр. підписи та відновити наші шари
   map.on('style.load', async ()=>{
