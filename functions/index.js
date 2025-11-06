@@ -1,5 +1,6 @@
 // Cloud Functions
 const { onRequest } = require('firebase-functions/v2/https');
+const { onDocumentCreated, onDocumentUpdated, onDocumentDeleted } = require('firebase-functions/v2/firestore');
 const { defineSecret } = require('firebase-functions/params');
 const admin = require('firebase-admin');
 
@@ -220,3 +221,100 @@ exports.deleteUser = onRequest({ cors: true }, async (req, res) => {
 });
 
 // (setUserDisabled removed as per request)
+
+// =====================
+// ROUTE AUDIT LOG (Слід подій по маршрутах)
+// Записуємо у collection "route_logs" окремі записи для створення/оновлення/видалення
+// Логи зберігаються навіть після видалення маршруту (окрема колекція, не під-документ)
+// =====================
+
+function pickTrackedFields(d){
+  // Вибираємо ключові поля для журналу
+  if (!d || typeof d !== 'object') return {};
+  const out = {
+    routeKey: d.routeKey || '',
+    hub: d.hub || '',
+    fromCode: d.fromCode || '',
+    toCode: d.toCode || '',
+    fromName: d.fromName || d.fromLabel || '',
+    toName: d.toName || d.toLabel || '',
+    routeType: d.routeType || '',
+    distance_km: (typeof d.distance_km === 'number') ? d.distance_km : null,
+    logisticName: d.logisticName || '',
+    logisticId: d.logisticId || '',
+    status: (d.approval && (d.approval.status ?? d.approval.result ?? d.approval.decision)) || d.approvalStatus || d.approved || d.status || '',
+    // для контексту
+    updatedAt: d.updatedAt || null
+  };
+  return out;
+}
+
+function getActor(d){
+  const a = {};
+  if (d && typeof d === 'object'){
+    // Клієнт може зберігати ці поля під час будь-якої зміни
+    a.updatedByUid = d.updatedByUid || d.lastEditedByUid || d.editorUid || null;
+    a.updatedByEmail = d.updatedByEmail || d.lastEditedByEmail || d.editorEmail || null;
+    // Погодження/відхилення з нашої функції approveRoute
+    a.decidedByUid = d.decidedByUid || (d.approval && d.approval.decidedByUid) || null;
+    a.decidedByEmail = d.decidedByEmail || (d.approval && d.approval.decidedByEmail) || null;
+  }
+  return a;
+}
+
+function diffFields(prev, next){
+  const changes = [];
+  const keys = new Set([...Object.keys(prev||{}), ...Object.keys(next||{})]);
+  for (const k of keys){
+    const was = prev ? prev[k] : undefined;
+    const now = next ? next[k] : undefined;
+    const eq = (was === now) || (was == null && now == null);
+    if (!eq){
+      // гарно відформатувати числа
+      const pretty = v => (typeof v === 'number' && Number.isFinite(v)) ? v : (v ?? '');
+      changes.push({ field: k, was: pretty(was), now: pretty(now) });
+    }
+  }
+  return changes;
+}
+
+async function writeRouteLog(db, routeId, type, data){
+  const payload = Object.assign({
+    routeId,
+    type,               // 'created' | 'updated' | 'deleted'
+    ts: new Date().toISOString(),
+  }, data || {});
+  await db.collection('route_logs').add(payload);
+}
+
+exports.routeLogOnCreate = onDocumentCreated('routes/{id}', async (event) => {
+  const db = admin.firestore();
+  const id = event.params.id;
+  const after = event.data ? (event.data.data ? event.data.data() : event.data()) : {};
+  const next = pickTrackedFields(after);
+  const actor = getActor(after);
+  await writeRouteLog(db, id, 'created', { ...next, actor });
+});
+
+exports.routeLogOnUpdate = onDocumentUpdated('routes/{id}', async (event) => {
+  const db = admin.firestore();
+  const id = event.params.id;
+  const before = event.data && event.data.before ? event.data.before.data() : {};
+  const after  = event.data && event.data.after  ? event.data.after.data()  : {};
+  const prev = pickTrackedFields(before);
+  const next = pickTrackedFields(after);
+  const changes = diffFields(prev, next).filter(c => c.field !== 'updatedAt');
+  if (!changes.length) return; // нічого суттєвого
+  const actor = getActor(after);
+  const routeKey = next.routeKey || prev.routeKey || '';
+  await writeRouteLog(db, id, 'updated', { routeKey, changes, actor });
+});
+
+exports.routeLogOnDelete = onDocumentDeleted('routes/{id}', async (event) => {
+  const db = admin.firestore();
+  const id = event.params.id;
+  const before = event.data ? (event.data.data ? event.data.data() : event.data()) : {};
+  const prev = pickTrackedFields(before);
+  const actor = getActor(before);
+  await writeRouteLog(db, id, 'deleted', { routeKey: prev.routeKey || '', actor });
+});

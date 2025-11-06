@@ -39,6 +39,14 @@
         { "fieldPath": "nameNgrams", "arrayConfig": "CONTAINS" },
         { "fieldPath": "hub", "order": "ASCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "route_logs",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "routeId", "order": "ASCENDING" },
+        { "fieldPath": "ts", "order": "DESCENDING" }
+      ]
     }
   ],
   "fieldOverrides": []
