@@ -79,8 +79,9 @@
         <input id="inFile" type="file" accept=".json,.geojson,application/json" />
       </div>
       <div class="actions" style="margin-top:10px;">
-        <button id="btnBuild">Зібрати файл</button>
-        <button id="btnDownload" class="ghost" disabled>Скачати</button>
+        <button id="btnBuild" type="button">Зібрати файл</button>
+        <button id="btnDownload" type="button" class="ghost" disabled>Скачати</button>
+        <a id="hiddenDl" style="display:none"></a>
       </div>
       <div id="msg" class="muted" style="margin-top:8px;"></div>
     </div>
@@ -138,6 +139,7 @@
   const msg = document.getElementById('msg');
   const btnBuild = document.getElementById('btnBuild');
   const btnDownload = document.getElementById('btnDownload');
+  const hiddenDl = document.getElementById('hiddenDl');
   const btnCopy = document.getElementById('btnCopy');
 
   inMode.onchange = ()=>{ const m=inMode.value; newBlock.style.display = (m==='new')?'':'none'; appendBlock.style.display = (m==='append')?'':'none'; };
@@ -256,11 +258,15 @@
     return header;
   }
 
-  function downloadBlob(text, filename){
+  let __dlURL = null;
+  function prepareDownload(text, filename){
+    try{ if (__dlURL) { URL.revokeObjectURL(__dlURL); __dlURL = null; } }catch(_){ }
     const blob = new Blob([text], { type:'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a'); a.href = url; a.download = filename || 'geozones.geojson';
-    document.body.appendChild(a); a.click(); setTimeout(()=>{ URL.revokeObjectURL(url); a.remove(); }, 0);
+    __dlURL = URL.createObjectURL(blob);
+    const name = filename || 'geozones.geojson';
+    if (hiddenDl){ hiddenDl.href = __dlURL; hiddenDl.download = name; }
+    // кнопка просто тригерить клік по якорю — це найменш проблемний шлях у браузерах
+    btnDownload.onclick = () => { try{ hiddenDl?.click(); }catch(_){ window.open(__dlURL, '_blank'); } };
   }
 
   btnBuild.onclick = async () => {
@@ -309,10 +315,10 @@
         out = normalizeFC(null); out.features = features;
       }
       const json = JSON.stringify(out, null, 2);
-      outPre.textContent = json; btnDownload.disabled = false; msg.textContent = 'Готово'; msg.className='ok';
+  outPre.textContent = json; btnDownload.disabled = false; msg.textContent = 'Готово'; msg.className='ok';
   // ⬇️ показати попередній перегляд на мапі
   try { await showPreviewGeoJSON(out); } catch(_){ }
-      btnDownload.onclick = ()=> downloadBlob(json, (inMode.value==='new' ? (inOutName.value.trim()||'geozones.geojson') : (inFile.files?.[0]?.name || 'geozones.geojson')));
+  prepareDownload(json, (inMode.value==='new' ? (inOutName.value.trim()||'geozones.geojson') : (inFile.files?.[0]?.name || 'geozones.geojson')));
       btnCopy.onclick = ()=> { try{ navigator.clipboard.writeText(json); msg.textContent='Скопійовано'; msg.className='ok'; }catch(e){ msg.textContent='Не вдалось скопіювати'; msg.className='err'; } };
     }catch(e){ msg.textContent = e.message || String(e); msg.className='err'; }
   };
