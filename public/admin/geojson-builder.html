@@ -85,6 +85,10 @@
         <button id="btnClearDraw" class="ghost">Очистити полігон на карті</button>
       </div>
 
+      <div class="row" style="margin-top:8px;">
+        <button id="btnDeleteFeature" class="danger">🗑 Видалити геозону з файлу</button>
+      </div>
+
       <div class="row" style="margin-top:10px;">
         <button id="btnDownload" class="warn">⬇️ Скачати GeoJSON</button>
         <button id="btnCopy" class="ghost">📋 Копіювати JSON</button>
@@ -313,6 +317,75 @@
     w.style.display = (w.style.display==='none' || !w.style.display) ? 'block' : 'none';
   };
   document.getElementById('chkShowLoaded').onchange = (e)=> setLoadedOverlayVisibility(e.target.checked);
+
+  // ===== Видалення геозони з поточного файлу =====
+  function featureNameAt(i){
+    try{
+      const f = (fc && fc.features && fc.features[i]) || null;
+      const p = (f && f.properties) || {};
+      const name = p.Name || p.name || p['Назва'] || p['Назва поля'] || p.Code || p.code || `Без назви #${i+1}`;
+      return String(name);
+    }catch(_){ return `Без назви #${i+1}`; }
+  }
+  function listFeatureNames(){
+    const out = [];
+    if (!fc || !Array.isArray(fc.features)) return out;
+    for (let i=0;i<fc.features.length;i++){
+      out.push({ index:i, name: featureNameAt(i) });
+    }
+    return out;
+  }
+  function promptDeleteFeature(){
+    if (!fc || !Array.isArray(fc.features) || fc.features.length === 0){
+      alert('Немає що видаляти: файл порожній.');
+      return;
+    }
+    const list = listFeatureNames();
+    const lines = list.map(r => `${r.index+1}) ${r.name}`).join('\n');
+    const ans = prompt('Оберіть, що видалити (введіть номер або частину назви):\n\n' + lines + '\n\nНапр.: 2 або "Балани"');
+    if (ans === null) return; // скасовано
+    const q = String(ans).trim();
+    if (!q) return;
+
+    // 1) якщо ввели число — пряма індексація
+    let idx = NaN;
+    if (/^\d+$/.test(q)){
+      const num = parseInt(q, 10);
+      if (num >= 1 && num <= list.length) idx = list[num-1].index;
+    }
+
+    // 2) якщо не число або поза межами — пошук за назвою (contains, без регістру)
+    if (!Number.isInteger(idx)){
+      const ql = q.toLowerCase();
+      const matches = list.filter(r => r.name.toLowerCase().includes(ql));
+      if (matches.length === 0){ alert('Не знайшов жодної геозони за вказаним фрагментом.'); return; }
+      if (matches.length > 1){
+        const msg = 'Знайдено кілька відповідників. Уточніть номер:\n\n' + matches.map(r => `${r.index+1}) ${r.name}`).join('\n');
+        const pick = prompt(msg);
+        if (pick === null) return;
+        const n2 = parseInt(String(pick).trim(), 10);
+        if (Number.isFinite(n2) && n2 >= 1 && n2 <= list.length){ idx = list[n2-1].index; }
+        else { alert('Невірний номер.'); return; }
+      } else {
+        idx = matches[0].index;
+      }
+    }
+
+    if (!Number.isInteger(idx) || idx < 0 || idx >= fc.features.length){
+      alert('Не вдалося визначити елемент для видалення.');
+      return;
+    }
+
+    const name = featureNameAt(idx);
+    if (!confirm(`Видалити геозону: "${name}"?`)) return;
+    try{
+      fc.features.splice(idx, 1);
+      setState(`Видалено: ${name}. Залишилось: ${fc.features.length}`);
+      updatePreview();
+      updateLoadedOverlay();
+    }catch(e){ alert('Помилка видалення: ' + (e?.message || e)); }
+  }
+  document.getElementById('btnDeleteFeature').onclick = promptDeleteFeature;
 
   // ===== Tilesets (спрощений варіант як на головній) =====
   async function loadTilesetsConfig(){
