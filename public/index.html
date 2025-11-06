@@ -3341,7 +3341,8 @@ async function saveToDB() {
           const nextTrack = pickTrackedFields({ ...payload, ...indexFields, routeKey: routeKeySaved });
           const changes = diffFields(prevTrack, nextTrack).filter(c => c.field !== 'updatedAt');
           const summary = buildChangeSummary(changes);
-          await clientWriteRouteLog(docId, 'updated', { routeKey: routeKeySaved, distance_km: payload.distance_km, approvalStatus: savedApproval?.status || null, changes, summary, via:'client' });
+          const summaryShort = buildShortSummary(changes);
+          await clientWriteRouteLog(docId, 'updated', { routeKey: routeKeySaved, distance_km: payload.distance_km, approvalStatus: savedApproval?.status || null, changes, summary, summaryShort, via:'client' });
         }catch(_){ }
       } catch (txErr) {
         // Fallback для адміна: якщо ключ не зарезервувався, все одно збережемо без нього
@@ -3406,7 +3407,8 @@ async function saveToDB() {
           const nextTrack = pickTrackedFields(updateObj || {});
           const changes = diffFields(prevTrack, nextTrack).filter(c => c.field !== 'updatedAt');
           const summary = buildChangeSummary(changes);
-          await clientWriteRouteLog(docId, 'updated', { routeKey: routeKeySaved, distance_km: updateObj.distance_km, approvalStatus: savedApproval?.status || null, changes, summary, via:'client' });
+          const summaryShort = buildShortSummary(changes);
+          await clientWriteRouteLog(docId, 'updated', { routeKey: routeKeySaved, distance_km: updateObj.distance_km, approvalStatus: savedApproval?.status || null, changes, summary, summaryShort, via:'client' });
         }catch(_){ }
       } catch (errNonAdmin) {
         console.error('save (no routeKeys) failed:', errNonAdmin);
@@ -3421,7 +3423,8 @@ async function saveToDB() {
               const nextTrack = pickTrackedFields(updateObj || {});
               const changes = diffFields(prevTrack, nextTrack).filter(c => c.field !== 'updatedAt');
               const summary = buildChangeSummary(changes);
-              await clientWriteRouteLog(docId, 'updated', { routeKey: routeKeySaved, distance_km: updateObj.distance_km, approvalStatus: savedApproval?.status || null, changes, summary, via:'client-fallback' });
+              const summaryShort = buildShortSummary(changes);
+              await clientWriteRouteLog(docId, 'updated', { routeKey: routeKeySaved, distance_km: updateObj.distance_km, approvalStatus: savedApproval?.status || null, changes, summary, summaryShort, via:'client-fallback' });
             }catch(_){ }
           }catch(fnErr){
             console.error('saveRoute function failed:', fnErr);
@@ -3458,7 +3461,8 @@ async function saveToDB() {
           const nextTrack = pickTrackedFields(dataForFn || {});
           const changes = diffFields(prevTrack, nextTrack).filter(c => c.field !== 'updatedAt');
           const summary = buildChangeSummary(changes);
-          await clientWriteRouteLog(docId, 'updated', { routeKey: dataForFn.routeKey || null, distance_km: dataForFn.distance_km, approvalStatus: savedApproval?.status || null, changes, summary, via:'client-top-fallback' });
+          const summaryShort = buildShortSummary(changes);
+          await clientWriteRouteLog(docId, 'updated', { routeKey: dataForFn.routeKey || null, distance_km: dataForFn.distance_km, approvalStatus: savedApproval?.status || null, changes, summary, summaryShort, via:'client-top-fallback' });
         }catch(_){ }
         return;
       }catch(fnErr){
@@ -3570,6 +3574,24 @@ function buildChangeSummary(changes){
       return `${label}: було ${was} → стало ${now}`;
     });
   return items.join('; ');
+}
+
+// Короткий підсумок для таблиці: якщо є зміна відстані — повертаємо лише її, інакше перший суттєвий пункт
+function buildShortSummary(changes){
+  if (!Array.isArray(changes) || !changes.length) return '';
+  const fmtKm = v => (typeof v === 'number' && Number.isFinite(v)) ? v.toFixed(2) + ' км' : '—';
+  const dist = changes.find(c => c.field === 'distance_km');
+  if (dist){
+    const was = fmtKm(dist.was);
+    const now = fmtKm(dist.now);
+    return `Зміна відстані: було ${was} → стало ${now}`;
+  }
+  // інакше перший елемент у стилі «було → стало»
+  const c = changes[0];
+  const was = (c.was === undefined || c.was === null || c.was === '') ? '—' : String(c.was);
+  const now = (c.now === undefined || c.now === null || c.now === '') ? '—' : String(c.now);
+  const label = c.field;
+  return `${label}: було ${was} → стало ${now}`;
 }
 
 let isRefreshingRoutes = false;
@@ -4204,6 +4226,24 @@ async function acceptProposal(){
     };
 
     await db.collection('routes').doc(id).set(payload, { merge:true });
+
+    // 🔎 Запишемо лог зміни (в т.ч. відстані) після прийняття пропозиції
+    try{
+      const prevTrack = pickTrackedFields(d || {});
+      const nextData = Object.assign({}, d || {}, payload);
+      const nextTrack = pickTrackedFields(nextData || {});
+      const changes = diffFields(prevTrack, nextTrack).filter(c => c.field !== 'updatedAt');
+      const summary = buildChangeSummary(changes);
+      const summaryShort = buildShortSummary(changes);
+      await clientWriteRouteLog(id, 'updated', {
+        routeKey: nextData.routeKey || null,
+        distance_km: nextData.distance_km,
+        changes,
+        summary,
+        summaryShort,
+        via: 'client-accept-proposal'
+      });
+    }catch(_){ }
 
     // Apply to local editor state as well
   points = propLocal.points.slice();
