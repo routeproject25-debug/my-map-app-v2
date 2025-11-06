@@ -1125,10 +1125,35 @@ function drawManualSegments(d){
   }
   function buildChangeSummary(changes){
     if (!Array.isArray(changes) || !changes.length) return '';
-    const important = ['distance_km','routeType','approvalStatus','hub','fromCode','toCode'];
+    const important = ['distance_km','routeType','approvalStatus','hub','fromCode','toCode','fromName','toName','routeKey','logisticName'];
+    const labels = {
+      distance_km: 'Відстань',
+      routeType: 'Тип маршруту',
+      approvalStatus: 'Статус погодження',
+      hub: 'Хаб',
+      fromCode: 'Код «з»',
+      toCode: 'Код «до»',
+      fromName: 'Назва «з»',
+      toName: 'Назва «до»',
+      routeKey: 'Код маршруту',
+      logisticName: 'Логіст',
+      logisticId: 'ID логіста'
+    };
+    const fmt = (field, v) => {
+      if (v === undefined || v === null || v === '') return '—';
+      if (field === 'distance_km' && typeof v === 'number' && Number.isFinite(v)) return v.toFixed(2) + ' км';
+      return String(v);
+    };
     const items = changes
-      .sort((a,b)=>important.indexOf(a.field) - important.indexOf(b.field))
-      .map(c => `${c.field}: ${c.was=== ''? '∅':c.was} → ${c.now=== ''? '∅':c.now}`);
+      .slice()
+      .sort((a,b)=> (important.indexOf(a.field) === -1 ? 999 : important.indexOf(a.field)) - (important.indexOf(b.field) === -1 ? 999 : important.indexOf(b.field)))
+      .map(c => {
+        const label = labels[c.field] || c.field;
+        const was = fmt(c.field, c.was);
+        const now = fmt(c.field, c.now);
+        if (c.field === 'distance_km') return `Зміна відстані: було ${was} → стало ${now}`;
+        return `${label}: було ${was} → стало ${now}`;
+      });
     return items.join('; ');
   }
 
