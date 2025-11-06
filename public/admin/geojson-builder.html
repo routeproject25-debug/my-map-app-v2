@@ -9,12 +9,19 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
   <script src="/config/config.js"></script>
 
-  <!-- Mapbox GL CSS + fallback -->
+  <!-- Mapbox GL CSS + fallbacks -->
   <link href="https://api.mapbox.com/mapbox-gl-js/v2.16.1/mapbox-gl.css" rel="stylesheet" />
   <link href="https://unpkg.com/mapbox-gl@2.16.1/dist/mapbox-gl.css" rel="stylesheet" />
-  <!-- Mapbox Draw CSS + fallback -->
+  <link href="https://cdn.jsdelivr.net/npm/mapbox-gl@2.16.1/dist/mapbox-gl.css" rel="stylesheet" />
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/mapbox-gl/2.16.1/mapbox-gl.min.css" rel="stylesheet" />
+  <!-- Mapbox Draw CSS + fallbacks -->
   <link href="https://api.mapbox.com/mapbox-gl-js/plugins/mapbox-gl-draw/v1.5.0/mapbox-gl-draw.css" rel="stylesheet" />
   <link href="https://unpkg.com/@mapbox/mapbox-gl-draw@1.5.0/dist/mapbox-gl-draw.css" rel="stylesheet" />
+  <link href="https://cdn.jsdelivr.net/npm/@mapbox/mapbox-gl-draw@1.5.0/dist/mapbox-gl-draw.css" rel="stylesheet" />
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/mapbox-gl-draw/1.5.0/mapbox-gl-draw.min.css" rel="stylesheet" />
+  <!-- MapLibre CSS fallback (на випадок блокування Mapbox) -->
+  <link href="https://unpkg.com/maplibre-gl@3.6.1/dist/maplibre-gl.css" rel="stylesheet" />
+  <link href="https://cdn.jsdelivr.net/npm/maplibre-gl@3.6.1/dist/maplibre-gl.css" rel="stylesheet" />
 
   <style>
     :root{ --w: 1160px; }
@@ -167,7 +174,7 @@
     return new Promise((resolve, reject) => {
       const ok = () => resolve(true);
       // already loaded?
-      if ((src.includes('mapbox-gl.js') && window.mapboxgl) || (src.includes('mapbox-gl-draw') && window.MapboxDraw)) return ok();
+      if ((src.includes('mapbox-gl') && window.mapboxgl) || (src.includes('mapbox-gl-draw') && window.MapboxDraw) || (src.includes('maplibre-gl') && window.maplibregl)) return ok();
       const existing = document.querySelector(`script[src="${src}"]`);
       if (existing){ existing.addEventListener('load', ok); existing.addEventListener('error', ()=>reject(new Error('script load error'))); return; }
       const s = document.createElement('script'); s.src = src; s.async = true; s.onload = ok; s.onerror = ()=>reject(new Error('script load error'));
@@ -201,24 +208,42 @@
     const mapMsg = document.getElementById('mapMsg');
     try{
       const token = (window.APP_CONFIG && window.APP_CONFIG.mapboxToken) || '';
-      if (!token){ mapMsg.textContent = '⚠️ Немає Mapbox токена у /config/config.js'; return null; }
+      // 1) Спроба завантажити Mapbox GL з кількох CDN
       if (!window.mapboxgl){
         await loadScriptAny([
           'https://api.mapbox.com/mapbox-gl-js/v2.16.1/mapbox-gl.js',
-          'https://unpkg.com/mapbox-gl@2.16.1/dist/mapbox-gl.js'
-        ]);
+          'https://unpkg.com/mapbox-gl@2.16.1/dist/mapbox-gl.js',
+          'https://cdn.jsdelivr.net/npm/mapbox-gl@2.16.1/dist/mapbox-gl.js',
+          'https://cdnjs.cloudflare.com/ajax/libs/mapbox-gl/2.16.1/mapbox-gl.min.js'
+        ]).catch(()=>{});
       }
-      if (!window.mapboxgl){ mapMsg.textContent='Mapbox GL не завантажився'; return null; }
-      mapboxgl.accessToken = token;
-      __map = new mapboxgl.Map({ container:'map', style:'mapbox://styles/mapbox/streets-v12', center:[30.5,50.45], zoom:5 });
-      __map.addControl(new mapboxgl.NavigationControl({ visualizePitch:true }));
+
+      let GL = null; let usingMapbox = false;
+      if (window.mapboxgl){ GL = window.mapboxgl; usingMapbox = true; }
+      else {
+        // 2) Фолбек: MapLibre GL (без токена). Спробуємо підвантажити, якщо не завантажився Mapbox
+        await loadScriptAny([
+          'https://unpkg.com/maplibre-gl@3.6.1/dist/maplibre-gl.js',
+          'https://cdn.jsdelivr.net/npm/maplibre-gl@3.6.1/dist/maplibre-gl.js'
+        ]).catch(()=>{});
+        if (window.maplibregl){ GL = window.maplibregl; usingMapbox = false; }
+      }
+
+      if (!GL){ mapMsg.textContent='Не вдалося ініціалізувати карту: усі CDN недоступні'; return null; }
+
+      if (usingMapbox){ try{ GL.accessToken = token; }catch(_){ } }
+      const styleUrl = usingMapbox ? 'mapbox://styles/mapbox/streets-v12' : 'https://demotiles.maplibre.org/style.json';
+      __map = new GL.Map({ container:'map', style: styleUrl, center:[30.5,50.45], zoom:5 });
+      try { __map.addControl(new GL.NavigationControl({ visualizePitch:true })); } catch(_) { }
       __map.on('load', async ()=>{
         try{
           if (!window.MapboxDraw){
             await loadScriptAny([
               'https://api.mapbox.com/mapbox-gl-js/plugins/mapbox-gl-draw/v1.5.0/mapbox-gl-draw.js',
-              'https://unpkg.com/@mapbox/mapbox-gl-draw@1.5.0/dist/mapbox-gl-draw.js'
-            ]);
+              'https://unpkg.com/@mapbox/mapbox-gl-draw@1.5.0/dist/mapbox-gl-draw.js',
+              'https://cdn.jsdelivr.net/npm/@mapbox/mapbox-gl-draw@1.5.0/dist/mapbox-gl-draw.js',
+              'https://cdnjs.cloudflare.com/ajax/libs/mapbox-gl-draw/1.5.0/mapbox-gl-draw.min.js'
+            ]).catch(()=>{});
           }
           if (window.MapboxDraw && !__map.__draw){
             __map.__draw = new MapboxDraw({ displayControlsDefault:false });
@@ -227,7 +252,7 @@
             __map.on('draw.create', upd); __map.on('draw.update', upd); __map.on('draw.delete', upd); __map.on('draw.selectionchange', upd);
             updateFeatInfo();
           }
-          mapMsg.textContent = '✓ Карта готова';
+          mapMsg.textContent = usingMapbox ? '✓ Карта готова (Mapbox)' : '✓ Карта готова (MapLibre фолбек)';
         }catch(_){ }
       });
     }catch(e){ mapMsg.textContent = 'Не вдалося ініціалізувати карту: ' + (e?.message||e); }
