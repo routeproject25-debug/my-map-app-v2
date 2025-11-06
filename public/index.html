@@ -3335,8 +3335,14 @@ async function saveToDB() {
           routeKeySaved = routeKey;
         });
 
-  alert(`✅ Збережено в БД: ${payload.name}\nКод маршруту: ${routeKeySaved}`);
-  try{ await clientWriteRouteLog(docId, 'updated', { routeKey: routeKeySaved, distance_km: payload.distance_km, approvalStatus: savedApproval?.status || null, via:'client' }); }catch(_){ }
+        alert(`✅ Збережено в БД: ${payload.name}\nКод маршруту: ${routeKeySaved}`);
+        try{
+          const prevTrack = pickTrackedFields(prev || {});
+          const nextTrack = pickTrackedFields({ ...payload, ...indexFields, routeKey: routeKeySaved });
+          const changes = diffFields(prevTrack, nextTrack).filter(c => c.field !== 'updatedAt');
+          const summary = buildChangeSummary(changes);
+          await clientWriteRouteLog(docId, 'updated', { routeKey: routeKeySaved, distance_km: payload.distance_km, approvalStatus: savedApproval?.status || null, changes, summary, via:'client' });
+        }catch(_){ }
       } catch (txErr) {
         // Fallback для адміна: якщо ключ не зарезервувався, все одно збережемо без нього
         console.warn('Транзакція (routeKeys) не вдалася:', txErr?.code || txErr, txErr?.message);
@@ -3392,10 +3398,16 @@ async function saveToDB() {
       }
 
       try {
-  await routeRef.set(updateObj, { merge: true });
+        await routeRef.set(updateObj, { merge: true });
         routeKeySaved = localKey;
-  alert(`✅ Збережено в БД: ${payload.name}\nКод маршруту: ${routeKeySaved}`);
-  try{ await clientWriteRouteLog(docId, 'updated', { routeKey: routeKeySaved, distance_km: updateObj.distance_km, approvalStatus: savedApproval?.status || null, via:'client' }); }catch(_){ }
+        alert(`✅ Збережено в БД: ${payload.name}\nКод маршруту: ${routeKeySaved}`);
+        try{
+          const prevTrack = pickTrackedFields(prev || {});
+          const nextTrack = pickTrackedFields(updateObj || {});
+          const changes = diffFields(prevTrack, nextTrack).filter(c => c.field !== 'updatedAt');
+          const summary = buildChangeSummary(changes);
+          await clientWriteRouteLog(docId, 'updated', { routeKey: routeKeySaved, distance_km: updateObj.distance_km, approvalStatus: savedApproval?.status || null, changes, summary, via:'client' });
+        }catch(_){ }
       } catch (errNonAdmin) {
         console.error('save (no routeKeys) failed:', errNonAdmin);
         // Fallback: server-side save via Cloud Function for permission issues
@@ -3404,7 +3416,13 @@ async function saveToDB() {
             await saveRouteViaFunction(docId, updateObj);
             routeKeySaved = updateObj.routeKey;
             alert(`✅ Збережено через сервер: ${payload.name}\nКод маршруту: ${routeKeySaved}`);
-            try{ await clientWriteRouteLog(docId, 'updated', { routeKey: routeKeySaved, distance_km: updateObj.distance_km, approvalStatus: savedApproval?.status || null, via:'client-fallback' }); }catch(_){ }
+            try{
+              const prevTrack = pickTrackedFields(prev || {});
+              const nextTrack = pickTrackedFields(updateObj || {});
+              const changes = diffFields(prevTrack, nextTrack).filter(c => c.field !== 'updatedAt');
+              const summary = buildChangeSummary(changes);
+              await clientWriteRouteLog(docId, 'updated', { routeKey: routeKeySaved, distance_km: updateObj.distance_km, approvalStatus: savedApproval?.status || null, changes, summary, via:'client-fallback' });
+            }catch(_){ }
           }catch(fnErr){
             console.error('saveRoute function failed:', fnErr);
             throw fnErr;
@@ -3431,11 +3449,17 @@ async function saveToDB() {
         // (routeKey сервер згенерує за потреби)
         const dataForFn = { ...payload, ...indexFields };
         if (!dataForFn.updatedAt) dataForFn.updatedAt = new Date().toISOString();
-  await saveRouteViaFunction(docId, dataForFn);
+        await saveRouteViaFunction(docId, dataForFn);
         setApprovalUI(savedApproval);
         ensureRouteOptionSelected(docId, { ...payload, approval: savedApproval });
         alert('✅ Збережено через сервер.');
-  try{ await clientWriteRouteLog(docId, 'updated', { routeKey: dataForFn.routeKey || null, distance_km: dataForFn.distance_km, approvalStatus: savedApproval?.status || null, via:'client-top-fallback' }); }catch(_){ }
+        try{
+          const prevTrack = pickTrackedFields(prev || {});
+          const nextTrack = pickTrackedFields(dataForFn || {});
+          const changes = diffFields(prevTrack, nextTrack).filter(c => c.field !== 'updatedAt');
+          const summary = buildChangeSummary(changes);
+          await clientWriteRouteLog(docId, 'updated', { routeKey: dataForFn.routeKey || null, distance_km: dataForFn.distance_km, approvalStatus: savedApproval?.status || null, changes, summary, via:'client-top-fallback' });
+        }catch(_){ }
         return;
       }catch(fnErr){
         console.error('Top-level fallback save failed:', fnErr);
@@ -3482,6 +3506,45 @@ async function clientWriteRouteLog(routeId, type, extra){
   catch(e){
     try{ console.warn('route_logs write failed:', e?.code || '', e?.message || e); }catch(_){ }
   }
+}
+
+// ---- Helpers to build readable change logs on Spark ----
+function pickTrackedFields(d){
+  d = d || {};
+  return {
+    routeKey: d.routeKey || '',
+    hub: d.hub || '',
+    fromCode: d.fromCode || '',
+    toCode: d.toCode || '',
+    fromName: d.fromName || d.fromLabel || '',
+    toName: d.toName || d.toLabel || '',
+    routeType: d.routeType || '',
+    distance_km: (typeof d.distance_km === 'number') ? d.distance_km : null,
+    logisticName: d.logisticName || '',
+    logisticId: d.logisticId || '',
+    approvalStatus: (d.approval && (d.approval.status ?? d.approval.result ?? d.approval.decision)) || d.approvalStatus || d.approved || d.status || '',
+    updatedAt: d.updatedAt || null
+  };
+}
+function diffFields(prev, next){
+  const changes = [];
+  const keys = new Set([...Object.keys(prev||{}), ...Object.keys(next||{})]);
+  const pretty = v => (typeof v === 'number' && Number.isFinite(v)) ? v : (v ?? '');
+  for (const k of keys){
+    const was = prev ? prev[k] : undefined;
+    const now = next ? next[k] : undefined;
+    const eq = (was === now) || (was == null && now == null);
+    if (!eq) changes.push({ field:k, was: pretty(was), now: pretty(now) });
+  }
+  return changes;
+}
+function buildChangeSummary(changes){
+  if (!Array.isArray(changes) || !changes.length) return '';
+  const important = ['distance_km','routeType','approvalStatus','hub','fromCode','toCode'];
+  const items = changes
+    .sort((a,b)=>important.indexOf(a.field) - important.indexOf(b.field))
+    .map(c => `${c.field}: ${c.was=== ''? '∅':c.was} → ${c.now=== ''? '∅':c.now}`);
+  return items.join('; ');
 }
 
 let isRefreshingRoutes = false;
