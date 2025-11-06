@@ -37,6 +37,16 @@
     .ok{ color:#2e7d32; font-weight:600; }
     .err{ color:#c62828; font-weight:600; }
     pre{ background:#0b1020; color:#e0e6ff; border-radius:12px; padding:12px; overflow:auto; max-height:50vh; }
+    /* Мінімальний CSS-фолбек для Mapbox GL, якщо зовнішній CSS не завантажився */
+    #mapPreview{ position: relative; }
+    #mapPreview .mapboxgl-map{ position: relative; height:100%; }
+    #mapPreview .mapboxgl-canvas{ position:absolute !important; top:0; left:0; width:100% !important; height:100% !important; }
+    #mapPreview .mapboxgl-control-container{ position:absolute; top:0; left:0; width:100%; height:100%; pointer-events:none; }
+    #mapPreview .mapboxgl-ctrl-top-left, 
+    #mapPreview .mapboxgl-ctrl-top-right, 
+    #mapPreview .mapboxgl-ctrl-bottom-left, 
+    #mapPreview .mapboxgl-ctrl-bottom-right{ position:absolute; z-index:2; pointer-events:auto; }
+    #mapPreview .mapboxgl-ctrl-top-right{ top:0; right:0; }
   </style>
 </head>
 <body>
@@ -412,7 +422,7 @@
         zoom: 5
       });
       __map.addControl(new mapboxgl.NavigationControl({ visualizePitch: true }));
-  __map.on('load', async ()=>{
+      __map.on('load', async ()=>{
         try{
           if (!__map.getSource('preview')){
             __map.addSource('preview', { type:'geojson', data:{ type:'FeatureCollection', features:[] } });
@@ -444,6 +454,7 @@
               updateFeatInfo();
             }
           }catch(_){ }
+          try{ const mm = document.getElementById('mapMsg'); if (mm) mm.textContent = '✓ Карта готова'; }catch(_){ }
         }catch(_){ }
       });
     }catch(e){ msgEl.textContent = 'Не вдалося ініціалізувати карту: ' + (e?.message||e); }
