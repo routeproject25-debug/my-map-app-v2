@@ -61,6 +61,13 @@
           </select>
         </div>
       </div>
+      <div style="margin-top:6px; display:flex; align-items:center; gap:10px;">
+        <label style="display:flex; align-items:center; gap:8px; margin:0;">
+          <input id="inBatch" type="checkbox"/>
+          Масове додавання (з FeatureCollection або кількох полігонів)
+        </label>
+        <span class="muted">Якщо у вхідному GeoJSON кілька об'єктів — для кожного буде створено Feature. Властивості з входу мають пріоритет над полями праворуч.</span>
+      </div>
       <div id="newBlock" style="margin-top:8px;">
         <label>Назва нового файлу</label>
         <input id="inOutName" type="text" value="geozones.geojson" />
@@ -134,20 +141,55 @@
     return coords;
   }
 
-  function extractPolygonFromInput(obj){
-    // Accept: FeatureCollection -> first feature.geometry; Feature with geometry; {geometry:{...}}; Polygon object; or {coordinates:[...]}
+  function asPolygon(geom){
+    if (!geom) return null;
+    if (String(geom.type) === 'Polygon'){
+      const rings = Array.isArray(geom.coordinates) ? geom.coordinates : [];
+      if (!rings.length) return null;
+      rings[0] = ensureClosedRing(rings[0]);
+      return { type:'Polygon', coordinates: rings };
+    }
+    if (String(geom.type) === 'MultiPolygon'){
+      const polys = [];
+      const m = Array.isArray(geom.coordinates) ? geom.coordinates : [];
+      m.forEach(rings => {
+        if (Array.isArray(rings) && rings.length){
+          const r0 = ensureClosedRing(rings[0]||[]);
+          polys.push({ type:'Polygon', coordinates:[r0] });
+        }
+      });
+      return polys; // масив полігонів
+    }
+    return null;
+  }
+
+  function extractPolygonsFromInput(obj, multiple){
     if (!obj || typeof obj !== 'object') throw new Error('Очікується JSON об’єкт');
-    let geom = null;
-    if (obj.type==='FeatureCollection' && Array.isArray(obj.features) && obj.features.length){ geom = obj.features[0]?.geometry || null; }
-    else if (obj.type==='Feature' && obj.geometry){ geom = obj.geometry; }
-    else if (obj.geometry){ geom = obj.geometry; }
-    else if (obj.type==='Polygon' && obj.coordinates){ geom = obj; }
-    else if (Array.isArray(obj.coordinates)){ geom = { type:'Polygon', coordinates: obj.coordinates }; }
-    if (!geom || String(geom.type)!=='Polygon') throw new Error('Потрібен geometry.type = "Polygon"');
-    const rings = Array.isArray(geom.coordinates) ? geom.coordinates : [];
-    if (!rings.length) throw new Error('Відсутні координати полігона');
-    rings[0] = ensureClosedRing(rings[0]);
-    return { type:'Polygon', coordinates: rings };
+    const out = [];
+    const pushPoly = (p)=>{ if (Array.isArray(p)) p.forEach(pushPoly); else if (p) out.push(p); };
+    if (obj.type==='FeatureCollection' && Array.isArray(obj.features)){
+      obj.features.forEach(f=>{ const ap = asPolygon(f?.geometry); pushPoly(ap); });
+    } else if (obj.type==='Feature' && obj.geometry){
+      const ap = asPolygon(obj.geometry); pushPoly(ap);
+    } else if (obj.geometry){
+      const ap = asPolygon(obj.geometry); pushPoly(ap);
+    } else if (obj.type==='Polygon' && obj.coordinates){
+      const ap = asPolygon(obj); pushPoly(ap);
+    } else if (Array.isArray(obj.coordinates)){ // { coordinates:[...] }
+      const ap = asPolygon({ type:'Polygon', coordinates: obj.coordinates }); pushPoly(ap);
+    } else if (Array.isArray(obj)){ // масив різних об'єктів
+      obj.forEach(item => {
+        if (item && typeof item==='object'){
+          const ap = item.type ? asPolygon(item) : asPolygon({ type:'Polygon', coordinates:item });
+          pushPoly(ap);
+        }
+      });
+    }
+    if (!out.length){
+      if (multiple) throw new Error('Не знайдено жодного Polygon/MultiPolygon у введенні');
+      throw new Error('Потрібен Polygon');
+    }
+    return out;
   }
 
   function buildFeature(props, polygon){
@@ -177,25 +219,45 @@
       msg.textContent = 'Будую…'; msg.className='muted'; btnDownload.disabled = true; outPre.textContent='—';
       const raw = inpGeo.value.trim(); if (!raw) throw new Error('Вставте GeoJSON у текстове поле');
       let obj = null; try{ obj = JSON.parse(raw); }catch(e){ throw new Error('Невірний JSON: ' + e.message); }
-      const polygon = extractPolygonFromInput(obj);
-      const props = {
+      const polys = extractPolygonsFromInput(obj, document.getElementById('inBatch').checked);
+      const propsBase = {
         Name: inName.value.trim() || 'Без назви',
         GUID: inGuid.value.trim() || '',
         Code: inCode.value.trim() || '',
         Farm: inFarm.value.trim() || '',
         Client: inClient.value.trim() || ''
       };
-      const feature = buildFeature(props, polygon);
+      // Якщо у вхідному є properties — вони мають пріоритет; інакше застосуємо propsBase з автонумерацією
+      let features = [];
+      if (obj && obj.type==='FeatureCollection' && Array.isArray(obj.features)){
+        let idx = 1;
+        obj.features.forEach((f)=>{
+          const ap = asPolygon(f?.geometry); if (!ap) return;
+          const apply = (p)=>{
+            const pr = Object.assign({}, propsBase, (f.properties||{}));
+            if (!pr.Name) pr.Name = `${propsBase.Name} ${idx++}`;
+            features.push(buildFeature(pr, p));
+          };
+          Array.isArray(ap) ? ap.forEach(apply) : apply(ap);
+        });
+      } else {
+        let idx = 1;
+        polys.forEach(p=>{
+          const pr = Object.assign({}, propsBase);
+          if (!pr.Name) pr.Name = `${propsBase.Name} ${idx++}`;
+          features.push(buildFeature(pr, p));
+        });
+      }
       let out = null;
       if (inMode.value === 'append'){
         const f = inFile.files && inFile.files[0]; if (!f) throw new Error('Оберіть файл для додавання');
         const text = await f.text();
         let existing = null; try{ existing = JSON.parse(text); }catch(e){ existing = null; }
         const fc = normalizeFC(existing);
-        fc.features = (fc.features || []).concat([feature]);
+        fc.features = (fc.features || []).concat(features);
         out = fc;
       } else {
-        out = normalizeFC(null); out.features = [feature];
+        out = normalizeFC(null); out.features = features;
       }
       const json = JSON.stringify(out, null, 2);
       outPre.textContent = json; btnDownload.disabled = false; msg.textContent = 'Готово'; msg.className='ok';
