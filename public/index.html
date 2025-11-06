@@ -3479,7 +3479,9 @@ async function clientWriteRouteLog(routeId, type, extra){
     }
   }, extra || {});
   try{ await db.collection('route_logs').add(payload); }
-  catch(e){ /* ignore on Spark if rules deny */ }
+  catch(e){
+    try{ console.warn('route_logs write failed:', e?.code || '', e?.message || e); }catch(_){ }
+  }
 }
 
 let isRefreshingRoutes = false;
