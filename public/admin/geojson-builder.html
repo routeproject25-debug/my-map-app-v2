@@ -9,8 +9,12 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
   <script src="/config/config.js"></script>
   <link href="https://api.mapbox.com/mapbox-gl-js/v2.16.1/mapbox-gl.css" rel="stylesheet" />
+  <!-- CSS fallback (якщо api.mapbox.com недоступний) -->
+  <link href="https://unpkg.com/mapbox-gl@2.16.1/dist/mapbox-gl.css" rel="stylesheet" />
   <script src="https://api.mapbox.com/mapbox-gl-js/v2.16.1/mapbox-gl.js"></script>
   <link href="https://api.mapbox.com/mapbox-gl-js/plugins/mapbox-gl-draw/v1.5.0/mapbox-gl-draw.css" rel="stylesheet" />
+  <!-- Draw CSS fallback -->
+  <link href="https://unpkg.com/@mapbox/mapbox-gl-draw@1.5.0/dist/mapbox-gl-draw.css" rel="stylesheet" />
   <script src="https://api.mapbox.com/mapbox-gl-js/plugins/mapbox-gl-draw/v1.5.0/mapbox-gl-draw.js"></script>
   <style>
     :root{ --w: 1160px; }
@@ -377,6 +381,14 @@
       document.head.appendChild(s);
     });
   }
+  function loadScriptAny(sources){
+    return new Promise(async (resolve, reject) => {
+      for (let i=0; i<sources.length; i++){
+        try{ await loadScriptOnce(sources[i]); return resolve(true); }catch(_){ /* try next */ }
+      }
+      reject(new Error('all script sources failed'));
+    });
+  }
   async function ensureMap(){
     if (__map) return __map;
     const msgEl = document.getElementById('mapMsg');
@@ -385,12 +397,10 @@
       if (!token){ msgEl.textContent = '⚠️ Немає Mapbox токена у /config/config.js'; return null; }
       // гарантуємо наявність mapboxgl глобалу
       if (!window.mapboxgl){
-        try{
-          await loadScriptOnce('https://api.mapbox.com/mapbox-gl-js/v2.16.1/mapbox-gl.js');
-        }catch(_){
-          // fallback CDN
-          await loadScriptOnce('https://unpkg.com/mapbox-gl@2.16.1/dist/mapbox-gl.js');
-        }
+        await loadScriptAny([
+          'https://api.mapbox.com/mapbox-gl-js/v2.16.1/mapbox-gl.js',
+          'https://unpkg.com/mapbox-gl@2.16.1/dist/mapbox-gl.js'
+        ]);
       }
       if (!window.mapboxgl){ msgEl.textContent = 'Mapbox GL не завантажився'; return null; }
 
@@ -402,7 +412,7 @@
         zoom: 5
       });
       __map.addControl(new mapboxgl.NavigationControl({ visualizePitch: true }));
-      __map.on('load', ()=>{
+  __map.on('load', async ()=>{
         try{
           if (!__map.getSource('preview')){
             __map.addSource('preview', { type:'geojson', data:{ type:'FeatureCollection', features:[] } });
@@ -416,6 +426,12 @@
           }
           // ініціалізуємо інструменти малювання
           try{
+            if (!window.MapboxDraw){
+              await loadScriptAny([
+                'https://api.mapbox.com/mapbox-gl-js/plugins/mapbox-gl-draw/v1.5.0/mapbox-gl-draw.js',
+                'https://unpkg.com/@mapbox/mapbox-gl-draw@1.5.0/dist/mapbox-gl-draw.js'
+              ]);
+            }
             if (window.MapboxDraw && !__map.__draw){
               __map.__draw = new MapboxDraw({ displayControlsDefault:false });
               __map.addControl(__map.__draw);
