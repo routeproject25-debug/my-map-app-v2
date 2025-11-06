@@ -310,8 +310,8 @@
       }
       const json = JSON.stringify(out, null, 2);
       outPre.textContent = json; btnDownload.disabled = false; msg.textContent = 'Готово'; msg.className='ok';
-      // ⬇️ показати попередній перегляд на мапі
-      try { showPreviewGeoJSON(out); } catch(_){ }
+  // ⬇️ показати попередній перегляд на мапі
+  try { await showPreviewGeoJSON(out); } catch(_){ }
       btnDownload.onclick = ()=> downloadBlob(json, (inMode.value==='new' ? (inOutName.value.trim()||'geozones.geojson') : (inFile.files?.[0]?.name || 'geozones.geojson')));
       btnCopy.onclick = ()=> { try{ navigator.clipboard.writeText(json); msg.textContent='Скопійовано'; msg.className='ok'; }catch(e){ msg.textContent='Не вдалось скопіювати'; msg.className='err'; } };
     }catch(e){ msg.textContent = e.message || String(e); msg.className='err'; }
@@ -319,14 +319,34 @@
 
   // ========== MAP PREVIEW (Mapbox GL JS) ==========
   let __map = null;
-  function ensureMap(){
+  function loadScriptOnce(src){
+    return new Promise((resolve, reject) => {
+      // вже є глобал
+      if (window.mapboxgl) return resolve();
+      // вже доданий тег
+      const existing = document.querySelector(`script[src="${src}"]`);
+      if (existing){ existing.addEventListener('load', ()=>resolve()); existing.addEventListener('error', ()=>reject(new Error('script load error'))); return; }
+      const s = document.createElement('script'); s.src = src; s.async = true; s.onload = ()=>resolve(); s.onerror = ()=>reject(new Error('script load error'));
+      document.head.appendChild(s);
+    });
+  }
+  async function ensureMap(){
     if (__map) return __map;
+    const msgEl = document.getElementById('mapMsg');
     try{
       const token = (window.APP_CONFIG && window.APP_CONFIG.mapboxToken) || '';
-      if (!token){
-        document.getElementById('mapMsg').textContent = '⚠️ Немає Mapbox токена у /config/config.js';
-        return null;
+      if (!token){ msgEl.textContent = '⚠️ Немає Mapbox токена у /config/config.js'; return null; }
+      // гарантуємо наявність mapboxgl глобалу
+      if (!window.mapboxgl){
+        try{
+          await loadScriptOnce('https://api.mapbox.com/mapbox-gl-js/v2.16.1/mapbox-gl.js');
+        }catch(_){
+          // fallback CDN
+          await loadScriptOnce('https://unpkg.com/mapbox-gl@2.16.1/dist/mapbox-gl.js');
+        }
       }
+      if (!window.mapboxgl){ msgEl.textContent = 'Mapbox GL не завантажився'; return null; }
+
       mapboxgl.accessToken = token;
       __map = new mapboxgl.Map({
         container: 'mapPreview',
@@ -349,7 +369,7 @@
           }
         }catch(_){ }
       });
-    }catch(e){ document.getElementById('mapMsg').textContent = 'Не вдалося ініціалізувати карту: ' + (e?.message||e); }
+    }catch(e){ msgEl.textContent = 'Не вдалося ініціалізувати карту: ' + (e?.message||e); }
     return __map;
   }
   function fitToGeoJSONBounds(fc){
@@ -378,8 +398,8 @@
       }
     }catch(_){ }
   }
-  function showPreviewGeoJSON(fc){
-    const m = ensureMap(); if (!m) return;
+  async function showPreviewGeoJSON(fc){
+    const m = await ensureMap(); if (!m) return;
     const setData = ()=>{
       try{
         const src = m.getSource('preview');
