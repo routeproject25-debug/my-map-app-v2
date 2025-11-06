@@ -10,6 +10,8 @@
   <script src="/config/config.js"></script>
   <link href="https://api.mapbox.com/mapbox-gl-js/v2.16.1/mapbox-gl.css" rel="stylesheet" />
   <script src="https://api.mapbox.com/mapbox-gl-js/v2.16.1/mapbox-gl.js"></script>
+  <link href="https://api.mapbox.com/mapbox-gl-js/plugins/mapbox-gl-draw/v1.5.0/mapbox-gl-draw.css" rel="stylesheet" />
+  <script src="https://api.mapbox.com/mapbox-gl-js/plugins/mapbox-gl-draw/v1.5.0/mapbox-gl-draw.js"></script>
   <style>
     :root{ --w: 1160px; }
     *{ box-sizing: border-box; }
@@ -43,8 +45,18 @@
 <div class="card">
   <div class="row">
     <div>
-      <label>Вставте GeoJSON (або лише geometry/coordinates)</label>
-      <textarea id="inpGeo" placeholder='{"type":"FeatureCollection","features":[{"type":"Feature","geometry":{"type":"Polygon","coordinates":[[[lng,lat],...]]}}]}'></textarea>
+      <label>Малювання геозон на мапі</label>
+      <div id="mapPreview" style="height:560px; border-radius:12px; overflow:hidden; background:#eef2ff"></div>
+      <div class="actions" style="margin-top:8px; gap:6px;">
+        <button id="btnDrawPoly" type="button" class="ghost">✏️ Полігон</button>
+        <button id="btnDelSel" type="button" class="ghost">🗑 Видалити вибране</button>
+        <button id="btnClearAll" type="button" class="ghost">♻️ Очистити все</button>
+        <span class="muted" id="featInfo">—</span>
+      </div>
+      <details style="margin-top:8px;">
+        <summary class="muted">Альтернатива: вставити готовий GeoJSON (не обов'язково)</summary>
+        <textarea id="inpGeo" placeholder='{"type":"FeatureCollection","features":[{"type":"Feature","geometry":{"type":"Polygon","coordinates":[[[lng,lat],...]]}}]}'></textarea>
+      </details>
     </div>
     <div>
       <div class="row3">
@@ -62,6 +74,10 @@
             <option value="append">Додати в ІСНУЮЧИЙ файл</option>
           </select>
         </div>
+      </div>
+      <div class="actions" style="margin-top:6px;">
+        <button id="btnApplyProps" type="button" class="ghost">✅ Застосувати до виділеного</button>
+        <span class="muted">(поле властивостей Name/GUID/Code/Farm/Client застосовується до вибраних фігур)</span>
       </div>
       <div style="margin-top:6px; display:flex; align-items:center; gap:10px;">
         <label style="display:flex; align-items:center; gap:8px; margin:0;">
@@ -98,10 +114,9 @@
 
 <div class="card">
   <div style="display:flex; align-items:center; justify-content:space-between; gap:8px;">
-    <div class="muted">Попередній перегляд на мапі</div>
+    <div class="muted">Статус карти</div>
     <div class="muted" id="mapMsg"></div>
   </div>
-  <div id="mapPreview" style="height:360px; border-radius:12px; overflow:hidden; margin-top:8px; background:#eef2ff"></div>
   <div class="muted" style="margin-top:6px;">Порада: якщо полігон дуже маленький — наблизьте карту (масштаб 15–17), бо у tilesets дрібні геометрії з’являються лише на високих зумах.</div>
 </div>
 
@@ -141,6 +156,11 @@
   const btnDownload = document.getElementById('btnDownload');
   const hiddenDl = document.getElementById('hiddenDl');
   const btnCopy = document.getElementById('btnCopy');
+  const btnApplyProps = document.getElementById('btnApplyProps');
+  const btnDrawPoly = document.getElementById('btnDrawPoly');
+  const btnDelSel = document.getElementById('btnDelSel');
+  const btnClearAll = document.getElementById('btnClearAll');
+  const featInfo = document.getElementById('featInfo');
 
   inMode.onchange = ()=>{ const m=inMode.value; newBlock.style.display = (m==='new')?'':'none'; appendBlock.style.display = (m==='append')?'':'none'; };
 
@@ -272,9 +292,18 @@
   btnBuild.onclick = async () => {
     try{
       msg.textContent = 'Будую…'; msg.className='muted'; btnDownload.disabled = true; outPre.textContent='—';
-      const raw = inpGeo.value.trim(); if (!raw) throw new Error('Вставте GeoJSON у текстове поле');
-      let obj = null; try{ obj = JSON.parse(raw); }catch(e){ throw new Error('Невірний JSON: ' + e.message); }
-      const polys = extractPolygonsFromInput(obj, document.getElementById('inBatch').checked);
+      // 1) беремо намальовані фічі, якщо вони є
+      const drawnFeats = getDrawnFeatures();
+
+      let obj = null, polys = [];
+      if (drawnFeats.length === 0){
+        // 2) fallback — парсимо textarea, якщо користувач вставив JSON
+        const raw = (inpGeo?.value || '').trim();
+        if (!raw) throw new Error('Намалюйте геозону на мапі або вставте GeoJSON внизу');
+        try{ obj = JSON.parse(raw); }catch(e){ throw new Error('Невірний JSON: ' + e.message); }
+        polys = extractPolygonsFromInput(obj, document.getElementById('inBatch')?.checked);
+      }
+
       const propsBase = {
         Name: inName.value.trim() || 'Без назви',
         GUID: inGuid.value.trim() || '',
@@ -282,9 +311,18 @@
         Farm: inFarm.value.trim() || '',
         Client: inClient.value.trim() || ''
       };
-      // Якщо у вхідному є properties — вони мають пріоритет; інакше застосуємо propsBase з автонумерацією
+
       let features = [];
-      if (obj && obj.type==='FeatureCollection' && Array.isArray(obj.features)){
+      if (drawnFeats.length > 0){
+        let idx = 1;
+        drawnFeats.forEach(f => {
+          const geom = normalizeGeometry(f.geometry);
+          if (!geom) return;
+          const pr = Object.assign({}, propsBase, (f.properties||{}));
+          if (!pr.Name) pr.Name = `${propsBase.Name} ${idx++}`;
+          features.push({ type:'Feature', properties: pr, geometry: geom });
+        });
+      } else if (obj && obj.type==='FeatureCollection' && Array.isArray(obj.features)){
         let idx = 1;
         obj.features.forEach((f)=>{
           const ap = asPolygon(f?.geometry); if (!ap) return;
@@ -303,6 +341,7 @@
           features.push(buildFeature(pr, p));
         });
       }
+
       let out = null;
       if (inMode.value === 'append'){
         const f = inFile.files && inFile.files[0]; if (!f) throw new Error('Оберіть файл для додавання');
@@ -315,10 +354,10 @@
         out = normalizeFC(null); out.features = features;
       }
       const json = JSON.stringify(out, null, 2);
-  outPre.textContent = json; btnDownload.disabled = false; msg.textContent = 'Готово'; msg.className='ok';
-  // ⬇️ показати попередній перегляд на мапі
-  try { await showPreviewGeoJSON(out); } catch(_){ }
-  prepareDownload(json, (inMode.value==='new' ? (inOutName.value.trim()||'geozones.geojson') : (inFile.files?.[0]?.name || 'geozones.geojson')));
+      outPre.textContent = json; btnDownload.disabled = false; msg.textContent = 'Готово'; msg.className='ok';
+      // фокус до меж створеного набору
+      try { fitToGeoJSONBounds(out); } catch(_){ }
+      prepareDownload(json, (inMode.value==='new' ? (inOutName.value.trim()||'geozones.geojson') : (inFile.files?.[0]?.name || 'geozones.geojson')));
       btnCopy.onclick = ()=> { try{ navigator.clipboard.writeText(json); msg.textContent='Скопійовано'; msg.className='ok'; }catch(e){ msg.textContent='Не вдалось скопіювати'; msg.className='err'; } };
     }catch(e){ msg.textContent = e.message || String(e); msg.className='err'; }
   };
@@ -373,6 +412,20 @@
           if (!__map.getLayer('preview-outline')){
             __map.addLayer({ id:'preview-outline', type:'line', source:'preview', filter:isPoly, paint:{ 'line-color':'#16a34a', 'line-width':1.2 } });
           }
+          // ініціалізуємо інструменти малювання
+          try{
+            if (window.MapboxDraw && !__map.__draw){
+              __map.__draw = new MapboxDraw({ displayControlsDefault:false });
+              __map.addControl(__map.__draw);
+              // оновлюємо інфо при будь-якій зміні
+              const upd = ()=>updateFeatInfo();
+              __map.on('draw.create', upd);
+              __map.on('draw.update', upd);
+              __map.on('draw.delete', upd);
+              __map.on('draw.selectionchange', upd);
+              updateFeatInfo();
+            }
+          }catch(_){ }
         }catch(_){ }
       });
     }catch(e){ msgEl.textContent = 'Не вдалося ініціалізувати карту: ' + (e?.message||e); }
@@ -415,6 +468,65 @@
     };
     if (m.loaded()) setData(); else m.once('load', setData);
   }
+
+  // ===== Drawing helpers =====
+  function getDraw(){ try { return __map && __map.__draw; } catch(_) { return null; } }
+  function getDrawnFeatures(){
+    try{
+      const d = getDraw(); if (!d) return [];
+      const all = d.getAll();
+      return (all?.features || []).filter(f => f && f.geometry && (f.geometry.type==='Polygon' || f.geometry.type==='MultiPolygon'));
+    }catch(_){ return []; }
+  }
+  function normalizeGeometry(g){
+    if (!g) return null;
+    if (g.type === 'Polygon'){
+      const rings = orientRings(g.coordinates || []);
+      if (!rings.length) return null;
+      return { type:'Polygon', coordinates: rings };
+    }
+    if (g.type === 'MultiPolygon'){
+      const polys = (g.coordinates || []).map(rings => orientRings(rings || [])).filter(r => r && r.length);
+      if (!polys.length) return null;
+      return { type:'MultiPolygon', coordinates: polys };
+    }
+    return null;
+  }
+  function updateFeatInfo(){
+    try{
+      const d = getDraw(); if (!d) { featInfo.textContent = '—'; return; }
+      const total = (d.getAll()?.features || []).length;
+      const sel = (d.getSelectedIds() || []).length;
+      featInfo.textContent = `Намальовано: ${total} • Виділено: ${sel}`;
+    }catch(_){ featInfo.textContent = '—'; }
+  }
+
+  // buttons actions
+  (async function wireButtons(){
+    await ensureMap();
+    const d = getDraw();
+    if (btnDrawPoly){ btnDrawPoly.onclick = ()=> d && d.changeMode('draw_polygon'); }
+    if (btnDelSel){ btnDelSel.onclick = ()=> { try{ const ids = d?.getSelectedIds() || []; if (ids.length) d.delete(ids); updateFeatInfo(); }catch(_){ } }; }
+    if (btnClearAll){ btnClearAll.onclick = ()=> { try{ d?.deleteAll(); updateFeatInfo(); }catch(_){ } }; }
+    if (btnApplyProps){ btnApplyProps.onclick = ()=>{
+      try{
+        const d2 = getDraw(); if (!d2) return;
+        const ids = d2.getSelectedIds() || [];
+        if (!ids.length) { msg.textContent = 'Немає виділених фігур'; msg.className='err'; return; }
+        const pr = {
+          Name: inName.value.trim(),
+          GUID: inGuid.value.trim(),
+          Code: inCode.value.trim(),
+          Farm: inFarm.value.trim(),
+          Client: inClient.value.trim()
+        };
+        for (const id of ids){
+          for (const [k,v] of Object.entries(pr)) d2.setFeatureProperty(id, k, v);
+        }
+        msg.textContent = 'Застосовано до виділеного'; msg.className='ok';
+      }catch(e){ msg.textContent = e?.message||String(e); msg.className='err'; }
+    }; }
+  })();
 </script>
 </body>
 </html>
