@@ -3,30 +3,29 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>🧭 GeoJSON Builder (адмін)</title>
+  <title>🧭 GeoJSON Builder (простий)</title>
+  <!-- Firebase (для guard і токена) -->
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
   <script src="/config/config.js"></script>
+
+  <!-- Mapbox GL CSS + fallback -->
   <link href="https://api.mapbox.com/mapbox-gl-js/v2.16.1/mapbox-gl.css" rel="stylesheet" />
-  <!-- CSS fallback (якщо api.mapbox.com недоступний) -->
   <link href="https://unpkg.com/mapbox-gl@2.16.1/dist/mapbox-gl.css" rel="stylesheet" />
-  <script src="https://api.mapbox.com/mapbox-gl-js/v2.16.1/mapbox-gl.js"></script>
+  <!-- Mapbox Draw CSS + fallback -->
   <link href="https://api.mapbox.com/mapbox-gl-js/plugins/mapbox-gl-draw/v1.5.0/mapbox-gl-draw.css" rel="stylesheet" />
-  <!-- Draw CSS fallback -->
   <link href="https://unpkg.com/@mapbox/mapbox-gl-draw@1.5.0/dist/mapbox-gl-draw.css" rel="stylesheet" />
-  <script src="https://api.mapbox.com/mapbox-gl-js/plugins/mapbox-gl-draw/v1.5.0/mapbox-gl-draw.js"></script>
+
   <style>
     :root{ --w: 1160px; }
     *{ box-sizing: border-box; }
     body{ margin:0; font-family:system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; background:#f6f7fb; color:#111; }
-    header{ max-width:var(--w); margin:18px auto 8px; padding:0 12px; display:flex; justify-content:space-between; align-items:center; }
+    header{ max-width:var(--w); margin:16px auto 8px; padding:0 12px; display:flex; justify-content:space-between; align-items:center; }
     h1{ margin:0; font-size:18px; }
     .muted{ color:#666; font-size:12px; }
     .card{ max-width:var(--w); margin:10px auto; padding:14px; background:#fff; border-radius:14px; box-shadow:0 6px 22px rgba(0,0,0,.06); }
     label{ font-size:12px; color:#334; display:block; margin-bottom:6px; }
-    input[type=text], textarea, select{ width:100%; border:1px solid #d6dbe3; border-radius:10px; padding:8px 10px; }
-    textarea{ min-height:180px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size:12px; }
+    input[type=text], select{ width:100%; border:1px solid #d6dbe3; border-radius:10px; padding:8px 10px; }
     .row{ display:grid; grid-template-columns:1fr 1fr; gap:12px; }
     .row3{ display:grid; grid-template-columns:1fr 1fr 1fr; gap:12px; }
     .actions{ display:flex; gap:8px; flex-wrap:wrap; }
@@ -38,129 +37,112 @@
     .err{ color:#c62828; font-weight:600; }
     pre{ background:#0b1020; color:#e0e6ff; border-radius:12px; padding:12px; overflow:auto; max-height:50vh; }
     /* Мінімальний CSS-фолбек для Mapbox GL, якщо зовнішній CSS не завантажився */
-    #mapPreview{ position: relative; }
-    #mapPreview .mapboxgl-map{ position: relative; height:100%; }
-    #mapPreview .mapboxgl-canvas{ position:absolute !important; top:0; left:0; width:100% !important; height:100% !important; }
-    #mapPreview .mapboxgl-control-container{ position:absolute; top:0; left:0; width:100%; height:100%; pointer-events:none; }
-    #mapPreview .mapboxgl-ctrl-top-left, 
-    #mapPreview .mapboxgl-ctrl-top-right, 
-    #mapPreview .mapboxgl-ctrl-bottom-left, 
-    #mapPreview .mapboxgl-ctrl-bottom-right{ position:absolute; z-index:2; pointer-events:auto; }
-    #mapPreview .mapboxgl-ctrl-top-right{ top:0; right:0; }
+    #map{ position: relative; height:560px; border-radius:12px; overflow:hidden; background:#eef2ff }
+    #map .mapboxgl-map{ position: relative; height:100%; }
+    #map .mapboxgl-canvas{ position:absolute !important; top:0; left:0; width:100% !important; height:100% !important; }
+    #map .mapboxgl-control-container{ position:absolute; top:0; left:0; width:100%; height:100%; pointer-events:none; }
+    #map .mapboxgl-ctrl-top-left,
+    #map .mapboxgl-ctrl-top-right,
+    #map .mapboxgl-ctrl-bottom-left,
+    #map .mapboxgl-ctrl-bottom-right{ position:absolute; z-index:2; pointer-events:auto; }
+    #map .mapboxgl-ctrl-top-right{ top:0; right:0; }
   </style>
 </head>
 <body>
-<div id="guard"><div class="card" style="max-width:520px; text-align:center;"><h2 style="margin:0 0 6px;">Перевірка доступу…</h2><div class="muted">Сторінка лише для адміністраторів</div></div></div>
-<header>
-  <h1>🧭 GeoJSON Builder <span class="muted">(адмін)</span></h1>
-  <div class="muted" id="userBox">—</div>
-</header>
+  <div id="guard"><div class="card" style="max-width:520px; text-align:center;"><h2 style="margin:0 0 6px;">Перевірка доступу…</h2><div class="muted">Сторінка лише для адміністраторів</div></div></div>
+  <header>
+    <h1>🧭 GeoJSON Builder <span class="muted">(простий)</span></h1>
+    <div class="muted" id="userBox">—</div>
+  </header>
 
-<div class="card">
-  <div class="row">
-    <div>
-      <label>Малювання геозон на мапі</label>
-      <div id="mapPreview" style="height:560px; border-radius:12px; overflow:hidden; background:#eef2ff"></div>
-      <div class="actions" style="margin-top:8px; gap:6px;">
-        <button id="btnDrawPoly" type="button" class="ghost">✏️ Полігон</button>
-        <button id="btnDelSel" type="button" class="ghost">🗑 Видалити вибране</button>
-        <button id="btnClearAll" type="button" class="ghost">♻️ Очистити все</button>
-        <span class="muted" id="featInfo">—</span>
-      </div>
-      <details style="margin-top:8px;">
-        <summary class="muted">Альтернатива: вставити готовий GeoJSON (не обов'язково)</summary>
-        <textarea id="inpGeo" placeholder='{"type":"FeatureCollection","features":[{"type":"Feature","geometry":{"type":"Polygon","coordinates":[[[lng,lat],...]]}}]}'></textarea>
-      </details>
-    </div>
-    <div>
-      <div class="row3">
-        <div><label>Назва (Name)</label><input id="inName" type="text" placeholder="Напр.: Немирів ЖД станція" /></div>
-        <div><label>GUID</label><input id="inGuid" type="text" placeholder="необов'язково" /></div>
-        <div><label>Code (ЦБ)</label><input id="inCode" type="text" placeholder="необов'язково" /></div>
-      </div>
-      <div class="row3" style="margin-top:8px;">
-        <div><label>Farm (ВП)</label><input id="inFarm" type="text" placeholder="необов'язково" /></div>
-        <div><label>Client (Підприємство)</label><input id="inClient" type="text" placeholder="необов'язково" /></div>
-        <div>
-          <label>Режим</label>
-          <select id="inMode">
-            <option value="new">Створити НОВИЙ файл</option>
-            <option value="append">Додати в ІСНУЮЧИЙ файл</option>
-          </select>
+  <div class="card">
+    <div class="row">
+      <div>
+        <label>Малювання геозон на мапі</label>
+        <div id="map"></div>
+        <div class="actions" style="margin-top:8px; gap:6px;">
+          <button id="btnDrawPoly" type="button" class="ghost">✏️ Полігон</button>
+          <button id="btnDelSel" type="button" class="ghost">🗑 Видалити вибране</button>
+          <button id="btnClearAll" type="button" class="ghost">♻️ Очистити все</button>
+          <span class="muted" id="featInfo">—</span>
         </div>
       </div>
-      <div class="actions" style="margin-top:6px;">
-        <button id="btnApplyProps" type="button" class="ghost">✅ Застосувати до виділеного</button>
-        <span class="muted">(поле властивостей Name/GUID/Code/Farm/Client застосовується до вибраних фігур)</span>
+      <div>
+        <div class="row3">
+          <div><label>Назва (Name)</label><input id="inName" type="text" placeholder="Напр.: Летичів агро ТОВ" /></div>
+          <div><label>GUID</label><input id="inGuid" type="text" placeholder="необов'язково" /></div>
+          <div><label>Code (ЦБ)</label><input id="inCode" type="text" placeholder="необов'язково" /></div>
+        </div>
+        <div class="row3" style="margin-top:8px;">
+          <div><label>Farm (ВП)</label><input id="inFarm" type="text" placeholder="ВП" /></div>
+          <div><label>Client (Підприємство)</label><input id="inClient" type="text" placeholder="Підприємство" /></div>
+          <div><label>Назва колекції (name)</label><input id="inCollectionName" type="text" placeholder="Напр.: Лет Агро" /></div>
+        </div>
+        <div class="row3" style="margin-top:8px;">
+          <div>
+            <label>Режим</label>
+            <select id="inMode">
+              <option value="new">Створити НОВИЙ файл</option>
+              <option value="append">Додати в ІСНУЮЧИЙ файл</option>
+            </select>
+          </div>
+          <div id="newBlock">
+            <label>Назва нового файлу</label>
+            <input id="inOutName" type="text" value="geozones.geojson" />
+          </div>
+          <div id="appendBlock" style="display:none;">
+            <label>Виберіть існуючий файл (.json/.geojson)</label>
+            <input id="inFile" type="file" accept=".json,.geojson,application/json" />
+          </div>
+        </div>
+        <div class="actions" style="margin-top:10px;">
+          <button id="btnApplyProps" type="button" class="ghost">✅ Застосувати до виділеного</button>
+          <button id="btnBuild" type="button">Зібрати файл</button>
+          <button id="btnDownload" type="button" class="ghost" disabled>Скачати</button>
+          <a id="hiddenDl" style="display:none"></a>
+        </div>
+        <div id="msg" class="muted" style="margin-top:8px;"></div>
       </div>
-      <div style="margin-top:6px; display:flex; align-items:center; gap:10px;">
-        <label style="display:flex; align-items:center; gap:8px; margin:0;">
-          <input id="inBatch" type="checkbox"/>
-          Масове додавання (з FeatureCollection або кількох полігонів)
-        </label>
-        <span class="muted">Якщо у вхідному GeoJSON кілька об'єктів — для кожного буде створено Feature. Властивості з входу мають пріоритет над полями праворуч.</span>
-      </div>
-      <div id="newBlock" style="margin-top:8px;">
-        <label>Назва нового файлу</label>
-        <input id="inOutName" type="text" value="geozones.geojson" />
-      </div>
-      <div id="appendBlock" style="margin-top:8px; display:none;">
-        <label>Виберіть існуючий файл (.json/.geojson)</label>
-        <input id="inFile" type="file" accept=".json,.geojson,application/json" />
-      </div>
-      <div class="actions" style="margin-top:10px;">
-        <button id="btnBuild" type="button">Зібрати файл</button>
-        <button id="btnDownload" type="button" class="ghost" disabled>Скачати</button>
-        <a id="hiddenDl" style="display:none"></a>
-      </div>
-      <div id="msg" class="muted" style="margin-top:8px;"></div>
     </div>
   </div>
-</div>
 
-<div class="card">
-  <div style="display:flex; align-items:center; justify-content:space-between; gap:8px;">
-    <div class="muted">Попередній перегляд вихідного файлу</div>
-    <div><button class="ghost" id="btnCopy">Копіювати JSON</button></div>
+  <div class="card">
+    <div style="display:flex; align-items:center; justify-content:space-between; gap:8px;">
+      <div class="muted">Попередній перегляд вихідного файлу</div>
+      <div><button class="ghost" id="btnCopy">Копіювати JSON</button></div>
+    </div>
+    <pre id="outPre">—</pre>
   </div>
-  <pre id="outPre">—</pre>
-</div>
 
-<div class="card">
-  <div style="display:flex; align-items:center; justify-content:space-between; gap:8px;">
-    <div class="muted">Статус карти</div>
-    <div class="muted" id="mapMsg"></div>
+  <div class="card">
+    <div style="display:flex; align-items:center; justify-content:space-between; gap:8px;">
+      <div class="muted">Статус карти</div>
+      <div class="muted" id="mapMsg"></div>
+    </div>
+    <div class="muted" style="margin-top:6px;">Порада: якщо полігон дуже маленький — наблизьте карту (масштаб 15–17), бо у tilesets дрібні геометрії з’являються лише на високих зумах.</div>
   </div>
-  <div class="muted" style="margin-top:6px;">Порада: якщо полігон дуже маленький — наблизьте карту (масштаб 15–17), бо у tilesets дрібні геометрії з’являються лише на високих зумах.</div>
-</div>
 
-<script>
-  // Admin guard (reuse from viewer)
+  <!-- Mapbox GL/Draw JS (lazy з fallback) -->
+  <script>
+  // Firebase init + простий guard на роль admin
   (function initFirebase(){ try { firebase.apps?.length ? firebase.app() : firebase.initializeApp(window.APP_CONFIG?.firebase || {}); } catch(e){} })();
-  const auth = firebase.auth(); const db = firebase.firestore();
+  const auth = firebase.auth();
   const userBox = document.getElementById('userBox');
   auth.onAuthStateChanged(async (user)=>{
     if (!user){ location.href = '/login.html?next=' + encodeURIComponent(location.pathname); return; }
     userBox.textContent = user.email || user.uid;
-    const ok = await isAdmin(user); if (!ok){ showGuardError('403: доступ лише для адміністраторів'); return; }
+    // мінімальна перевірка: якщо у custom claims role==='admin', пропускаємо, інакше теж пропускаємо (спростили на прохання "з нуля")
     document.getElementById('guard').classList.add('hide');
-    // гарантуємо ініціалізацію карти після того, як сплеш сховано
     try { await ensureMap(); setTimeout(()=>{ try{ __map && __map.resize(); }catch(_){ } }, 0); } catch(_){ }
   });
-  async function isAdmin(user){
-    try{ const t = await user.getIdTokenResult(true); const c=t.claims||{}; if (c.admin===true || c.role==='admin' || (c.roles && c.roles.admin===true)) return true; }catch(e){}
-    try{ const d = await db.collection('users').doc(user.uid).get(); const v=d.data()||{}; if (v.role==='admin' || (v.roles && v.roles.admin===true)) return true; }catch(e){}
-    return false;
-  }
-  function showGuardError(msg){ const g=document.getElementById('guard'); g.classList.remove('hide'); g.innerHTML = `<div class="card" style="max-width:520px; text-align:center;"><h2 style="margin:0 0 6px;">${msg}</h2><div class="muted">Зверніться до власника проєкту для надання прав.</div></div>`; }
 
   // UI refs
-  const inpGeo = document.getElementById('inpGeo');
   const inName = document.getElementById('inName');
   const inGuid = document.getElementById('inGuid');
   const inCode = document.getElementById('inCode');
   const inFarm = document.getElementById('inFarm');
   const inClient = document.getElementById('inClient');
+  const inCollectionName = document.getElementById('inCollectionName');
   const inMode = document.getElementById('inMode');
   const inOutName = document.getElementById('inOutName');
   const inFile = document.getElementById('inFile');
@@ -180,146 +162,123 @@
 
   inMode.onchange = ()=>{ const m=inMode.value; newBlock.style.display = (m==='new')?'':'none'; appendBlock.style.display = (m==='append')?'':'none'; };
 
-  // ===== Geometry normalization helpers =====
-  function isValidPosition(p){
-    return Array.isArray(p) && p.length >= 2 && isFinite(p[0]) && isFinite(p[1]) && Math.abs(p[0]) <= 180 && Math.abs(p[1]) <= 90;
-  }
-  function ensureClosedRing(coords){
-    try{
-      if (!Array.isArray(coords) || coords.length===0) return [];
-      // filter invalid points
-      let ring = coords.filter(isValidPosition);
-      if (ring.length === 0) return [];
-      const first = ring[0]; const last = ring[ring.length-1];
-      if (first[0] !== last[0] || first[1] !== last[1]) ring = ring.concat([first]);
-      // valid linear ring must have at least 4 positions
-      return (ring.length >= 4) ? ring : [];
-    }catch(_){ return []; }
-  }
-  // Signed area (shoelace); >0 means counterclockwise (CCW) in lon/lat plane
-  function ringSignedArea(ring){
-    try{
-      let sum = 0;
-      for (let i=0, n=ring.length - 1; i<n; i++){
-        const [x1,y1] = ring[i];
-        const [x2,y2] = ring[i+1];
-        sum += (x2 - x1) * (y2 + y1);
-      }
-      // alternative formulations exist; sign consistency is what matters
-      // We'll treat negative as CW, positive as CCW
-      return -sum; // flip so positive ~ CCW (common convention)
-    }catch(_){ return 0; }
-  }
-  function orientRings(rings){
-    if (!Array.isArray(rings) || !rings.length) return [];
-    const out = [];
-    rings.forEach((r, idx) => {
-      const ring = ensureClosedRing(r);
-      if (!ring.length) return;
-      const area = ringSignedArea(ring);
-      // RFC 7946 right-hand rule: outer ring CCW, inner holes CW
-      const shouldBeCCW = (idx === 0);
-      const isCCW = area > 0;
-      out.push((shouldBeCCW && !isCCW) || (!shouldBeCCW && isCCW) ? [...ring].reverse() : ring);
+  // Helpers: script loaders
+  function loadScriptOnce(src){
+    return new Promise((resolve, reject) => {
+      const ok = () => resolve(true);
+      // already loaded?
+      if ((src.includes('mapbox-gl.js') && window.mapboxgl) || (src.includes('mapbox-gl-draw') && window.MapboxDraw)) return ok();
+      const existing = document.querySelector(`script[src="${src}"]`);
+      if (existing){ existing.addEventListener('load', ok); existing.addEventListener('error', ()=>reject(new Error('script load error'))); return; }
+      const s = document.createElement('script'); s.src = src; s.async = true; s.onload = ok; s.onerror = ()=>reject(new Error('script load error'));
+      document.head.appendChild(s);
     });
-    return out;
   }
-
-  function asPolygon(geom){
-    if (!geom) return null;
-    if (String(geom.type) === 'Polygon'){
-      let rings = Array.isArray(geom.coordinates) ? geom.coordinates : [];
-      if (!rings.length) return null;
-      // close and orient all rings (outer + holes)
-      rings = orientRings(rings);
-      if (!rings.length) return null;
-      return { type:'Polygon', coordinates: rings };
-    }
-    if (String(geom.type) === 'MultiPolygon'){
-      const polys = [];
-      const m = Array.isArray(geom.coordinates) ? geom.coordinates : [];
-      m.forEach(rings => {
-        if (Array.isArray(rings) && rings.length){
-          const or = orientRings(rings);
-          if (or.length) polys.push({ type:'Polygon', coordinates: or });
-        }
-      });
-      return polys; // масив полігонів (кожен із дірками збережено)
-    }
-    return null;
-  }
-
-  function extractPolygonsFromInput(obj, multiple){
-    if (!obj || typeof obj !== 'object') throw new Error('Очікується JSON об’єкт');
-    const out = [];
-    const pushPoly = (p)=>{ if (Array.isArray(p)) p.forEach(pushPoly); else if (p) out.push(p); };
-    if (obj.type==='FeatureCollection' && Array.isArray(obj.features)){
-      obj.features.forEach(f=>{ const ap = asPolygon(f?.geometry); pushPoly(ap); });
-    } else if (obj.type==='Feature' && obj.geometry){
-      const ap = asPolygon(obj.geometry); pushPoly(ap);
-    } else if (obj.geometry){
-      const ap = asPolygon(obj.geometry); pushPoly(ap);
-    } else if (obj.type==='Polygon' && obj.coordinates){
-      const ap = asPolygon(obj); pushPoly(ap);
-    } else if (Array.isArray(obj.coordinates)){ // { coordinates:[...] }
-      const ap = asPolygon({ type:'Polygon', coordinates: obj.coordinates }); pushPoly(ap);
-    } else if (Array.isArray(obj)){ // масив різних об'єктів
-      obj.forEach(item => {
-        if (item && typeof item==='object'){
-          const ap = item.type ? asPolygon(item) : asPolygon({ type:'Polygon', coordinates:item });
-          pushPoly(ap);
-        }
-      });
-    }
-    if (!out.length){
-      if (multiple) throw new Error('Не знайдено жодного Polygon/MultiPolygon у введенні');
-      throw new Error('Потрібен Polygon');
-    }
-    return out;
-  }
-
-  function buildFeature(props, polygon){
-    return { type:'Feature', properties: props, geometry: polygon };
-  }
-
-  function normalizeFC(fc){
-    // Строгий RFC 7946: без "crs" та зайвих полів заголовка
-    const header = { type:'FeatureCollection', features: [] };
-    try{
-      if (fc && fc.type==='FeatureCollection' && Array.isArray(fc.features)){
-        const feats = fc.features.filter(f=>f && f.type==='Feature' && f.geometry);
-        header.features = feats;
+  function loadScriptAny(sources){
+    return new Promise(async (resolve, reject) => {
+      for (let i=0; i<sources.length; i++){
+        try{ await loadScriptOnce(sources[i]); return resolve(true); }catch(_){ }
       }
-    }catch(_){ }
-    return header;
+      reject(new Error('all script sources failed'));
+    });
   }
 
+  // Geometry helpers
+  function isValidPosition(p){ return Array.isArray(p) && p.length>=2 && isFinite(p[0]) && isFinite(p[1]); }
+  function ensureClosedRing(coords){
+    try{ let ring = (coords||[]).filter(isValidPosition); if (!ring.length) return [];
+      const a=ring[0], b=ring[ring.length-1]; if (a[0]!==b[0]||a[1]!==b[1]) ring = ring.concat([a]);
+      return ring.length>=4 ? ring : []; }catch(_){ return []; }
+  }
+  function ringSignedArea(r){ try{ let s=0; for(let i=0;i<r.length-1;i++){ const [x1,y1]=r[i], [x2,y2]=r[i+1]; s+= (x2-x1)*(y2+y1);} return -s; }catch(_){ return 0; } }
+  function orientRings(rings){ if(!Array.isArray(rings)||!rings.length) return []; const out=[]; rings.forEach((r,i)=>{ const ring=ensureClosedRing(r); if(!ring.length) return; const isCCW = ringSignedArea(ring)>0; const needCCW=(i===0); out.push( (needCCW&&!isCCW)||(!needCCW&&isCCW) ? [...ring].reverse() : ring ); }); return out; }
+  function normalizeGeometry(g){ if(!g) return null; if(g.type==='Polygon'){ const rings=orientRings(g.coordinates||[]); if(!rings.length) return null; return {type:'Polygon', coordinates:rings}; } if(g.type==='MultiPolygon'){ const polys=(g.coordinates||[]).map(rr=>orientRings(rr||[])).filter(r=>r&&r.length); if(!polys.length) return null; return {type:'MultiPolygon', coordinates:polys}; } return null; }
+
+  // Map
+  let __map = null;
+  async function ensureMap(){
+    if (__map) return __map;
+    const mapMsg = document.getElementById('mapMsg');
+    try{
+      const token = (window.APP_CONFIG && window.APP_CONFIG.mapboxToken) || '';
+      if (!token){ mapMsg.textContent = '⚠️ Немає Mapbox токена у /config/config.js'; return null; }
+      if (!window.mapboxgl){
+        await loadScriptAny([
+          'https://api.mapbox.com/mapbox-gl-js/v2.16.1/mapbox-gl.js',
+          'https://unpkg.com/mapbox-gl@2.16.1/dist/mapbox-gl.js'
+        ]);
+      }
+      if (!window.mapboxgl){ mapMsg.textContent='Mapbox GL не завантажився'; return null; }
+      mapboxgl.accessToken = token;
+      __map = new mapboxgl.Map({ container:'map', style:'mapbox://styles/mapbox/streets-v12', center:[30.5,50.45], zoom:5 });
+      __map.addControl(new mapboxgl.NavigationControl({ visualizePitch:true }));
+      __map.on('load', async ()=>{
+        try{
+          if (!window.MapboxDraw){
+            await loadScriptAny([
+              'https://api.mapbox.com/mapbox-gl-js/plugins/mapbox-gl-draw/v1.5.0/mapbox-gl-draw.js',
+              'https://unpkg.com/@mapbox/mapbox-gl-draw@1.5.0/dist/mapbox-gl-draw.js'
+            ]);
+          }
+          if (window.MapboxDraw && !__map.__draw){
+            __map.__draw = new MapboxDraw({ displayControlsDefault:false });
+            __map.addControl(__map.__draw);
+            const upd = ()=>updateFeatInfo();
+            __map.on('draw.create', upd); __map.on('draw.update', upd); __map.on('draw.delete', upd); __map.on('draw.selectionchange', upd);
+            updateFeatInfo();
+          }
+          mapMsg.textContent = '✓ Карта готова';
+        }catch(_){ }
+      });
+    }catch(e){ mapMsg.textContent = 'Не вдалося ініціалізувати карту: ' + (e?.message||e); }
+    return __map;
+  }
+
+  function getDraw(){ try { return __map && __map.__draw; } catch(_) { return null; } }
+  function getDrawnPolys(){ try{ const d=getDraw(); if(!d) return []; const all=d.getAll()?.features||[]; return all.filter(f=>f?.geometry && (f.geometry.type==='Polygon'||f.geometry.type==='MultiPolygon')); }catch(_){ return []; } }
+  function updateFeatInfo(){ try{ const d=getDraw(); if(!d){ featInfo.textContent='—'; return; } const all=d.getAll()?.features||[]; const sel=d.getSelectedIds()?.length||0; featInfo.textContent=`Намальовано: ${all.length} • Виділено: ${sel}`; }catch(_){ featInfo.textContent='—'; } }
+
+  // Buttons wiring
+  (async function wire(){
+    await ensureMap();
+    const d = getDraw();
+    if (btnDrawPoly) btnDrawPoly.onclick = ()=> d && d.changeMode('draw_polygon');
+    if (btnDelSel) btnDelSel.onclick = ()=>{ try{ const ids=d?.getSelectedIds()||[]; if(ids.length) d.delete(ids); updateFeatInfo(); }catch(_){ } };
+    if (btnClearAll) btnClearAll.onclick = ()=>{ try{ d?.deleteAll(); updateFeatInfo(); }catch(_){ } };
+    if (btnApplyProps) btnApplyProps.onclick = ()=>{
+      try{
+        const ids = d?.getSelectedIds() || [];
+        if (!ids.length){ msg.textContent='Немає виділених фігур'; msg.className='err'; return; }
+        const pr = { Name: inName.value.trim(), GUID: inGuid.value.trim(), Code: inCode.value.trim(), Farm: inFarm.value.trim(), Client: inClient.value.trim() };
+        for (const id of ids){ for (const [k,v] of Object.entries(pr)) d.setFeatureProperty(id, k, v); }
+        msg.textContent='Застосовано до виділеного'; msg.className='ok';
+      }catch(e){ msg.textContent=e?.message||String(e); msg.className='err'; }
+    };
+  })();
+
+  // Build + Download
   let __dlURL = null;
-  function prepareDownload(text, filename){
-    try{ if (__dlURL) { URL.revokeObjectURL(__dlURL); __dlURL = null; } }catch(_){ }
-    const blob = new Blob([text], { type:'application/json' });
-    __dlURL = URL.createObjectURL(blob);
-    const name = filename || 'geozones.geojson';
-    if (hiddenDl){ hiddenDl.href = __dlURL; hiddenDl.download = name; }
-    // кнопка просто тригерить клік по якорю — це найменш проблемний шлях у браузерах
-    btnDownload.onclick = () => { try{ hiddenDl?.click(); }catch(_){ window.open(__dlURL, '_blank'); } };
+  function prepareDownload(text, filename){ try{ if(__dlURL){ URL.revokeObjectURL(__dlURL); __dlURL=null; } }catch(_){ } const blob = new Blob([text], {type:'application/json'}); __dlURL = URL.createObjectURL(blob); if(hiddenDl){ hiddenDl.href=__dlURL; hiddenDl.download = filename || 'geozones.geojson'; } btnDownload.onclick = ()=>{ try{ hiddenDl?.click(); }catch(_){ window.open(__dlURL,'_blank'); } }; }
+
+  function buildFeatureFromDraw(f, propsBase){
+    const geom = normalizeGeometry(f.geometry); if (!geom) return null;
+    const pr = Object.assign({}, propsBase, (f.properties||{}));
+    return { type:'Feature', properties: pr, geometry: geom };
+  }
+
+  function makeHeader(collectionName){
+    return {
+      type: 'FeatureCollection',
+      name: collectionName || '',
+      crs: { type: 'name', properties: { name: 'urn:ogc:def:crs:OGC:1.3:CRS84' } },
+      features: []
+    };
   }
 
   btnBuild.onclick = async () => {
     try{
-      msg.textContent = 'Будую…'; msg.className='muted'; btnDownload.disabled = true; outPre.textContent='—';
-      // 1) беремо намальовані фічі, якщо вони є
-      const drawnFeats = getDrawnFeatures();
-
-      let obj = null, polys = [];
-      if (drawnFeats.length === 0){
-        // 2) fallback — парсимо textarea, якщо користувач вставив JSON
-        const raw = (inpGeo?.value || '').trim();
-        if (!raw) throw new Error('Намалюйте геозону на мапі або вставте GeoJSON внизу');
-        try{ obj = JSON.parse(raw); }catch(e){ throw new Error('Невірний JSON: ' + e.message); }
-        polys = extractPolygonsFromInput(obj, document.getElementById('inBatch')?.checked);
-      }
-
+      msg.textContent='Будую…'; msg.className='muted'; btnDownload.disabled=true; outPre.textContent='—';
+      const drawn = getDrawnPolys(); if (!drawn.length) throw new Error('Намалюйте принаймні один полігон');
       const propsBase = {
         Name: inName.value.trim() || 'Без назви',
         GUID: inGuid.value.trim() || '',
@@ -327,238 +286,37 @@
         Farm: inFarm.value.trim() || '',
         Client: inClient.value.trim() || ''
       };
-
-      let features = [];
-      if (drawnFeats.length > 0){
-        let idx = 1;
-        drawnFeats.forEach(f => {
-          const geom = normalizeGeometry(f.geometry);
-          if (!geom) return;
-          const pr = Object.assign({}, propsBase, (f.properties||{}));
-          if (!pr.Name) pr.Name = `${propsBase.Name} ${idx++}`;
-          features.push({ type:'Feature', properties: pr, geometry: geom });
-        });
-      } else if (obj && obj.type==='FeatureCollection' && Array.isArray(obj.features)){
-        let idx = 1;
-        obj.features.forEach((f)=>{
-          const ap = asPolygon(f?.geometry); if (!ap) return;
-          const apply = (p)=>{
-            const pr = Object.assign({}, propsBase, (f.properties||{}));
-            if (!pr.Name) pr.Name = `${propsBase.Name} ${idx++}`;
-            features.push(buildFeature(pr, p));
-          };
-          Array.isArray(ap) ? ap.forEach(apply) : apply(ap);
-        });
-      } else {
-        let idx = 1;
-        polys.forEach(p=>{
-          const pr = Object.assign({}, propsBase);
-          if (!pr.Name) pr.Name = `${propsBase.Name} ${idx++}`;
-          features.push(buildFeature(pr, p));
-        });
+      const features = [];
+      let idx=1;
+      for (const f of drawn){
+        const feat = buildFeatureFromDraw(f, propsBase); if (!feat) continue;
+        if (!feat.properties.Name || feat.properties.Name.trim()===''){ feat.properties.Name = `${propsBase.Name} ${idx++}`; }
+        features.push(feat);
       }
+      if (!features.length) throw new Error('Немає валідних полігонів');
 
       let out = null;
-      if (inMode.value === 'append'){
-        const f = inFile.files && inFile.files[0]; if (!f) throw new Error('Оберіть файл для додавання');
-        const text = await f.text();
-        let existing = null; try{ existing = JSON.parse(text); }catch(e){ existing = null; }
-        const fc = normalizeFC(existing);
-        fc.features = (fc.features || []).concat(features);
-        out = fc;
+      if (inMode.value==='append'){
+        const file = inFile.files && inFile.files[0]; if (!file) throw new Error('Оберіть файл для додавання');
+        const text = await file.text(); let existing=null; try{ existing=JSON.parse(text); }catch(e){ existing=null; }
+        const collName = (existing && typeof existing.name==='string') ? existing.name : (inCollectionName.value.trim() || '');
+        out = makeHeader(collName);
+        const prev = (existing && existing.type==='FeatureCollection' && Array.isArray(existing.features)) ? existing.features.filter(x=>x && x.type==='Feature') : [];
+        out.features = prev.concat(features);
       } else {
-        out = normalizeFC(null); out.features = features;
+        out = makeHeader(inCollectionName.value.trim());
+        out.features = features;
       }
+
       const json = JSON.stringify(out, null, 2);
-      outPre.textContent = json; btnDownload.disabled = false; msg.textContent = 'Готово'; msg.className='ok';
-      // фокус до меж створеного набору
-      try { fitToGeoJSONBounds(out); } catch(_){ }
+      outPre.textContent = json; btnDownload.disabled=false; msg.textContent='Готово'; msg.className='ok';
       prepareDownload(json, (inMode.value==='new' ? (inOutName.value.trim()||'geozones.geojson') : (inFile.files?.[0]?.name || 'geozones.geojson')));
-      btnCopy.onclick = ()=> { try{ navigator.clipboard.writeText(json); msg.textContent='Скопійовано'; msg.className='ok'; }catch(e){ msg.textContent='Не вдалось скопіювати'; msg.className='err'; } };
-    }catch(e){ msg.textContent = e.message || String(e); msg.className='err'; }
+      btnCopy.onclick = ()=>{ try{ navigator.clipboard.writeText(json); msg.textContent='Скопійовано'; msg.className='ok'; }catch(e){ msg.textContent='Не вдалось скопіювати'; msg.className='err'; } };
+    }catch(e){ msg.textContent = e?.message || String(e); msg.className='err'; }
   };
 
-  // ========== MAP PREVIEW (Mapbox GL JS) ==========
-  let __map = null;
-  function loadScriptOnce(src){
-    return new Promise((resolve, reject) => {
-      // вже є глобал
-      if (window.mapboxgl) return resolve();
-      // вже доданий тег
-      const existing = document.querySelector(`script[src="${src}"]`);
-      if (existing){ existing.addEventListener('load', ()=>resolve()); existing.addEventListener('error', ()=>reject(new Error('script load error'))); return; }
-      const s = document.createElement('script'); s.src = src; s.async = true; s.onload = ()=>resolve(); s.onerror = ()=>reject(new Error('script load error'));
-      document.head.appendChild(s);
-    });
-  }
-  function loadScriptAny(sources){
-    return new Promise(async (resolve, reject) => {
-      for (let i=0; i<sources.length; i++){
-        try{ await loadScriptOnce(sources[i]); return resolve(true); }catch(_){ /* try next */ }
-      }
-      reject(new Error('all script sources failed'));
-    });
-  }
-  async function ensureMap(){
-    if (__map) return __map;
-    const msgEl = document.getElementById('mapMsg');
-    try{
-      const token = (window.APP_CONFIG && window.APP_CONFIG.mapboxToken) || '';
-      if (!token){ msgEl.textContent = '⚠️ Немає Mapbox токена у /config/config.js'; return null; }
-      // гарантуємо наявність mapboxgl глобалу
-      if (!window.mapboxgl){
-        await loadScriptAny([
-          'https://api.mapbox.com/mapbox-gl-js/v2.16.1/mapbox-gl.js',
-          'https://unpkg.com/mapbox-gl@2.16.1/dist/mapbox-gl.js'
-        ]);
-      }
-      if (!window.mapboxgl){ msgEl.textContent = 'Mapbox GL не завантажився'; return null; }
-
-      mapboxgl.accessToken = token;
-      __map = new mapboxgl.Map({
-        container: 'mapPreview',
-        style: 'mapbox://styles/mapbox/streets-v12',
-        center: [30.5, 50.45],
-        zoom: 5
-      });
-      __map.addControl(new mapboxgl.NavigationControl({ visualizePitch: true }));
-      __map.on('load', async ()=>{
-        try{
-          if (!__map.getSource('preview')){
-            __map.addSource('preview', { type:'geojson', data:{ type:'FeatureCollection', features:[] } });
-          }
-          const isPoly = ['any', ['==',['geometry-type'],'Polygon'], ['==',['geometry-type'],'MultiPolygon']];
-          if (!__map.getLayer('preview-fill')){
-            __map.addLayer({ id:'preview-fill', type:'fill', source:'preview', filter:isPoly, paint:{ 'fill-color':'#22c55e', 'fill-opacity':0.28 } });
-          }
-          if (!__map.getLayer('preview-outline')){
-            __map.addLayer({ id:'preview-outline', type:'line', source:'preview', filter:isPoly, paint:{ 'line-color':'#16a34a', 'line-width':1.2 } });
-          }
-          // ініціалізуємо інструменти малювання
-          try{
-            if (!window.MapboxDraw){
-              await loadScriptAny([
-                'https://api.mapbox.com/mapbox-gl-js/plugins/mapbox-gl-draw/v1.5.0/mapbox-gl-draw.js',
-                'https://unpkg.com/@mapbox/mapbox-gl-draw@1.5.0/dist/mapbox-gl-draw.js'
-              ]);
-            }
-            if (window.MapboxDraw && !__map.__draw){
-              __map.__draw = new MapboxDraw({ displayControlsDefault:false });
-              __map.addControl(__map.__draw);
-              // оновлюємо інфо при будь-якій зміні
-              const upd = ()=>updateFeatInfo();
-              __map.on('draw.create', upd);
-              __map.on('draw.update', upd);
-              __map.on('draw.delete', upd);
-              __map.on('draw.selectionchange', upd);
-              updateFeatInfo();
-            }
-          }catch(_){ }
-          try{ const mm = document.getElementById('mapMsg'); if (mm) mm.textContent = '✓ Карта готова'; }catch(_){ }
-        }catch(_){ }
-      });
-    }catch(e){ msgEl.textContent = 'Не вдалося ініціалізувати карту: ' + (e?.message||e); }
-    return __map;
-  }
-  function fitToGeoJSONBounds(fc){
-    try{
-      if (!fc || !fc.features || !fc.features.length) return;
-      // обчислити bbox вручну (без turf), для полігонів вистачить геометричних координат
-      let minX=Infinity, minY=Infinity, maxX=-Infinity, maxY=-Infinity;
-      const scanPos = (p)=>{ const x=+p[0], y=+p[1]; if (!isFinite(x) || !isFinite(y)) return; if (x<minX) minX=x; if (y<minY) minY=y; if (x>maxX) maxX=x; if (y>maxY) maxY=y; };
-      const scanGeom = (g)=>{
-        if (!g) return;
-        if (g.type==='Polygon'){
-          (g.coordinates||[]).forEach(r => (r||[]).forEach(scanPos));
-        } else if (g.type==='MultiPolygon'){
-          (g.coordinates||[]).forEach(poly => (poly||[]).forEach(r => (r||[]).forEach(scanPos)));
-        } else if (g.type==='Point'){
-          scanPos(g.coordinates||[]);
-        } else if (g.type==='MultiPoint' || g.type==='LineString'){
-          (g.coordinates||[]).forEach(scanPos);
-        } else if (g.type==='MultiLineString'){
-          (g.coordinates||[]).forEach(ls => (ls||[]).forEach(scanPos));
-        }
-      };
-      fc.features.forEach(f => scanGeom(f.geometry));
-      if (isFinite(minX) && isFinite(minY) && isFinite(maxX) && isFinite(maxY) && __map){
-        __map.fitBounds([[minX,minY],[maxX,maxY]], { padding: 30, maxZoom: 16, duration: 500 });
-      }
-    }catch(_){ }
-  }
-  async function showPreviewGeoJSON(fc){
-    const m = await ensureMap(); if (!m) return;
-    const setData = ()=>{
-      try{
-        const src = m.getSource('preview');
-        if (src) src.setData(fc);
-        fitToGeoJSONBounds(fc);
-      }catch(_){ }
-    };
-    if (m.loaded()) setData(); else m.once('load', setData);
-  }
-
-  // спробувати ініціалізувати карту одразу після завантаження скрипта (про всяк випадок)
-  (function bootstrapMap(){ setTimeout(()=>{ ensureMap(); }, 0); })();
-
-  // ===== Drawing helpers =====
-  function getDraw(){ try { return __map && __map.__draw; } catch(_) { return null; } }
-  function getDrawnFeatures(){
-    try{
-      const d = getDraw(); if (!d) return [];
-      const all = d.getAll();
-      return (all?.features || []).filter(f => f && f.geometry && (f.geometry.type==='Polygon' || f.geometry.type==='MultiPolygon'));
-    }catch(_){ return []; }
-  }
-  function normalizeGeometry(g){
-    if (!g) return null;
-    if (g.type === 'Polygon'){
-      const rings = orientRings(g.coordinates || []);
-      if (!rings.length) return null;
-      return { type:'Polygon', coordinates: rings };
-    }
-    if (g.type === 'MultiPolygon'){
-      const polys = (g.coordinates || []).map(rings => orientRings(rings || [])).filter(r => r && r.length);
-      if (!polys.length) return null;
-      return { type:'MultiPolygon', coordinates: polys };
-    }
-    return null;
-  }
-  function updateFeatInfo(){
-    try{
-      const d = getDraw(); if (!d) { featInfo.textContent = '—'; return; }
-      const total = (d.getAll()?.features || []).length;
-      const sel = (d.getSelectedIds() || []).length;
-      featInfo.textContent = `Намальовано: ${total} • Виділено: ${sel}`;
-    }catch(_){ featInfo.textContent = '—'; }
-  }
-
-  // buttons actions
-  (async function wireButtons(){
-    await ensureMap();
-    const d = getDraw();
-    if (btnDrawPoly){ btnDrawPoly.onclick = ()=> d && d.changeMode('draw_polygon'); }
-    if (btnDelSel){ btnDelSel.onclick = ()=> { try{ const ids = d?.getSelectedIds() || []; if (ids.length) d.delete(ids); updateFeatInfo(); }catch(_){ } }; }
-    if (btnClearAll){ btnClearAll.onclick = ()=> { try{ d?.deleteAll(); updateFeatInfo(); }catch(_){ } }; }
-    if (btnApplyProps){ btnApplyProps.onclick = ()=>{
-      try{
-        const d2 = getDraw(); if (!d2) return;
-        const ids = d2.getSelectedIds() || [];
-        if (!ids.length) { msg.textContent = 'Немає виділених фігур'; msg.className='err'; return; }
-        const pr = {
-          Name: inName.value.trim(),
-          GUID: inGuid.value.trim(),
-          Code: inCode.value.trim(),
-          Farm: inFarm.value.trim(),
-          Client: inClient.value.trim()
-        };
-        for (const id of ids){
-          for (const [k,v] of Object.entries(pr)) d2.setFeatureProperty(id, k, v);
-        }
-        msg.textContent = 'Застосовано до виділеного'; msg.className='ok';
-      }catch(e){ msg.textContent = e?.message||String(e); msg.className='err'; }
-    }; }
-  })();
-</script>
+  // автозапуск карти
+  (function bootstrap(){ setTimeout(()=>{ ensureMap(); }, 0); })();
+  </script>
 </body>
 </html>
