@@ -9,6 +9,9 @@
   <script src="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.js"></script>
   <script src="https://api.mapbox.com/mapbox-gl-js/plugins/mapbox-gl-draw/v1.5.0/mapbox-gl-draw.js"></script>
   <script src="/config/config.js"></script>
+  <!-- Firebase (для підтяжки tilesets з Firestore, якщо доступно) -->
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
   <style>
     :root{ --w:1180px; }
     *{ box-sizing: border-box; }
@@ -390,11 +393,40 @@
 
   // ===== Tilesets (спрощений варіант як на головній) =====
   async function loadTilesetsConfig(){
+    // 1) спроба прочитати з Firestore (як на головній сторінці)
+    let loadedFrom = 'json';
     try{
-      const res = await fetch('/config/tilesets.json?v=' + Date.now());
-      const data = await res.json().catch(()=> null);
-      TILESETS = Array.isArray(data) ? data : (data && Array.isArray(data.tilesets) ? data.tilesets : []);
-    }catch(e){ console.warn('tilesets.json недоступний', e); TILESETS = []; }
+      const CFG = window.APP_CONFIG && window.APP_CONFIG.firebase;
+      if (CFG && window.firebase && typeof firebase.initializeApp === 'function'){
+        try { firebase.apps?.length ? firebase.app() : firebase.initializeApp(CFG); } catch(_){ }
+        const db = firebase.firestore();
+        const snap = await db.collection('config').doc('tilesets').get({ source:'server' });
+        if (snap.exists){
+          const d = snap.data();
+          const arr = Array.isArray(d) ? d : (d && Array.isArray(d.tilesets) ? d.tilesets : []);
+          if (Array.isArray(arr) && arr.length){ TILESETS = arr; loadedFrom = 'firestore'; }
+        }
+      }
+    }catch(e){ console.warn('tilesets Firestore недоступний:', e?.message||e); }
+
+    // 2) фолбек на статичний файл
+    if (!Array.isArray(TILESETS) || !TILESETS.length){
+      try{
+        const res = await fetch('/config/tilesets.json?v=' + Date.now());
+        const data = await res.json().catch(()=> null);
+        TILESETS = Array.isArray(data) ? data : (data && Array.isArray(data.tilesets) ? data.tilesets : []);
+      }catch(e){ console.warn('tilesets.json недоступний', e); TILESETS = []; }
+    }
+
+    // Показати у підказці звідки завантажено
+    try{
+      const box = document.getElementById('tilesetList');
+      if (box && box.previousElementSibling){
+        const note = document.createElement('div'); note.className='hint'; note.textContent = 'Джерело конфіг: ' + (loadedFrom === 'firestore' ? 'Firestore' : 'JSON');
+        box.parentElement.insertBefore(note, box);
+      }
+    }catch(_){ }
+
     renderTilesetList();
   }
   function renderTilesetList(){
