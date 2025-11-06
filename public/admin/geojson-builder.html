@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>🧭 GeoJSON Builder (адмін)</title>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+  <script src="/config/config.js"></script>
+  <style>
+    :root{ --w: 1160px; }
+    *{ box-sizing: border-box; }
+    body{ margin:0; font-family:system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; background:#f6f7fb; color:#111; }
+    header{ max-width:var(--w); margin:18px auto 8px; padding:0 12px; display:flex; justify-content:space-between; align-items:center; }
+    h1{ margin:0; font-size:18px; }
+    .muted{ color:#666; font-size:12px; }
+    .card{ max-width:var(--w); margin:10px auto; padding:14px; background:#fff; border-radius:14px; box-shadow:0 6px 22px rgba(0,0,0,.06); }
+    label{ font-size:12px; color:#334; display:block; margin-bottom:6px; }
+    input[type=text], textarea, select{ width:100%; border:1px solid #d6dbe3; border-radius:10px; padding:8px 10px; }
+    textarea{ min-height:180px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size:12px; }
+    .row{ display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+    .row3{ display:grid; grid-template-columns:1fr 1fr 1fr; gap:12px; }
+    .actions{ display:flex; gap:8px; flex-wrap:wrap; }
+    button{ height:36px; padding:0 14px; border-radius:10px; border:1px solid #d6dbe3; background:#0f62fe; color:#fff; cursor:pointer; font-weight:600; }
+    button.ghost{ background:#fff; color:#0f62fe; }
+    #guard{ position:fixed; inset:0; background:#fff; display:flex; align-items:center; justify-content:center; z-index:9999; }
+    #guard.hide{ display:none; }
+    .ok{ color:#2e7d32; font-weight:600; }
+    .err{ color:#c62828; font-weight:600; }
+    pre{ background:#0b1020; color:#e0e6ff; border-radius:12px; padding:12px; overflow:auto; max-height:50vh; }
+  </style>
+</head>
+<body>
+<div id="guard"><div class="card" style="max-width:520px; text-align:center;"><h2 style="margin:0 0 6px;">Перевірка доступу…</h2><div class="muted">Сторінка лише для адміністраторів</div></div></div>
+<header>
+  <h1>🧭 GeoJSON Builder <span class="muted">(адмін)</span></h1>
+  <div class="muted" id="userBox">—</div>
+</header>
+
+<div class="card">
+  <div class="row">
+    <div>
+      <label>Вставте GeoJSON (або лише geometry/coordinates)</label>
+      <textarea id="inpGeo" placeholder='{"type":"FeatureCollection","features":[{"type":"Feature","geometry":{"type":"Polygon","coordinates":[[[lng,lat],...]]}}]}'></textarea>
+    </div>
+    <div>
+      <div class="row3">
+        <div><label>Назва (Name)</label><input id="inName" type="text" placeholder="Напр.: Немирів ЖД станція" /></div>
+        <div><label>GUID</label><input id="inGuid" type="text" placeholder="необов'язково" /></div>
+        <div><label>Code (ЦБ)</label><input id="inCode" type="text" placeholder="необов'язково" /></div>
+      </div>
+      <div class="row3" style="margin-top:8px;">
+        <div><label>Farm (ВП)</label><input id="inFarm" type="text" placeholder="необов'язково" /></div>
+        <div><label>Client (Підприємство)</label><input id="inClient" type="text" placeholder="необов'язково" /></div>
+        <div>
+          <label>Режим</label>
+          <select id="inMode">
+            <option value="new">Створити НОВИЙ файл</option>
+            <option value="append">Додати в ІСНУЮЧИЙ файл</option>
+          </select>
+        </div>
+      </div>
+      <div id="newBlock" style="margin-top:8px;">
+        <label>Назва нового файлу</label>
+        <input id="inOutName" type="text" value="geozones.geojson" />
+      </div>
+      <div id="appendBlock" style="margin-top:8px; display:none;">
+        <label>Виберіть існуючий файл (.json/.geojson)</label>
+        <input id="inFile" type="file" accept=".json,.geojson,application/json" />
+      </div>
+      <div class="actions" style="margin-top:10px;">
+        <button id="btnBuild">Зібрати файл</button>
+        <button id="btnDownload" class="ghost" disabled>Скачати</button>
+      </div>
+      <div id="msg" class="muted" style="margin-top:8px;"></div>
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <div style="display:flex; align-items:center; justify-content:space-between; gap:8px;">
+    <div class="muted">Попередній перегляд вихідного файлу</div>
+    <div><button class="ghost" id="btnCopy">Копіювати JSON</button></div>
+  </div>
+  <pre id="outPre">—</pre>
+</div>
+
+<script>
+  // Admin guard (reuse from viewer)
+  (function initFirebase(){ try { firebase.apps?.length ? firebase.app() : firebase.initializeApp(window.APP_CONFIG?.firebase || {}); } catch(e){} })();
+  const auth = firebase.auth(); const db = firebase.firestore();
+  const userBox = document.getElementById('userBox');
+  auth.onAuthStateChanged(async (user)=>{
+    if (!user){ location.href = '/login.html?next=' + encodeURIComponent(location.pathname); return; }
+    userBox.textContent = user.email || user.uid;
+    const ok = await isAdmin(user); if (!ok){ showGuardError('403: доступ лише для адміністраторів'); return; }
+    document.getElementById('guard').classList.add('hide');
+  });
+  async function isAdmin(user){
+    try{ const t = await user.getIdTokenResult(true); const c=t.claims||{}; if (c.admin===true || c.role==='admin' || (c.roles && c.roles.admin===true)) return true; }catch(e){}
+    try{ const d = await db.collection('users').doc(user.uid).get(); const v=d.data()||{}; if (v.role==='admin' || (v.roles && v.roles.admin===true)) return true; }catch(e){}
+    return false;
+  }
+  function showGuardError(msg){ const g=document.getElementById('guard'); g.classList.remove('hide'); g.innerHTML = `<div class="card" style="max-width:520px; text-align:center;"><h2 style="margin:0 0 6px;">${msg}</h2><div class="muted">Зверніться до власника проєкту для надання прав.</div></div>`; }
+
+  // UI refs
+  const inpGeo = document.getElementById('inpGeo');
+  const inName = document.getElementById('inName');
+  const inGuid = document.getElementById('inGuid');
+  const inCode = document.getElementById('inCode');
+  const inFarm = document.getElementById('inFarm');
+  const inClient = document.getElementById('inClient');
+  const inMode = document.getElementById('inMode');
+  const inOutName = document.getElementById('inOutName');
+  const inFile = document.getElementById('inFile');
+  const newBlock = document.getElementById('newBlock');
+  const appendBlock = document.getElementById('appendBlock');
+  const outPre = document.getElementById('outPre');
+  const msg = document.getElementById('msg');
+  const btnBuild = document.getElementById('btnBuild');
+  const btnDownload = document.getElementById('btnDownload');
+  const btnCopy = document.getElementById('btnCopy');
+
+  inMode.onchange = ()=>{ const m=inMode.value; newBlock.style.display = (m==='new')?'':'none'; appendBlock.style.display = (m==='append')?'':'none'; };
+
+  function ensureClosedRing(coords){
+    try{
+      if (!Array.isArray(coords) || coords.length===0) return coords;
+      const first = coords[0]; const last = coords[coords.length-1];
+      if (!Array.isArray(first) || !Array.isArray(last)) return coords;
+      if (first.length>=2 && last.length>=2 && (first[0]!==last[0] || first[1]!==last[1])){ coords = coords.concat([first]); }
+    }catch(_){ }
+    return coords;
+  }
+
+  function extractPolygonFromInput(obj){
+    // Accept: FeatureCollection -> first feature.geometry; Feature with geometry; {geometry:{...}}; Polygon object; or {coordinates:[...]}
+    if (!obj || typeof obj !== 'object') throw new Error('Очікується JSON об’єкт');
+    let geom = null;
+    if (obj.type==='FeatureCollection' && Array.isArray(obj.features) && obj.features.length){ geom = obj.features[0]?.geometry || null; }
+    else if (obj.type==='Feature' && obj.geometry){ geom = obj.geometry; }
+    else if (obj.geometry){ geom = obj.geometry; }
+    else if (obj.type==='Polygon' && obj.coordinates){ geom = obj; }
+    else if (Array.isArray(obj.coordinates)){ geom = { type:'Polygon', coordinates: obj.coordinates }; }
+    if (!geom || String(geom.type)!=='Polygon') throw new Error('Потрібен geometry.type = "Polygon"');
+    const rings = Array.isArray(geom.coordinates) ? geom.coordinates : [];
+    if (!rings.length) throw new Error('Відсутні координати полігона');
+    rings[0] = ensureClosedRing(rings[0]);
+    return { type:'Polygon', coordinates: rings };
+  }
+
+  function buildFeature(props, polygon){
+    return { type:'Feature', properties: props, geometry: polygon };
+  }
+
+  function normalizeFC(fc){
+    const header = { type:'FeatureCollection', name:'Геозони', crs:{ type:'name', properties:{ name:'urn:ogc:def:crs:OGC:1.3:CRS84' } }, features: [] };
+    try{
+      if (fc && fc.type==='FeatureCollection' && Array.isArray(fc.features)){
+        const feats = fc.features.filter(f=>f && f.type==='Feature' && f.geometry);
+        header.features = feats;
+      }
+    }catch(_){ }
+    return header;
+  }
+
+  function downloadBlob(text, filename){
+    const blob = new Blob([text], { type:'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href = url; a.download = filename || 'geozones.geojson';
+    document.body.appendChild(a); a.click(); setTimeout(()=>{ URL.revokeObjectURL(url); a.remove(); }, 0);
+  }
+
+  btnBuild.onclick = async () => {
+    try{
+      msg.textContent = 'Будую…'; msg.className='muted'; btnDownload.disabled = true; outPre.textContent='—';
+      const raw = inpGeo.value.trim(); if (!raw) throw new Error('Вставте GeoJSON у текстове поле');
+      let obj = null; try{ obj = JSON.parse(raw); }catch(e){ throw new Error('Невірний JSON: ' + e.message); }
+      const polygon = extractPolygonFromInput(obj);
+      const props = {
+        Name: inName.value.trim() || 'Без назви',
+        GUID: inGuid.value.trim() || '',
+        Code: inCode.value.trim() || '',
+        Farm: inFarm.value.trim() || '',
+        Client: inClient.value.trim() || ''
+      };
+      const feature = buildFeature(props, polygon);
+      let out = null;
+      if (inMode.value === 'append'){
+        const f = inFile.files && inFile.files[0]; if (!f) throw new Error('Оберіть файл для додавання');
+        const text = await f.text();
+        let existing = null; try{ existing = JSON.parse(text); }catch(e){ existing = null; }
+        const fc = normalizeFC(existing);
+        fc.features = (fc.features || []).concat([feature]);
+        out = fc;
+      } else {
+        out = normalizeFC(null); out.features = [feature];
+      }
+      const json = JSON.stringify(out, null, 2);
+      outPre.textContent = json; btnDownload.disabled = false; msg.textContent = 'Готово'; msg.className='ok';
+      btnDownload.onclick = ()=> downloadBlob(json, (inMode.value==='new' ? (inOutName.value.trim()||'geozones.geojson') : (inFile.files?.[0]?.name || 'geozones.geojson')));
+      btnCopy.onclick = ()=> { try{ navigator.clipboard.writeText(json); msg.textContent='Скопійовано'; msg.className='ok'; }catch(e){ msg.textContent='Не вдалось скопіювати'; msg.className='err'; } };
+    }catch(e){ msg.textContent = e.message || String(e); msg.className='err'; }
+  };
+</script>
+</body>
+</html>
