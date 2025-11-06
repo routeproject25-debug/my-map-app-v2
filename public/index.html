@@ -417,10 +417,9 @@
     <a href="/">🏠 Карта</a>
     <a href="/export/">📤 Експорт</a>
     <a href="/import/">📥 Імпорт</a>
-  <a id="adminLink" href="/admin.html" style="display:none;">👨‍💻 Адмін</a>
-  <a id="adminLinkViewer" href="/Firestore_Viewe.html" target="_blank" style="display:none;">📂 Firestore</a>
-  <a id="uploadRoutesLink" href="/import/upload-routes.html" style="display:none;">⬆ Імпорт маршрутів</a>
-  <a id="geojsonBuilderLink" href="/admin/geojson-builder.html" style="display:none;">🧭 Конструктор GeoJSON</a>
+	<a id="adminLink" href="/admin.html" style="display:none;">👨‍💻 Адмін</a>
+	<a id="adminLinkViewer" href="/Firestore_Viewe.html" target="_blank" style="display:none;">📂 Firestore</a>
+	<a id="uploadRoutesLink" href="/import/upload-routes.html" style="display:none;">⬆ Імпорт маршрутів</a>
   </div>
 
   <div class="spacer"></div>
@@ -765,7 +764,7 @@
     window.__userRole = role || 'guest';
 
     // Показ/приховання адмін-лінків «на зараз»
-  ['adminLink','adminLinkViewer','uploadRoutesLink','geojsonBuilderLink'].forEach(id => {
+    ['adminLink','adminLinkViewer','uploadRoutesLink'].forEach(id => {
       const el = document.getElementById(id);
       if (el) el.style.display = (window.__userRole === 'admin') ? '' : 'none';
     });
@@ -778,7 +777,7 @@
         window.__userRole = r;
         console.log('[role][server] uid:', u.uid, 'role:', r, 'data:', s.data());
 
-  ['adminLink','adminLinkViewer','uploadRoutesLink','geojsonBuilderLink'].forEach(id => {
+        ['adminLink','adminLinkViewer','uploadRoutesLink'].forEach(id => {
           const el = document.getElementById(id);
           if (el) el.style.display = (r === 'admin') ? '' : 'none';
         });
@@ -1179,7 +1178,7 @@ function applyRoleUI(role){
   readOnly = (role === 'guest' || role === 'user');
 
   // ⬇️ Показувати адмін-лінк лише адмінам
-  ['adminLink','adminLinkViewer','uploadRoutesLink','geojsonBuilderLink'].forEach(id => {
+  ['adminLink','adminLinkViewer','uploadRoutesLink'].forEach(id => {
   const el = document.getElementById(id);
   if (el) el.style.display = (role === 'admin') ? '' : 'none';
 });
