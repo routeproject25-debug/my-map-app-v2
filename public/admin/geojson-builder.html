@@ -131,22 +131,59 @@
 
   inMode.onchange = ()=>{ const m=inMode.value; newBlock.style.display = (m==='new')?'':'none'; appendBlock.style.display = (m==='append')?'':'none'; };
 
+  // ===== Geometry normalization helpers =====
+  function isValidPosition(p){
+    return Array.isArray(p) && p.length >= 2 && isFinite(p[0]) && isFinite(p[1]) && Math.abs(p[0]) <= 180 && Math.abs(p[1]) <= 90;
+  }
   function ensureClosedRing(coords){
     try{
-      if (!Array.isArray(coords) || coords.length===0) return coords;
-      const first = coords[0]; const last = coords[coords.length-1];
-      if (!Array.isArray(first) || !Array.isArray(last)) return coords;
-      if (first.length>=2 && last.length>=2 && (first[0]!==last[0] || first[1]!==last[1])){ coords = coords.concat([first]); }
-    }catch(_){ }
-    return coords;
+      if (!Array.isArray(coords) || coords.length===0) return [];
+      // filter invalid points
+      let ring = coords.filter(isValidPosition);
+      if (ring.length === 0) return [];
+      const first = ring[0]; const last = ring[ring.length-1];
+      if (first[0] !== last[0] || first[1] !== last[1]) ring = ring.concat([first]);
+      // valid linear ring must have at least 4 positions
+      return (ring.length >= 4) ? ring : [];
+    }catch(_){ return []; }
+  }
+  // Signed area (shoelace); >0 means counterclockwise (CCW) in lon/lat plane
+  function ringSignedArea(ring){
+    try{
+      let sum = 0;
+      for (let i=0, n=ring.length - 1; i<n; i++){
+        const [x1,y1] = ring[i];
+        const [x2,y2] = ring[i+1];
+        sum += (x2 - x1) * (y2 + y1);
+      }
+      // alternative formulations exist; sign consistency is what matters
+      // We'll treat negative as CW, positive as CCW
+      return -sum; // flip so positive ~ CCW (common convention)
+    }catch(_){ return 0; }
+  }
+  function orientRings(rings){
+    if (!Array.isArray(rings) || !rings.length) return [];
+    const out = [];
+    rings.forEach((r, idx) => {
+      const ring = ensureClosedRing(r);
+      if (!ring.length) return;
+      const area = ringSignedArea(ring);
+      // RFC 7946 right-hand rule: outer ring CCW, inner holes CW
+      const shouldBeCCW = (idx === 0);
+      const isCCW = area > 0;
+      out.push((shouldBeCCW && !isCCW) || (!shouldBeCCW && isCCW) ? [...ring].reverse() : ring);
+    });
+    return out;
   }
 
   function asPolygon(geom){
     if (!geom) return null;
     if (String(geom.type) === 'Polygon'){
-      const rings = Array.isArray(geom.coordinates) ? geom.coordinates : [];
+      let rings = Array.isArray(geom.coordinates) ? geom.coordinates : [];
       if (!rings.length) return null;
-      rings[0] = ensureClosedRing(rings[0]);
+      // close and orient all rings (outer + holes)
+      rings = orientRings(rings);
+      if (!rings.length) return null;
       return { type:'Polygon', coordinates: rings };
     }
     if (String(geom.type) === 'MultiPolygon'){
@@ -154,11 +191,11 @@
       const m = Array.isArray(geom.coordinates) ? geom.coordinates : [];
       m.forEach(rings => {
         if (Array.isArray(rings) && rings.length){
-          const r0 = ensureClosedRing(rings[0]||[]);
-          polys.push({ type:'Polygon', coordinates:[r0] });
+          const or = orientRings(rings);
+          if (or.length) polys.push({ type:'Polygon', coordinates: or });
         }
       });
-      return polys; // масив полігонів
+      return polys; // масив полігонів (кожен із дірками збережено)
     }
     return null;
   }
@@ -197,7 +234,8 @@
   }
 
   function normalizeFC(fc){
-    const header = { type:'FeatureCollection', name:'Геозони', crs:{ type:'name', properties:{ name:'urn:ogc:def:crs:OGC:1.3:CRS84' } }, features: [] };
+    // Строгий RFC 7946: без "crs" та зайвих полів заголовка
+    const header = { type:'FeatureCollection', features: [] };
     try{
       if (fc && fc.type==='FeatureCollection' && Array.isArray(fc.features)){
         const feats = fc.features.filter(f=>f && f.type==='Feature' && f.geometry);
