@@ -989,6 +989,7 @@ function drawManualSegments(d){
     };
     try{
       await ref.set(payload, { merge:true });
+      try{ await clientWriteRouteLog(rid, 'updated', { approvalStatus: kind, via:'client' }); }catch(_){ }
     }catch(e){
       // Якщо заборонено правилами — використовуємо серверний fallback
       const code = (e && e.code) || (e && e.message) || '';
@@ -1020,6 +1021,7 @@ function drawManualSegments(d){
             resp = await r.json().catch(()=> null);
           }
           if (!resp || resp.ok !== true){ throw new Error('Server approve failed: ' + JSON.stringify(resp)); }
+          try{ await clientWriteRouteLog(rid, 'updated', { approvalStatus: kind, via:'client-fallback' }); }catch(_){ }
         }catch(err){
           console.error('Approve fallback error', err);
           alert('Не вдалося зберегти рішення: ' + (err?.message || err));
@@ -1056,6 +1058,22 @@ function drawManualSegments(d){
     document.getElementById('rejectWrap').style.display = 'none';
     document.getElementById('rejectComment').value = '';
     approveBtn.disabled = false; rejectBtn.disabled = false;
+  }
+
+  // ---- Lightweight client-side route_logs writer (Spark safe) ----
+  async function clientWriteRouteLog(routeId, type, extra){
+    if (!db) return;
+    const payload = Object.assign({
+      routeId,
+      type: type || 'updated',
+      ts: new Date().toISOString(),
+      actor: {
+        updatedByUid: auth?.currentUser?.uid || null,
+        updatedByEmail: auth?.currentUser?.email || null
+      }
+    }, extra || {});
+    try{ await db.collection('route_logs').add(payload); }
+    catch(e){ /* ignore on Spark if rules deny */ }
   }
 
   // === Нижній onAuthStateChanged: UI та дані, роль уже в window.__userRole ===

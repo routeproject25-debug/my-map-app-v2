@@ -3335,7 +3335,8 @@ async function saveToDB() {
           routeKeySaved = routeKey;
         });
 
-        alert(`✅ Збережено в БД: ${payload.name}\nКод маршруту: ${routeKeySaved}`);
+  alert(`✅ Збережено в БД: ${payload.name}\nКод маршруту: ${routeKeySaved}`);
+  try{ await clientWriteRouteLog(docId, 'updated', { routeKey: routeKeySaved, distance_km: payload.distance_km, approvalStatus: savedApproval?.status || null, via:'client' }); }catch(_){ }
       } catch (txErr) {
         // Fallback для адміна: якщо ключ не зарезервувався, все одно збережемо без нього
         console.warn('Транзакція (routeKeys) не вдалася:', txErr?.code || txErr, txErr?.message);
@@ -3391,9 +3392,10 @@ async function saveToDB() {
       }
 
       try {
-        await routeRef.set(updateObj, { merge: true });
+  await routeRef.set(updateObj, { merge: true });
         routeKeySaved = localKey;
-        alert(`✅ Збережено в БД: ${payload.name}\nКод маршруту: ${routeKeySaved}`);
+  alert(`✅ Збережено в БД: ${payload.name}\nКод маршруту: ${routeKeySaved}`);
+  try{ await clientWriteRouteLog(docId, 'updated', { routeKey: routeKeySaved, distance_km: updateObj.distance_km, approvalStatus: savedApproval?.status || null, via:'client' }); }catch(_){ }
       } catch (errNonAdmin) {
         console.error('save (no routeKeys) failed:', errNonAdmin);
         // Fallback: server-side save via Cloud Function for permission issues
@@ -3402,6 +3404,7 @@ async function saveToDB() {
             await saveRouteViaFunction(docId, updateObj);
             routeKeySaved = updateObj.routeKey;
             alert(`✅ Збережено через сервер: ${payload.name}\nКод маршруту: ${routeKeySaved}`);
+            try{ await clientWriteRouteLog(docId, 'updated', { routeKey: routeKeySaved, distance_km: updateObj.distance_km, approvalStatus: savedApproval?.status || null, via:'client-fallback' }); }catch(_){ }
           }catch(fnErr){
             console.error('saveRoute function failed:', fnErr);
             throw fnErr;
@@ -3428,10 +3431,11 @@ async function saveToDB() {
         // (routeKey сервер згенерує за потреби)
         const dataForFn = { ...payload, ...indexFields };
         if (!dataForFn.updatedAt) dataForFn.updatedAt = new Date().toISOString();
-        await saveRouteViaFunction(docId, dataForFn);
+  await saveRouteViaFunction(docId, dataForFn);
         setApprovalUI(savedApproval);
         ensureRouteOptionSelected(docId, { ...payload, approval: savedApproval });
         alert('✅ Збережено через сервер.');
+  try{ await clientWriteRouteLog(docId, 'updated', { routeKey: dataForFn.routeKey || null, distance_km: dataForFn.distance_km, approvalStatus: savedApproval?.status || null, via:'client-top-fallback' }); }catch(_){ }
         return;
       }catch(fnErr){
         console.error('Top-level fallback save failed:', fnErr);
@@ -3460,6 +3464,22 @@ async function saveRouteViaFunction(docId, data){
   if (j.routeKey && (!data.routeKey || data.routeKey !== j.routeKey)){
     data.routeKey = j.routeKey;
   }
+}
+
+// ---- Lightweight client-side route_logs writer (Spark safe) ----
+async function clientWriteRouteLog(routeId, type, extra){
+  if (!db) return;
+  const payload = Object.assign({
+    routeId,
+    type: type || 'updated',
+    ts: new Date().toISOString(),
+    actor: {
+      updatedByUid: auth?.currentUser?.uid || null,
+      updatedByEmail: auth?.currentUser?.email || null
+    }
+  }, extra || {});
+  try{ await db.collection('route_logs').add(payload); }
+  catch(e){ /* ignore on Spark if rules deny */ }
 }
 
 let isRefreshingRoutes = false;
