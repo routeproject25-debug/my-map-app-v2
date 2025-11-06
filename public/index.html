@@ -4413,12 +4413,12 @@ function subscribeToRouteLive(id){
     const hasProp = !!(data?.proposal && Array.isArray(data.proposal.points) && data.proposal.points.length>=2);
     if (__routeLivePrev){
       if (__routeLivePrev.status !== st){
-        if (st === 'approved') pushNotif('approved', `✅ Погоджено: ${formatFromToShort(data)}`, { rid: __routeLiveId });
-        else if (st === 'rejected') pushNotif('rejected', `⛔ Відхилено: ${formatFromToShort(data)}`, { rid: __routeLiveId });
-        else if (st === 'pending') pushNotif('pending', `⏳ На погодженні: ${formatFromToShort(data)}`, { rid: __routeLiveId });
+        if (st === 'approved') _dedupePush('approved', __routeLiveId, st, `✅ Погоджено: ${formatFromToShort(data)}`);
+        else if (st === 'rejected') _dedupePush('rejected', __routeLiveId, st, `⛔ Відхилено: ${formatFromToShort(data)}`);
+        else if (st === 'pending') _dedupePush('pending', __routeLiveId, st, `⏳ На погодженні: ${formatFromToShort(data)}`);
       }
       if (!__routeLivePrev.hasProposal && hasProp){
-        pushNotif('proposal', `💡 Пропозиція СБ: ${formatFromToShort(data)}`, { rid: __routeLiveId });
+        _dedupePush('proposal', __routeLiveId, 'proposal', `💡 Пропозиція СБ: ${formatFromToShort(data)}`);
       }
     }
     __routeLivePrev = { status: st, hasProposal: hasProp };
