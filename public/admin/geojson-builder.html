@@ -7,6 +7,7 @@
   <!-- Firebase (для guard і токена) -->
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
   <script src="/config/config.js"></script>
 
   <!-- Mapbox GL CSS + fallbacks -->
@@ -72,6 +73,9 @@
           <button id="btnDelSel" type="button" class="ghost">🗑 Видалити вибране</button>
           <button id="btnClearAll" type="button" class="ghost">♻️ Очистити все</button>
           <span class="muted" id="featInfo">—</span>
+            <label style="margin-left:auto; display:flex; align-items:center; gap:6px; font-size:12px;">
+              <input id="cbTilesets" type="checkbox" checked /> Геозони
+            </label>
         </div>
       </div>
       <div>
@@ -166,6 +170,7 @@
   const btnDelSel = document.getElementById('btnDelSel');
   const btnClearAll = document.getElementById('btnClearAll');
   const featInfo = document.getElementById('featInfo');
+  const cbTilesets = document.getElementById('cbTilesets');
 
   inMode.onchange = ()=>{ const m=inMode.value; newBlock.style.display = (m==='new')?'':'none'; appendBlock.style.display = (m==='append')?'':'none'; };
 
@@ -203,6 +208,7 @@
 
   // Map
   let __map = null;
+  let __usingMapbox = false;
   function getMapLibreSatelliteStyle(){
     // Простий стиль: супутникова підкладка Esri World Imagery (без ключа)
     return {
@@ -237,8 +243,8 @@
         ]).catch(()=>{});
       }
 
-      let GL = null; let usingMapbox = false;
-      if (window.mapboxgl){ GL = window.mapboxgl; usingMapbox = true; }
+  let GL = null; let usingMapbox = false;
+  if (window.mapboxgl){ GL = window.mapboxgl; usingMapbox = true; }
       else {
         // 2) Фолбек: MapLibre GL (без токена). Спробуємо підвантажити, якщо не завантажився Mapbox
         await loadScriptAny([
@@ -248,11 +254,12 @@
         if (window.maplibregl){ GL = window.maplibregl; usingMapbox = false; }
       }
 
-      if (!GL){ mapMsg.textContent='Не вдалося ініціалізувати карту: усі CDN недоступні'; return null; }
+  if (!GL){ mapMsg.textContent='Не вдалося ініціалізувати карту: усі CDN недоступні'; return null; }
 
   if (usingMapbox){ try{ GL.accessToken = token; }catch(_){ } }
   const styleDef = usingMapbox ? 'mapbox://styles/mapbox/satellite-streets-v12' : getMapLibreSatelliteStyle();
   __map = new GL.Map({ container:'map', style: styleDef, center:[30.5,50.45], zoom:5 });
+  __usingMapbox = usingMapbox;
       try { __map.addControl(new GL.NavigationControl({ visualizePitch:true })); } catch(_) { }
       __map.on('load', async ()=>{
         try{
@@ -272,10 +279,115 @@
             updateFeatInfo();
           }
           mapMsg.textContent = usingMapbox ? '✓ Карта готова (Mapbox Satellite)' : '✓ Карта готова (MapLibre • Esri Satellite)';
+          // якщо користувач позначив чекбокс — додамо геозони (tilesets), лише для Mapbox
+          try{ if (cbTilesets?.checked) ensureOverlays(); }catch(_){ }
         }catch(_){ }
       });
     }catch(e){ mapMsg.textContent = 'Не вдалося ініціалізувати карту: ' + (e?.message||e); }
     return __map;
+  }
+
+  // ===== Tilesets overlay (як на головній) =====
+  let __tilesetsLoaded = false;
+  let __tilesets = [];
+  const STORAGE_GEOJSON_PATH = 'geozones/all.geojson';
+  async function loadTilesetsConfig(){
+    if (__tilesetsLoaded) return __tilesets;
+    try{
+      const res = await fetch('/config/tilesets.json?v=' + Date.now());
+      const data = await res.json();
+      __tilesets = Array.isArray(data) ? data.filter(x=>x && x.enabled!==false) : [];
+    }catch(e){ console.warn('tilesets.json недоступний:', e); __tilesets = []; }
+    __tilesetsLoaded = true; return __tilesets;
+  }
+  function removeTilesets(){
+    if (!__map) return;
+    try{
+      __tilesets.forEach(ts => {
+        const sid = 'ts-' + ts.key;
+        ['-fill','-line','-label'].forEach(suff => { const lid = sid + suff; if (__map.getLayer(lid)) __map.removeLayer(lid); });
+        if (__map.getSource(sid)) __map.removeSource(sid);
+      });
+    }catch(_){ }
+  }
+  async function ensureTilesets(){
+    const m = await ensureMap(); if (!m) return;
+    if (!__usingMapbox){
+      const mm = document.getElementById('mapMsg');
+      if (mm) mm.textContent = 'ℹ️ Геозони (tilesets) доступні лише у режимі Mapbox';
+      return;
+    }
+    await loadTilesetsConfig();
+    try{
+      __tilesets.forEach(ts => {
+        const sid = 'ts-' + ts.key;
+        if (!m.getSource(sid)){
+          m.addSource(sid, { type:'vector', url: ts.url });
+        }
+        const filterPoly = ['any', ['==',['geometry-type'],'Polygon'], ['==',['geometry-type'],'MultiPolygon']];
+        if (!m.getLayer(sid+'-fill')){
+          m.addLayer({ id: sid+'-fill', type:'fill', source: sid, 'source-layer': ts.layer, filter: filterPoly,
+            paint: { 'fill-color':'#22c55e', 'fill-opacity':0.22 } });
+        }
+        if (!m.getLayer(sid+'-line')){
+          m.addLayer({ id: sid+'-line', type:'line', source: sid, 'source-layer': ts.layer, filter: filterPoly,
+            paint: { 'line-color':'#16a34a', 'line-width': 1.2 } });
+        }
+      });
+    }catch(e){ console.warn('tilesets add error', e); }
+  }
+
+  function removeGeojson(){
+    if (!__map) return;
+    try{
+      ['geozones-geojson-fill','geozones-geojson-line'].forEach(id => { if (__map.getLayer(id)) __map.removeLayer(id); });
+      if (__map.getSource('geozones-geojson')) __map.removeSource('geozones-geojson');
+    }catch(_){ }
+  }
+  async function ensureGeojsonFromStorage(){
+    const m = await ensureMap(); if (!m) return;
+    try{
+      // 1) Спробуємо Firebase Storage
+      let url = null;
+      try{
+        const storage = firebase.storage();
+        const ref = storage.ref().child(STORAGE_GEOJSON_PATH);
+        url = await ref.getDownloadURL();
+      }catch(_){ url = null; }
+      // 2) Якщо не вдалося — спробуємо статичний хостинг
+      if (!url){
+        try{
+          const resp = await fetch('/geozones/all.geojson', { cache:'no-cache' });
+          if (resp.ok){ const obj = await resp.json(); addGeojson(obj); return; }
+        }catch(_){ }
+      }
+      if (!url) throw new Error('Немає доступу до geozones/all.geojson');
+      const geo = await (await fetch(url)).json();
+      addGeojson(geo);
+    }catch(e){ console.warn('geojson overlay error:', e?.message||e); }
+  }
+  function addGeojson(obj){
+    removeGeojson();
+    try{
+      __map.addSource('geozones-geojson', { type:'geojson', data: obj });
+      const filterPoly = ['any', ['==',['geometry-type'],'Polygon'], ['==',['geometry-type'],'MultiPolygon']];
+      __map.addLayer({ id:'geozones-geojson-fill', type:'fill', source:'geozones-geojson', filter: filterPoly,
+        paint:{ 'fill-color':'#22c55e', 'fill-opacity':0.18 } });
+      __map.addLayer({ id:'geozones-geojson-line', type:'line', source:'geozones-geojson', filter: filterPoly,
+        paint:{ 'line-color':'#16a34a', 'line-width':1.1 } });
+    }catch(_){ }
+  }
+
+  async function ensureOverlays(){
+    if (__usingMapbox) await ensureTilesets(); else await ensureGeojsonFromStorage();
+  }
+
+  // реакція на перемикач геозон
+  if (cbTilesets){
+    cbTilesets.addEventListener('change', async ()=>{
+      if (!cbTilesets.checked){ removeTilesets(); removeGeojson(); }
+      else { await ensureOverlays(); }
+    });
   }
 
   function getDraw(){ try { return __map && __map.__draw; } catch(_) { return null; } }
