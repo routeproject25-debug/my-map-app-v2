@@ -130,6 +130,8 @@
     userBox.textContent = user.email || user.uid;
     const ok = await isAdmin(user); if (!ok){ showGuardError('403: доступ лише для адміністраторів'); return; }
     document.getElementById('guard').classList.add('hide');
+    // гарантуємо ініціалізацію карти після того, як сплеш сховано
+    try { await ensureMap(); setTimeout(()=>{ try{ __map && __map.resize(); }catch(_){ } }, 0); } catch(_){ }
   });
   async function isAdmin(user){
     try{ const t = await user.getIdTokenResult(true); const c=t.claims||{}; if (c.admin===true || c.role==='admin' || (c.roles && c.roles.admin===true)) return true; }catch(e){}
@@ -468,6 +470,9 @@
     };
     if (m.loaded()) setData(); else m.once('load', setData);
   }
+
+  // спробувати ініціалізувати карту одразу після завантаження скрипта (про всяк випадок)
+  (function bootstrapMap(){ setTimeout(()=>{ ensureMap(); }, 0); })();
 
   // ===== Drawing helpers =====
   function getDraw(){ try { return __map && __map.__draw; } catch(_) { return null; } }
