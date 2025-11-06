@@ -203,6 +203,25 @@
 
   // Map
   let __map = null;
+  function getMapLibreSatelliteStyle(){
+    // Простий стиль: супутникова підкладка Esri World Imagery (без ключа)
+    return {
+      version: 8,
+      sources: {
+        esri: {
+          type: 'raster',
+          tiles: [
+            'https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'
+          ],
+          tileSize: 256,
+          attribution: 'Esri, Maxar, Earthstar Geographics, and the GIS User Community'
+        }
+      },
+      layers: [
+        { id: 'esri-base', type: 'raster', source: 'esri', minzoom: 0, maxzoom: 19 }
+      ]
+    };
+  }
   async function ensureMap(){
     if (__map) return __map;
     const mapMsg = document.getElementById('mapMsg');
@@ -231,9 +250,9 @@
 
       if (!GL){ mapMsg.textContent='Не вдалося ініціалізувати карту: усі CDN недоступні'; return null; }
 
-      if (usingMapbox){ try{ GL.accessToken = token; }catch(_){ } }
-      const styleUrl = usingMapbox ? 'mapbox://styles/mapbox/streets-v12' : 'https://demotiles.maplibre.org/style.json';
-      __map = new GL.Map({ container:'map', style: styleUrl, center:[30.5,50.45], zoom:5 });
+  if (usingMapbox){ try{ GL.accessToken = token; }catch(_){ } }
+  const styleDef = usingMapbox ? 'mapbox://styles/mapbox/satellite-streets-v12' : getMapLibreSatelliteStyle();
+  __map = new GL.Map({ container:'map', style: styleDef, center:[30.5,50.45], zoom:5 });
       try { __map.addControl(new GL.NavigationControl({ visualizePitch:true })); } catch(_) { }
       __map.on('load', async ()=>{
         try{
@@ -252,7 +271,7 @@
             __map.on('draw.create', upd); __map.on('draw.update', upd); __map.on('draw.delete', upd); __map.on('draw.selectionchange', upd);
             updateFeatInfo();
           }
-          mapMsg.textContent = usingMapbox ? '✓ Карта готова (Mapbox)' : '✓ Карта готова (MapLibre фолбек)';
+          mapMsg.textContent = usingMapbox ? '✓ Карта готова (Mapbox Satellite)' : '✓ Карта готова (MapLibre • Esri Satellite)';
         }catch(_){ }
       });
     }catch(e){ mapMsg.textContent = 'Не вдалося ініціалізувати карту: ' + (e?.message||e); }
