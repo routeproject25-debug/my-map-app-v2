@@ -32,6 +32,20 @@
     th, td{ padding:6px 8px; border-bottom:1px solid #eef1f6; text-align:left; white-space:nowrap; }
     thead th{ position:sticky; top:0; background:#fafbff; z-index:1; }
     .hint{ font-size:12px; color:#555; }
+    /* Нижній лівий док: стиль карти + пошук населених пунктів */
+    .style-dock{
+      position:fixed; left:8px; bottom:8px; z-index:3500;
+      display:flex; align-items:center; gap:6px;
+      background:#fff; border:1px solid #d6dbe3; border-radius:12px; padding:6px 8px;
+      box-shadow:0 2px 12px rgba(0,0,0,.12);
+    }
+    .style-dock select,
+    .style-dock input[type="text"]{
+      border:1px solid #d6dbe3; border-radius:10px;
+      padding:6px 8px; font-size:13px; background:#fff; color:#111;
+    }
+    .style-dock input[type="text"]{ width:200px; }
+    .style-dock .mapbox-brand{ font-size:11px; color:#6b7280; border-left:1px dashed #e5e7eb; padding-left:8px; }
   </style>
 </head>
 <body>
@@ -100,15 +114,29 @@
     </div>
   </div>
 
+  <!-- Перемикач стилю та пошук місць (як на головній) -->
+  <div id="styleDock" class="style-dock" title="Стиль карти та пошук">
+    <select id="mapStyleDock">
+      <option value="mapbox://styles/mapbox/streets-v12">Streets</option>
+      <option value="mapbox://styles/mapbox/satellite-v9">Satellite</option>
+      <option value="mapbox://styles/mapbox/satellite-streets-v12">Satellite Streets</option>
+      <option value="mapbox://styles/mapbox/outdoors-v12">Outdoors</option>
+    </select>
+    <input id="placeSearch" type="text" list="placeList" placeholder="Пошук…" autocomplete="off" />
+    <datalist id="placeList"></datalist>
+    <div class="mapbox-brand">mapbox</div>
+  </div>
+
 <script>
 (function(){
   const MB_TOKEN = (window.APP_CONFIG && window.APP_CONFIG.mapboxToken) || '';
   if (!MB_TOKEN){ alert('Mapbox token відсутній у /config/config.js'); }
   mapboxgl.accessToken = MB_TOKEN;
 
+  let currentStyle = 'mapbox://styles/mapbox/streets-v12';
   const map = new mapboxgl.Map({
     container: 'map',
-    style: 'mapbox://styles/mapbox/streets-v12',
+    style: currentStyle,
     center: [30.5234, 50.4501], // Kyiv
     zoom: 6
   });
@@ -124,6 +152,36 @@
   let fc = null; // поточний FeatureCollection
   let TILESETS = [];
   let geozonesVisible = true;
+
+  /* ===== Українські підписи топонімів у стилі ===== */
+  function applyUkrainianLabels(){
+    try{
+      const style = map.getStyle();
+      if (!style || !style.layers) return;
+      const ukTextExpr = [
+        'coalesce', ['get','name_uk'], ['get','name:uk'], ['get','name_ua'], ['get','name:ua'], ['get','name_local'], ['get','name']
+      ];
+      (style.layers || []).forEach(l =>{
+        if (l.type !== 'symbol') return;
+        // наші власні підписи не чіпаємо (у цій сторінці це "geozones-labels" із центроїдів)
+        if (l.id === 'geozones-labels') return;
+        const has = map.getLayoutProperty(l.id, 'text-field');
+        if (has !== undefined){ try{ map.setLayoutProperty(l.id, 'text-field', ukTextExpr); }catch(_){}}
+      });
+    }catch(_){ }
+  }
+
+  /* ===== Перемикання стилю базової карти ===== */
+  function setMapStyle(val){
+    try{
+      if (!val || val === currentStyle) return;
+      currentStyle = val;
+      map.setStyle(currentStyle);
+      const sel = document.getElementById('mapStyleDock');
+      if (sel && sel.value !== val) sel.value = val;
+    }catch(_){ }
+  }
+  document.getElementById('mapStyleDock').addEventListener('change', function(){ setMapStyle(this.value); });
 
   function newFile(){
     const name = document.getElementById('fcName').value.trim() || 'Геозони';
@@ -312,11 +370,21 @@
   }
   document.getElementById('btnToggleTilesets').onclick = ()=> setAllTilesetsVisibility(!geozonesVisible);
 
+  // Після кожного завантаження стилю: застосувати укр. підписи та відновити наші шари
+  map.on('style.load', async ()=>{
+    applyUkrainianLabels();
+    ensureLoadedOverlay();
+    setLoadedOverlayVisibility(document.getElementById('chkShowLoaded').checked);
+    if (!TILESETS.length) await loadTilesetsConfig();
+    TILESETS.forEach(ts => ensureTilesetLayers(ts));
+  });
+
+  // Початкове завантаження (перший стиль)
   map.on('load', async ()=>{
+    applyUkrainianLabels();
     ensureLoadedOverlay();
     setLoadedOverlayVisibility(true);
     await loadTilesetsConfig();
-    // Додамо джерела/шари після завантаження конфіг
     TILESETS.forEach(ts => ensureTilesetLayers(ts));
   });
 
@@ -324,6 +392,74 @@
   newFile();
   // Після створення — показати його як шар (поки порожній)
   setTimeout(()=>{ try{ ensureLoadedOverlay(); setLoadedOverlayVisibility(true); }catch(_){ } }, 0);
+
+  /* ===== Пошук населених пунктів (геокодинг) ===== */
+  let __placeSearchTimer = null;
+  let __placeResults = [];
+  async function suggestPlaces(q){
+    try{
+      const token = mapboxgl.accessToken || '';
+      if (!token) return [];
+      const url = new URL('https://api.mapbox.com/geocoding/v5/mapbox.places/' + encodeURIComponent(q) + '.json');
+      url.searchParams.set('access_token', token);
+      url.searchParams.set('autocomplete', 'true');
+      url.searchParams.set('language', 'uk');
+      url.searchParams.set('limit', '7');
+      url.searchParams.set('types', 'place,locality,neighborhood');
+      url.searchParams.set('country', 'ua');
+      try{ const c = map.getCenter(); url.searchParams.set('proximity', c.lng + ',' + c.lat); }catch(_){ }
+      const res = await fetch(url.toString());
+      const data = await res.json();
+      const feats = Array.isArray(data?.features) ? data.features : [];
+      return feats.map(f => ({ id:f.id, name:f.text_uk || f.text || '', full:f.place_name_uk || f.place_name || '', center:f.center }));
+    }catch(_){ return []; }
+  }
+  function fillPlaceDatalist(rows){
+    const list = document.getElementById('placeList');
+    if (!list) return;
+    list.innerHTML = '';
+    rows.forEach(r => { const o = document.createElement('option'); o.value = r.full || r.name; list.appendChild(o); });
+  }
+  async function flyToPlaceFromInput(){
+    const input = document.getElementById('placeSearch');
+    const q = (input?.value || '').trim();
+    if (!q) return;
+    let target = __placeResults.find(r => (r.full || r.name) === q);
+    const closePopup = () => { try{ input.blur(); fillPlaceDatalist([]); }catch(_){ } };
+    const use = async () => {
+      if (target && Array.isArray(target.center)){
+        try{ map.flyTo({ center: target.center, zoom: Math.max(map.getZoom()||0, 11), essential:true }); }catch(_){ }
+        closePopup();
+        return true;
+      }
+      return false;
+    };
+    const ok = await use();
+    if (!ok){
+      const rows = await suggestPlaces(q);
+      __placeResults = rows; if (rows.length && Array.isArray(rows[0].center)){
+        try{ map.flyTo({ center: rows[0].center, zoom: Math.max(map.getZoom()||0, 11), essential:true }); }catch(_){ }
+        closePopup();
+      }
+    }
+  }
+  const placeInput = document.getElementById('placeSearch');
+  if (placeInput){
+    placeInput.addEventListener('input', () => {
+      const q = placeInput.value.trim();
+      if (__placeSearchTimer) clearTimeout(__placeSearchTimer);
+      if (q.length < 2){ fillPlaceDatalist([]); __placeResults = []; return; }
+      __placeSearchTimer = setTimeout(async () => {
+        const rows = await suggestPlaces(q);
+        __placeResults = rows; fillPlaceDatalist(rows);
+      }, 450);
+    });
+    placeInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter'){ e.preventDefault(); flyToPlaceFromInput(); }
+      if (e.key === 'Escape'){ fillPlaceDatalist([]); placeInput.blur(); }
+    });
+    placeInput.addEventListener('change', flyToPlaceFromInput);
+  }
 })();
 </script>
 </body>
