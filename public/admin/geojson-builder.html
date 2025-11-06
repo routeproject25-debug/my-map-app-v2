@@ -8,6 +8,8 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
   <script src="/config/config.js"></script>
+  <link href="https://api.mapbox.com/mapbox-gl-js/v2.16.1/mapbox-gl.css" rel="stylesheet" />
+  <script src="https://api.mapbox.com/mapbox-gl-js/v2.16.1/mapbox-gl.js"></script>
   <style>
     :root{ --w: 1160px; }
     *{ box-sizing: border-box; }
@@ -91,6 +93,15 @@
     <div><button class="ghost" id="btnCopy">Копіювати JSON</button></div>
   </div>
   <pre id="outPre">—</pre>
+</div>
+
+<div class="card">
+  <div style="display:flex; align-items:center; justify-content:space-between; gap:8px;">
+    <div class="muted">Попередній перегляд на мапі</div>
+    <div class="muted" id="mapMsg"></div>
+  </div>
+  <div id="mapPreview" style="height:360px; border-radius:12px; overflow:hidden; margin-top:8px; background:#eef2ff"></div>
+  <div class="muted" style="margin-top:6px;">Порада: якщо полігон дуже маленький — наблизьте карту (масштаб 15–17), бо у tilesets дрібні геометрії з’являються лише на високих зумах.</div>
 </div>
 
 <script>
@@ -299,10 +310,85 @@
       }
       const json = JSON.stringify(out, null, 2);
       outPre.textContent = json; btnDownload.disabled = false; msg.textContent = 'Готово'; msg.className='ok';
+      // ⬇️ показати попередній перегляд на мапі
+      try { showPreviewGeoJSON(out); } catch(_){ }
       btnDownload.onclick = ()=> downloadBlob(json, (inMode.value==='new' ? (inOutName.value.trim()||'geozones.geojson') : (inFile.files?.[0]?.name || 'geozones.geojson')));
       btnCopy.onclick = ()=> { try{ navigator.clipboard.writeText(json); msg.textContent='Скопійовано'; msg.className='ok'; }catch(e){ msg.textContent='Не вдалось скопіювати'; msg.className='err'; } };
     }catch(e){ msg.textContent = e.message || String(e); msg.className='err'; }
   };
+
+  // ========== MAP PREVIEW (Mapbox GL JS) ==========
+  let __map = null;
+  function ensureMap(){
+    if (__map) return __map;
+    try{
+      const token = (window.APP_CONFIG && window.APP_CONFIG.mapboxToken) || '';
+      if (!token){
+        document.getElementById('mapMsg').textContent = '⚠️ Немає Mapbox токена у /config/config.js';
+        return null;
+      }
+      mapboxgl.accessToken = token;
+      __map = new mapboxgl.Map({
+        container: 'mapPreview',
+        style: 'mapbox://styles/mapbox/streets-v12',
+        center: [30.5, 50.45],
+        zoom: 5
+      });
+      __map.addControl(new mapboxgl.NavigationControl({ visualizePitch: true }));
+      __map.on('load', ()=>{
+        try{
+          if (!__map.getSource('preview')){
+            __map.addSource('preview', { type:'geojson', data:{ type:'FeatureCollection', features:[] } });
+          }
+          const isPoly = ['any', ['==',['geometry-type'],'Polygon'], ['==',['geometry-type'],'MultiPolygon']];
+          if (!__map.getLayer('preview-fill')){
+            __map.addLayer({ id:'preview-fill', type:'fill', source:'preview', filter:isPoly, paint:{ 'fill-color':'#22c55e', 'fill-opacity':0.28 } });
+          }
+          if (!__map.getLayer('preview-outline')){
+            __map.addLayer({ id:'preview-outline', type:'line', source:'preview', filter:isPoly, paint:{ 'line-color':'#16a34a', 'line-width':1.2 } });
+          }
+        }catch(_){ }
+      });
+    }catch(e){ document.getElementById('mapMsg').textContent = 'Не вдалося ініціалізувати карту: ' + (e?.message||e); }
+    return __map;
+  }
+  function fitToGeoJSONBounds(fc){
+    try{
+      if (!fc || !fc.features || !fc.features.length) return;
+      // обчислити bbox вручну (без turf), для полігонів вистачить геометричних координат
+      let minX=Infinity, minY=Infinity, maxX=-Infinity, maxY=-Infinity;
+      const scanPos = (p)=>{ const x=+p[0], y=+p[1]; if (!isFinite(x) || !isFinite(y)) return; if (x<minX) minX=x; if (y<minY) minY=y; if (x>maxX) maxX=x; if (y>maxY) maxY=y; };
+      const scanGeom = (g)=>{
+        if (!g) return;
+        if (g.type==='Polygon'){
+          (g.coordinates||[]).forEach(r => (r||[]).forEach(scanPos));
+        } else if (g.type==='MultiPolygon'){
+          (g.coordinates||[]).forEach(poly => (poly||[]).forEach(r => (r||[]).forEach(scanPos)));
+        } else if (g.type==='Point'){
+          scanPos(g.coordinates||[]);
+        } else if (g.type==='MultiPoint' || g.type==='LineString'){
+          (g.coordinates||[]).forEach(scanPos);
+        } else if (g.type==='MultiLineString'){
+          (g.coordinates||[]).forEach(ls => (ls||[]).forEach(scanPos));
+        }
+      };
+      fc.features.forEach(f => scanGeom(f.geometry));
+      if (isFinite(minX) && isFinite(minY) && isFinite(maxX) && isFinite(maxY) && __map){
+        __map.fitBounds([[minX,minY],[maxX,maxY]], { padding: 30, maxZoom: 16, duration: 500 });
+      }
+    }catch(_){ }
+  }
+  function showPreviewGeoJSON(fc){
+    const m = ensureMap(); if (!m) return;
+    const setData = ()=>{
+      try{
+        const src = m.getSource('preview');
+        if (src) src.setData(fc);
+        fitToGeoJSONBounds(fc);
+      }catch(_){ }
+    };
+    if (m.loaded()) setData(); else m.once('load', setData);
+  }
 </script>
 </body>
 </html>
