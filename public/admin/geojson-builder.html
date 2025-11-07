@@ -104,10 +104,8 @@
 
       <h3 style="margin:16px 0 8px;">Геозони з Mapbox Tilesets</h3>
       <div class="row" style="margin-bottom:8px;">
-        <button id="btnToggleTilesets" class="ghost">🗺 Приховати геозони</button>
-        <button id="btnReloadTilesets" class="ghost" title="Перечитати конфіг і перебудувати шари">🔄 Перечитати геозони</button>
+        <button id="btnToggleTilesets" class="ghost">🗺 Показати геозони</button>
       </div>
-      <div id="tilesetList" class="hint">Завантаження конфігурації…</div>
     </div>
 
     <div class="card" style="display:grid; grid-template-rows:auto 1fr; gap:10px;">
@@ -159,7 +157,9 @@
 
   let fc = null; // поточний FeatureCollection
   let TILESETS = [];
-  let geozonesVisible = true;
+  let geozonesVisible = false; // за замовчуванням приховані
+  let __tilesetsUnsub = null;
+  let __tilesetsHash = '';
 
   /* ===== Українські підписи топонімів у стилі ===== */
   function applyUkrainianLabels(){
@@ -391,57 +391,10 @@
   }
   document.getElementById('btnDeleteFeature').onclick = promptDeleteFeature;
 
-  // ===== Tilesets (спрощений варіант як на головній) =====
-  async function loadTilesetsConfig(){
-    // 1) спроба прочитати з Firestore (як на головній сторінці)
-    let loadedFrom = 'json';
-    try{
-      const CFG = window.APP_CONFIG && window.APP_CONFIG.firebase;
-      if (CFG && window.firebase && typeof firebase.initializeApp === 'function'){
-        try { firebase.apps?.length ? firebase.app() : firebase.initializeApp(CFG); } catch(_){ }
-        const db = firebase.firestore();
-        const snap = await db.collection('config').doc('tilesets').get({ source:'server' });
-        if (snap.exists){
-          const d = snap.data();
-          const arr = Array.isArray(d) ? d : (d && Array.isArray(d.tilesets) ? d.tilesets : []);
-          if (Array.isArray(arr) && arr.length){ TILESETS = arr; loadedFrom = 'firestore'; }
-        }
-      }
-    }catch(e){ console.warn('tilesets Firestore недоступний:', e?.message||e); }
-
-    // 2) фолбек на статичний файл
-    if (!Array.isArray(TILESETS) || !TILESETS.length){
-      try{
-        const res = await fetch('/config/tilesets.json?v=' + Date.now());
-        const data = await res.json().catch(()=> null);
-        TILESETS = Array.isArray(data) ? data : (data && Array.isArray(data.tilesets) ? data.tilesets : []);
-      }catch(e){ console.warn('tilesets.json недоступний', e); TILESETS = []; }
-    }
-
-    // Показати у підказці звідки завантажено
-    try{
-      const box = document.getElementById('tilesetList');
-      if (box && box.previousElementSibling){
-        const note = document.createElement('div'); note.className='hint'; note.textContent = 'Джерело конфіг: ' + (loadedFrom === 'firestore' ? 'Firestore' : 'JSON');
-        box.parentElement.insertBefore(note, box);
-      }
-    }catch(_){ }
-
-    renderTilesetList();
-  }
-  function renderTilesetList(){
-    const box = document.getElementById('tilesetList');
-    if (!box) return;
-    if (!TILESETS.length){ box.textContent = 'Конфігурацію не знайдено (/config/tilesets.json)'; return; }
-    box.innerHTML = '';
-    TILESETS.forEach(ts =>{
-      const id = 'ts_' + (ts.key || ts.layer || ts.url);
-      const row = document.createElement('label'); row.className='row'; row.style.gap='8px'; row.style.alignItems='center';
-      const cb = document.createElement('input'); cb.type='checkbox'; cb.id=id; cb.checked = geozonesVisible !== false;
-      cb.onchange = ()=> setTilesetVisibility(ts, cb.checked);
-      const span = document.createElement('span'); span.textContent = (ts.name || ts.key || ts.layer || ts.url);
-      row.appendChild(cb); row.appendChild(span); box.appendChild(row);
-    });
+  // ===== Tilesets (як на основній: беремо Firestore/JSON, показ/приховати всі) =====
+  function getActiveTilesets(){
+    // показуємо лише enabled (як на головній)
+    return (Array.isArray(TILESETS) ? TILESETS : []).filter(t => t && t.enabled !== false);
   }
   function ensureTilesetLayers(ts){
     const srcId = 'ts-src-' + ts.key;
@@ -453,30 +406,28 @@
       map.addLayer({ id: lineId, type:'line', source: srcId, 'source-layer': ts.layer, paint:{ 'line-color':'#0284c7', 'line-width': 1.5 }, layout:{ visibility: geozonesVisible ? 'visible' : 'none' } });
     }
   }
-  function setTilesetVisibility(ts, show){
-    ensureTilesetLayers(ts);
-    const vis = show ? 'visible' : 'none';
-    try{ map.setLayoutProperty('ts-fill-' + ts.key, 'visibility', vis); }catch(_){}
-    try{ map.setLayoutProperty('ts-line-' + ts.key, 'visibility', vis); }catch(_){}
-  }
   function setAllTilesetsVisibility(show){
     geozonesVisible = !!show;
-    TILESETS.forEach(ts => setTilesetVisibility(ts, geozonesVisible));
+    const vis = geozonesVisible ? 'visible' : 'none';
+    try{
+      const style = map.getStyle();
+      if (style && Array.isArray(style.layers)){
+        style.layers.forEach(l =>{
+          const id = l.id || '';
+          if (id.startsWith('ts-fill-') || id.startsWith('ts-line-')){
+            try{ map.setLayoutProperty(id, 'visibility', vis); }catch(_){}
+          }
+        });
+      }
+    }catch(_){}
     try{
       const b = document.getElementById('btnToggleTilesets');
-      b.textContent = geozonesVisible ? '🗺 Приховати геозони' : '🗺 Показати геозони';
-    }catch(_){}
-    // синхронізувати чекбокси
-    try{
-      TILESETS.forEach(ts =>{
-        const id = 'ts_' + (ts.key || ts.layer || ts.url);
-        const cb = document.getElementById(id); if (cb) cb.checked = geozonesVisible;
-      });
+      if (b) b.textContent = geozonesVisible ? '🗺 Приховати геозони' : '🗺 Показати геозони';
     }catch(_){}
   }
   document.getElementById('btnToggleTilesets').onclick = ()=> setAllTilesetsVisibility(!geozonesVisible);
 
-  // ——— Повне перезавантаження tilesets (оновити конфіг + перебудувати шари) ———
+  // ——— Перебудова tilesets шарів під актуальний конфіг ———
   function removeTilesetsCompletely(){
     try{
       // 1) Прибрати всі шари tilesets (знаходимо по префіксу)
@@ -500,33 +451,67 @@
       });
     }catch(_){ }
   }
-
-  async function reloadTilesets(){
-    try{
-      removeTilesetsCompletely();
-      await loadTilesetsConfig();     // перечитати /config/tilesets.json (із cache-buster у функції)
-      // побудувати шари заново
-      TILESETS.forEach(ts => ensureTilesetLayers(ts));
-      // синхронізувати видимість
-      setAllTilesetsVisibility(geozonesVisible);
-    }catch(e){ console.warn('reloadTilesets error:', e?.message || e); }
+  function rebuildTilesetsLayers(){
+    removeTilesetsCompletely();
+    const list = getActiveTilesets();
+    list.forEach(ts => ensureTilesetLayers(ts));
+    // застосувати поточну видимість
+    setAllTilesetsVisibility(geozonesVisible);
   }
 
-  // Кнопка + шорткат для перезавантаження tilesets
-  document.getElementById('btnReloadTilesets').onclick = reloadTilesets;
-  document.addEventListener('keydown', (e)=>{
-    if (e.ctrlKey && e.altKey && String(e.key).toLowerCase() === 'r'){
-      e.preventDefault(); reloadTilesets();
+  async function loadTilesetsConfig(){
+    // Спроба Firestore (і підписка на зміни)
+    let got = false;
+    try{
+      const CFG = window.APP_CONFIG && window.APP_CONFIG.firebase;
+      if (CFG && window.firebase && typeof firebase.initializeApp === 'function'){
+        try { firebase.apps?.length ? firebase.app() : firebase.initializeApp(CFG); } catch(_){ }
+        const db = firebase.firestore();
+        // первинне читання
+        const snap = await db.collection('config').doc('tilesets').get({ source:'server' });
+        if (snap.exists){
+          const d = snap.data();
+          const arr = Array.isArray(d) ? d : (d && Array.isArray(d.tilesets) ? d.tilesets : []);
+          if (Array.isArray(arr)){
+            TILESETS = arr;
+            got = true;
+            __tilesetsHash = JSON.stringify(getActiveTilesets());
+          }
+        }
+        // підписка realtime
+        if (__tilesetsUnsub) { try{ __tilesetsUnsub(); }catch(_){ } __tilesetsUnsub = null; }
+        __tilesetsUnsub = db.collection('config').doc('tilesets').onSnapshot(s => {
+          try{
+            const d = s.data();
+            const arr = Array.isArray(d) ? d : (d && Array.isArray(d.tilesets) ? d.tilesets : []);
+            if (Array.isArray(arr)){
+              TILESETS = arr;
+              const h = JSON.stringify(getActiveTilesets());
+              if (h !== __tilesetsHash){ __tilesetsHash = h; rebuildTilesetsLayers(); }
+            }
+          }catch(_){ }
+        }, err => { console.warn('tilesets onSnapshot:', err?.message||err); });
+      }
+    }catch(e){ console.warn('tilesets (Firestore) недоступний:', e?.message||e); }
+
+    // Фолбек на статичний JSON
+    if (!got){
+      try{
+        const res = await fetch('/config/tilesets.json?v=' + Date.now());
+        const data = await res.json().catch(()=> null);
+        TILESETS = Array.isArray(data) ? data : (data && Array.isArray(data.tilesets) ? data.tilesets : []);
+        __tilesetsHash = JSON.stringify(getActiveTilesets());
+      }catch(e){ console.warn('tilesets.json недоступний', e); TILESETS = []; __tilesetsHash = '[]'; }
     }
-  });
+  }
 
   // Після кожного завантаження стилю: застосувати укр. підписи та відновити наші шари
   map.on('style.load', async ()=>{
     applyUkrainianLabels();
     ensureLoadedOverlay();
     setLoadedOverlayVisibility(document.getElementById('chkShowLoaded').checked);
-    if (!TILESETS.length) await loadTilesetsConfig();
-    TILESETS.forEach(ts => ensureTilesetLayers(ts));
+    // після зміни стилю відновлюємо шари згідно актуальної конфігурації
+    rebuildTilesetsLayers();
   });
 
   // Початкове завантаження (перший стиль)
@@ -535,7 +520,7 @@
     ensureLoadedOverlay();
     setLoadedOverlayVisibility(true);
     await loadTilesetsConfig();
-    TILESETS.forEach(ts => ensureTilesetLayers(ts));
+    rebuildTilesetsLayers();
   });
 
   // Авто-створити порожній файл
