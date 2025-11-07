@@ -904,10 +904,12 @@ function tilesetAllowedForUser(ts){
 function applyTilesetHubVisibility(){
   if (!_map || !_tilesets || !_tilesets.length) return;
   try { console.log('[HUB DEBUG] ALLOWED_HUBS =', ALLOWED_HUBS); } catch(_){ }
+  let anyAllowed = false;
   _tilesets.forEach(ts => {
     const allowed = tilesetAllowedForUser(ts);
     const vis = allowed ? 'visible' : 'none';
     try { console.log('[HUB DEBUG] tileset', ts.key, 'hubs=', ts.hubs, '=> allowed?', allowed); } catch(_){ }
+    if (allowed) anyAllowed = true;
     const ids = [
       `tileset-fill-${ts.key}`,
       `tileset-outline-${ts.key}`,
@@ -916,6 +918,19 @@ function applyTilesetHubVisibility(){
     ];
     ids.forEach(id => { if (_map.getLayer(id)) { try{ _map.setLayoutProperty(id, 'visibility', vis); }catch(_){} } });
   });
+  // Захист від ситуації, коли всі шари виявились прихованими через некоректно визначені хаби
+  if (!anyAllowed) {
+    try { console.warn('[HUB DEBUG] None of tilesets allowed by hubs. Falling back to show all for visibility.'); } catch(_){ }
+    _tilesets.forEach(ts => {
+      const ids = [
+        `tileset-fill-${ts.key}`,
+        `tileset-outline-${ts.key}`,
+        `tileset-hl-from-${ts.key}`,
+        `tileset-hl-to-${ts.key}`,
+      ];
+      ids.forEach(id => { if (_map.getLayer(id)) { try{ _map.setLayoutProperty(id, 'visibility', 'visible'); }catch(_){} } });
+    });
+  }
 }
 function applyTilesetHubVisibilitySafe(){
   try {
