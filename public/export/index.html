@@ -794,6 +794,43 @@ async function loadTilesetsForExport(){
     }
     _tsFillIds.push(fillId); _tsOutlineIds.push(outlineId); _tsHlFrom.push(hlFrom); _tsHlTo.push(hlTo);
   }
+
+  // Застосуємо видимість геозон за дозволеними хабами
+  try { applyExportTilesetHubVisibilitySafe(); } catch(_) {}
+}
+
+// ---- Хаб-фільтрація tilesets на сторінці експорту ----
+let EXPORT_ALLOWED_HUBS = null; // null або [] => всі хаби
+function exportIsAllHubs(){
+  return !Array.isArray(EXPORT_ALLOWED_HUBS) || EXPORT_ALLOWED_HUBS.length === 0;
+}
+function exportTilesetAllowedForUser(ts){
+  const tags = Array.isArray(ts.hubs) ? ts.hubs : [];
+  if (!tags.length || tags.includes('*')) return true;  // не розмічено або глобальний
+  if (exportIsAllHubs()) return true;                   // користувачу дозволено "всі хаби"
+  return tags.some(h => (EXPORT_ALLOWED_HUBS || []).includes(h));
+}
+function applyExportTilesetHubVisibility(){
+  if (!_map || !_tilesets || !_tilesets.length) return;
+  _tilesets.forEach(ts => {
+    const vis = exportTilesetAllowedForUser(ts) ? 'visible' : 'none';
+    const ids = [
+      `tileset-fill-${ts.key}`,
+      `tileset-outline-${ts.key}`,
+      `tileset-hl-from-${ts.key}`,
+      `tileset-hl-to-${ts.key}`,
+    ];
+    ids.forEach(id => { if (_map.getLayer(id)) { try{ _map.setLayoutProperty(id, 'visibility', vis); }catch(_){} } });
+  });
+}
+function applyExportTilesetHubVisibilitySafe(){
+  try {
+    if (!_map || !_map.isStyleLoaded || !_map.isStyleLoaded()){
+      _map?.once('style.load', applyExportTilesetHubVisibility);
+      return;
+    }
+  } catch(_) {}
+  applyExportTilesetHubVisibility();
 }
 
 function anyPropEqualsExpr(propList, value){
@@ -1101,6 +1138,11 @@ auth?.onAuthStateChanged(async (u) => {
   currentRole   = window.__userRole || 'pending';
   allowedHubs   = Array.isArray(window.__userHubs) ? window.__userHubs.slice() : [];
   allowAllHubs  = !!window.__userAllHubs;
+  // Ініціалізуємо глобальну змінну для фільтрації tileset-ів за хабами
+  try {
+    EXPORT_ALLOWED_HUBS = allowAllHubs ? [] : allowedHubs.slice();
+    applyExportTilesetHubVisibilitySafe();
+  } catch(_) {}
   fillHubsList();
 
   authInfo.textContent = `Увійшли як ${u.email || u.uid}`;
@@ -1125,6 +1167,13 @@ auth?.onAuthStateChanged(async (u) => {
 
   try { fillHubsList(); } catch(_) {}
   try { reRender(); } catch(_) {}
+  // оновимо видимість геозон при зміні ролі/хабів
+  try {
+    // Підхопимо актуальний список дозволених хабів у глобал змінну для tileset фільтра
+    if (Array.isArray(window.__userHubs)) EXPORT_ALLOWED_HUBS = window.__userAllHubs ? [] : window.__userHubs.slice();
+    else if (Array.isArray(allowedHubs)) EXPORT_ALLOWED_HUBS = allowAllHubs ? [] : allowedHubs.slice();
+    applyExportTilesetHubVisibilitySafe();
+  } catch(_){ }
 };
   syncRoleAndRerender();
   setTimeout(syncRoleAndRerender, 100);
