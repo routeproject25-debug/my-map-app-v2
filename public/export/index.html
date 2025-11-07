@@ -726,6 +726,8 @@ async function ensureMap(){
   _map.addControl(new window.mapboxgl.NavigationControl({ showCompass:false }), 'top-right');
   _map.on('load', async ()=>{
     ensureOverlaySourcesAndLayers();
+    // Дочекатися встановлення ALLOWED_HUBS (коротка затримка якщо ще null)
+    if (ALLOWED_HUBS === null) { await new Promise(r=>setTimeout(r,150)); }
     await loadTilesetsForExport();
     applyUkrainianLabelsExport();
     // додатково форсуємо застосування видимості після первинного завантаження стилю
@@ -765,12 +767,25 @@ function ensureOverlaySourcesAndLayers(){
 
 async function loadTilesetsForExport(){
   if (!_map) return;
-  try{
-    if (!_tilesets.length){
-      const r = await fetch('/config/tilesets.json', { cache:'no-cache' });
-      _tilesets = await r.json();
-    }
-  }catch(e){ console.warn('tilesets.json error:', e); return; }
+  // 1) Спроба витягнути з Firestore (config/tilesets)
+  if (!_tilesets.length){
+    try {
+      const fsDoc = await firebase.firestore().collection('config').doc('tilesets').get({ source:'server' });
+      if (fsDoc.exists){
+        const data = fsDoc.data() || {};
+        if (Array.isArray(data.tilesets)) _tilesets = data.tilesets;
+        else if (Array.isArray(data)) _tilesets = data;
+      }
+    } catch(e){ console.warn('Firestore tilesets недоступний:', e?.message||e); }
+  }
+  // 2) Фолбек на статичний JSON
+  if (!_tilesets.length){
+    try {
+      const r = await fetch('/config/tilesets.json?v=' + Date.now(), { cache:'no-cache' });
+      const json = await r.json();
+      if (Array.isArray(json)) _tilesets = json; else if (json && Array.isArray(json.tilesets)) _tilesets = json.tilesets; else _tilesets = [];
+    } catch(e){ console.warn('tilesets.json error:', e?.message||e); }
+  }
 
   // Якщо ще не ініціалізовано — спробуємо підхопити дозволені хаби з window
   try{
