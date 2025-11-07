@@ -729,14 +729,14 @@ async function ensureMap(){
     await loadTilesetsForExport();
     applyUkrainianLabelsExport();
     // додатково форсуємо застосування видимості після первинного завантаження стилю
-    try { applyExportTilesetHubVisibilitySafe(); } catch(_){ }
+    try { applyTilesetHubVisibilitySafe(); } catch(_){ }
   });
   _map.on('style.load', async ()=>{
     // re-add overlays and tilesets after style change
     ensureOverlaySourcesAndLayers();
     await loadTilesetsForExport();
     applyUkrainianLabelsExport();
-    try { applyExportTilesetHubVisibilitySafe(); } catch(_){ }
+  try { applyTilesetHubVisibilitySafe(); } catch(_){ }
     // redraw selection if exists
     if (_selectedId){
       const row = allRows.find(r=>r.id===_selectedId);
@@ -774,10 +774,10 @@ async function loadTilesetsForExport(){
 
   // Якщо ще не ініціалізовано — спробуємо підхопити дозволені хаби з window
   try{
-    if (!Array.isArray(EXPORT_ALLOWED_HUBS)){
+    if (!Array.isArray(ALLOWED_HUBS)){
       const hubsNow = Array.isArray(window.__userHubs) ? window.__userHubs.slice() : (Array.isArray(allowedHubs) ? allowedHubs.slice() : []);
       const allNow  = !!(window.__userAllHubs ?? allowAllHubs);
-      EXPORT_ALLOWED_HUBS = allNow ? [] : hubsNow;
+      ALLOWED_HUBS = allNow ? [] : hubsNow;
     }
   }catch(_){ }
 
@@ -808,27 +808,25 @@ async function loadTilesetsForExport(){
   }
 
   // Застосуємо видимість геозон за дозволеними хабами
-  try { applyExportTilesetHubVisibilitySafe(); } catch(_) {}
+  try { applyTilesetHubVisibilitySafe(); } catch(_) {}
 }
 
-// ---- Хаб-фільтрація tilesets на сторінці експорту ----
-let EXPORT_ALLOWED_HUBS = null; // null або [] => всі хаби
-function exportIsAllHubs(){
-  return !Array.isArray(EXPORT_ALLOWED_HUBS) || EXPORT_ALLOWED_HUBS.length === 0;
+// ---- Хаб-фільтрація tilesets (ідентично головній сторінці) ----
+let ALLOWED_HUBS = null; // null або [] => всі хаби
+function isAllHubs(){
+  return !Array.isArray(ALLOWED_HUBS) || ALLOWED_HUBS.length === 0;
 }
-function exportTilesetAllowedForUser(ts){
-  const tagsRaw = Array.isArray(ts.hubs) ? ts.hubs : [];
-  const tags = tagsRaw.map(x => String(x||'').trim()).filter(Boolean);
-  if (!tags.length || tags.includes('*')) return true;  // не розмічено або глобальний
-  if (exportIsAllHubs()) return true;                   // користувачу дозволено "всі хаби"
-  const userHubsNorm = (EXPORT_ALLOWED_HUBS || []).map(x => String(x||'').trim());
-  return tags.some(h => userHubsNorm.includes(String(h||'').trim()));
+function tilesetAllowedForUser(ts){
+  const tags = Array.isArray(ts.hubs) ? ts.hubs : [];
+  if (!tags.length || tags.includes('*')) return true;
+  if (isAllHubs()) return true;
+  return tags.some(h => (ALLOWED_HUBS || []).includes(h));
 }
-function applyExportTilesetHubVisibility(){
+function applyTilesetHubVisibility(){
   if (!_map || !_tilesets || !_tilesets.length) return;
-  try { console.log('[HUB DEBUG] EXPORT_ALLOWED_HUBS =', EXPORT_ALLOWED_HUBS); } catch(_){ }
+  try { console.log('[HUB DEBUG] ALLOWED_HUBS =', ALLOWED_HUBS); } catch(_){ }
   _tilesets.forEach(ts => {
-    const allowed = exportTilesetAllowedForUser(ts);
+    const allowed = tilesetAllowedForUser(ts);
     const vis = allowed ? 'visible' : 'none';
     try { console.log('[HUB DEBUG] tileset', ts.key, 'hubs=', ts.hubs, '=> allowed?', allowed); } catch(_){ }
     const ids = [
@@ -840,14 +838,14 @@ function applyExportTilesetHubVisibility(){
     ids.forEach(id => { if (_map.getLayer(id)) { try{ _map.setLayoutProperty(id, 'visibility', vis); }catch(_){} } });
   });
 }
-function applyExportTilesetHubVisibilitySafe(){
+function applyTilesetHubVisibilitySafe(){
   try {
     if (!_map || !_map.isStyleLoaded || !_map.isStyleLoaded()){
-      _map?.once('style.load', applyExportTilesetHubVisibility);
+      _map?.once('style.load', applyTilesetHubVisibility);
       return;
     }
   } catch(_) {}
-  applyExportTilesetHubVisibility();
+  applyTilesetHubVisibility();
 }
 
 function anyPropEqualsExpr(propList, value){
@@ -1157,8 +1155,9 @@ auth?.onAuthStateChanged(async (u) => {
   allowAllHubs  = !!window.__userAllHubs;
   // Ініціалізуємо глобальну змінну для фільтрації tileset-ів за хабами
   try {
-    EXPORT_ALLOWED_HUBS = allowAllHubs ? [] : allowedHubs.slice();
-    applyExportTilesetHubVisibilitySafe();
+    // Синхронізуємо глобальну змінну як на головній сторінці
+    ALLOWED_HUBS = allowAllHubs ? [] : allowedHubs.slice();
+    applyTilesetHubVisibilitySafe();
   } catch(_) {}
   fillHubsList();
 
@@ -1186,10 +1185,9 @@ auth?.onAuthStateChanged(async (u) => {
   try { reRender(); } catch(_) {}
   // оновимо видимість геозон при зміні ролі/хабів
   try {
-    // Підхопимо актуальний список дозволених хабів у глобал змінну для tileset фільтра
-    if (Array.isArray(window.__userHubs)) EXPORT_ALLOWED_HUBS = window.__userAllHubs ? [] : window.__userHubs.slice();
-    else if (Array.isArray(allowedHubs)) EXPORT_ALLOWED_HUBS = allowAllHubs ? [] : allowedHubs.slice();
-    applyExportTilesetHubVisibilitySafe();
+    if (Array.isArray(window.__userHubs)) ALLOWED_HUBS = window.__userAllHubs ? [] : window.__userHubs.slice();
+    else if (Array.isArray(allowedHubs)) ALLOWED_HUBS = allowAllHubs ? [] : allowedHubs.slice();
+    applyTilesetHubVisibilitySafe();
   } catch(_){ }
 };
   syncRoleAndRerender();
