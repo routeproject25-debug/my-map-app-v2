@@ -107,6 +107,7 @@
         <button id="btnUseDrawn">🧩 Додати полігон із карти</button>
         <button id="btnClearDraw" class="ghost">Очистити полігон на карті</button>
       </div>
+      <div class="hint" id="drawAreaInfo" style="margin-top:4px;">Площа: —</div>
 
       <div class="row" style="margin-top:8px;">
         <button id="btnDeleteFeature" class="danger">🗑 Видалити геозону з файлу</button>
@@ -579,6 +580,28 @@
     }catch(_){ }
   }
   const rebuildLabelsOnce = (fn=>{ let t; return (...a)=>{ clearTimeout(t); t=setTimeout(()=>fn(...a),150); }; })(buildGeozoneCentroids);
+  // ===== Площа намальованих полігонів (га) =====
+  function updateDrawAreaInfo(){
+    try{
+      const box = document.getElementById('drawAreaInfo');
+      if (!box) return;
+      const all = Draw.getAll();
+      const feats = (all && Array.isArray(all.features)) ? all.features.filter(f => f.geometry && f.geometry.type === 'Polygon') : [];
+      if (!feats.length){ box.textContent = 'Площа: —'; return; }
+      let totalHa = 0; let lastHa = 0;
+      feats.forEach((f,i) => {
+        try{ const a = turf.area(f); const ha = a/10000.0; totalHa += ha; if (i === feats.length-1) lastHa = ha; }catch(_){}
+      });
+      const fmt = v => v < 1 ? (v.toFixed(4)) : (v < 10 ? v.toFixed(3) : v.toFixed(2));
+      box.textContent = `Площа: останній = ${fmt(lastHa)} га | всі = ${fmt(totalHa)} га`;
+    }catch(_){ }
+  }
+  function bindAreaEvents(){
+    ['draw.create','draw.update','draw.delete'].forEach(ev => {
+      map.on(ev, updateDrawAreaInfo);
+    });
+    map.on('style.load', () => setTimeout(updateDrawAreaInfo, 120));
+  }
   function setAllTilesetsVisibility(show){
     geozonesVisible = !!show;
     const vis = geozonesVisible ? 'visible' : 'none';
@@ -729,6 +752,8 @@
     }catch(_){ ALLOWED_HUBS = []; }
     await loadTilesetsConfig();
     rebuildTilesetsLayers();
+    bindAreaEvents();
+    setTimeout(updateDrawAreaInfo, 200);
   });
 
   // ===== Панель: згортання/розгортання =====
@@ -745,6 +770,8 @@
   newFile();
   // Після створення — показати його як шар (поки порожній)
   setTimeout(()=>{ try{ ensureLoadedOverlay(); setLoadedOverlayVisibility(true); }catch(_){ } }, 0);
+  // Ініціалізація площі (можливо ще немає полігонів)
+  setTimeout(updateDrawAreaInfo, 300);
 
   /* ===== Пошук населених пунктів (геокодинг) ===== */
   let __placeSearchTimer = null;
