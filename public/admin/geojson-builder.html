@@ -21,15 +21,15 @@
     })();
   </script>
   <style>
-    :root{ --w:1180px; }
     *{ box-sizing: border-box; }
-    html{ background:#f6f7fb; }
-    body{ margin:0; font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; color:#111; }
-    header{ max-width:var(--w); margin:16px auto 10px; padding:0 12px; display:flex; align-items:center; justify-content:space-between; gap:8px; }
-    header h1{ font-size:18px; margin:0; font-weight:700; }
+    html, body{ height:100%; }
+    body{ margin:0; font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; color:#111; display:grid; grid-template-columns:360px 1fr; grid-template-rows:100vh; overflow:hidden; background:#f6f7fb; }
+    body.sidebar-collapsed{ grid-template-columns:0 1fr; }
+    body.sidebar-collapsed .sidebar{ display:none; }
+    .sidebar{ height:100%; overflow-y:auto; padding:14px 16px 32px; background:#fff; box-shadow:4px 0 18px -6px rgba(0,0,0,.08); position:relative; }
+    .sidebar h1{ font-size:18px; margin:0 0 6px; font-weight:700; }
     .muted{ color:#667; font-size:12px; }
-    .wrap{ max-width:var(--w); margin:0 auto 16px; padding:0 12px; display:grid; grid-template-columns:320px 1fr; gap:12px; }
-    .card{ background:#fff; border-radius:14px; box-shadow:0 6px 22px rgba(0,0,0,.06); padding:12px; }
+    .card{ background:#fff; border-radius:14px; box-shadow:0 6px 22px rgba(0,0,0,.06); padding:12px; margin-bottom:18px; }
     label{ font-size:12px; color:#334; display:block; margin:10px 0 6px; }
     input[type=text], input[type=file], select{ width:100%; height:36px; border:1px solid #d6dbe3; border-radius:10px; padding:0 10px; }
     textarea{ width:100%; min-height:120px; border:1px solid #d6dbe3; border-radius:10px; padding:8px 10px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size:12px; }
@@ -38,14 +38,16 @@
     button.ghost{ background:#fff; color:#0f62fe; }
     button.warn{ background:#f59e0b; border-color:#f59e0b; }
     button.danger{ background:#ef4444; border-color:#ef4444; }
-    #map{ height:78vh; min-height:520px; border-radius:14px; overflow:hidden; }
+    .map-wrap{ position:relative; height:100%; width:100%; }
+    #map{ position:absolute; inset:0; }
+    #sidebarToggle{ position:absolute; top:10px; left:10px; z-index:4000; background:#fff; color:#0f62fe; border:1px solid #d6dbe3; border-radius:10px; height:auto; padding:6px 10px; font-size:13px; box-shadow:0 2px 10px rgba(0,0,0,.15); }
     table{ width:100%; border-collapse:separate; border-spacing:0; font-size:13px; }
     th, td{ padding:6px 8px; border-bottom:1px solid #eef1f6; text-align:left; white-space:nowrap; }
     thead th{ position:sticky; top:0; background:#fafbff; z-index:1; }
     .hint{ font-size:12px; color:#555; }
     /* Нижній лівий док: стиль карти + пошук населених пунктів */
     .style-dock{
-      position:fixed; left:8px; bottom:8px; z-index:3500;
+      position:fixed; left:380px; bottom:8px; z-index:3500;
       display:flex; align-items:center; gap:6px;
       background:#fff; border:1px solid #d6dbe3; border-radius:12px; padding:6px 8px;
       box-shadow:0 2px 12px rgba(0,0,0,.12);
@@ -57,17 +59,21 @@
     }
     .style-dock input[type="text"]{ width:200px; }
     .style-dock .mapbox-brand{ font-size:11px; color:#6b7280; border-left:1px dashed #e5e7eb; padding-left:8px; }
+    @media (max-width: 900px){
+      body{ grid-template-columns:100% !important; }
+      .style-dock{ left:8px; }
+      #sidebarToggle{ left:8px; }
+      body:not(.sidebar-collapsed) .sidebar{ position:absolute; z-index:5000; width:100%; max-width:360px; height:100%; top:0; left:0; background:#fff; box-shadow:4px 0 18px -6px rgba(0,0,0,.18); }
+    }
   </style>
 </head>
 <body>
-  <header>
+  <div class="sidebar">
     <h1>GeoJSON Builder <span class="muted">(полігони для Tilesets)</span></h1>
-    <div class="row">
+    <div class="row" style="margin-bottom:12px;">
       <button class="ghost" onclick="location.href='/index.html'">🏠 На карту</button>
+      <button class="ghost" id="btnCollapse">⏩ Приховати панель</button>
     </div>
-  </header>
-
-  <div class="wrap">
     <div class="card">
       <h3 style="margin:4px 0 8px;">Файл</h3>
       <label>Назва колекції (FeatureCollection.name)</label>
@@ -117,16 +123,20 @@
       </div>
       <div id="tilesetInfo" class="hint" style="min-height:18px"></div>
     </div>
-
-    <div class="card" style="display:grid; grid-template-rows:auto 1fr; gap:10px;">
-      <div class="row" style="justify-content:space-between;">
-        <div class="hint">Намалюйте полігон інструментом Draw Polygon, за потреби — редагуйте вершини.</div>
-        <div class="row"><button id="btnShowJson" class="ghost">Показати JSON</button></div>
+  </div>
+  <div class="map-wrap">
+    <button id="sidebarToggle" title="Показати/приховати панель">📂</button>
+    <div id="map"></div>
+    <div id="jsonWrap" class="card" style="position:absolute; right:12px; top:12px; width:340px; max-height:60%; overflow:auto; display:none; padding:8px; z-index:4200;">
+      <div class="row" style="justify-content:space-between; margin-bottom:4px;">
+        <strong style="font-size:13px;">GeoJSON</strong>
+        <button id="btnShowJson" class="ghost" style="height:28px; padding:0 10px;">✖</button>
       </div>
-      <div id="map"></div>
-      <div id="jsonWrap" class="card" style="display:none; padding:8px;">
-        <textarea id="jsonOut" readonly></textarea>
-      </div>
+      <textarea id="jsonOut" readonly></textarea>
+    </div>
+    <div class="hint" style="position:absolute; left:12px; top:12px; z-index:4100; background:#fff; padding:6px 10px; border-radius:10px; box-shadow:0 2px 8px rgba(0,0,0,.12); font-size:12px;">
+      Намалюйте полігон інструментом Draw Polygon, потім Додати полігон.
+      <button id="btnShowJsonFloating" class="ghost" style="height:28px; margin-left:6px;">Показати JSON</button>
     </div>
   </div>
 
@@ -330,7 +340,12 @@
   };
   document.getElementById('btnShowJson').onclick = ()=>{
     const w = document.getElementById('jsonWrap');
-    w.style.display = (w.style.display==='none' || !w.style.display) ? 'block' : 'none';
+    w.style.display = 'none';
+  };
+  // Floating open button
+  document.getElementById('btnShowJsonFloating').onclick = ()=>{
+    const w = document.getElementById('jsonWrap');
+    w.style.display = 'block';
   };
   document.getElementById('chkShowLoaded').onchange = (e)=> setLoadedOverlayVisibility(e.target.checked);
 
@@ -639,6 +654,15 @@
     await loadTilesetsConfig();
     rebuildTilesetsLayers();
   });
+
+  // ===== Панель: згортання/розгортання =====
+  function collapseSidebar(){ document.body.classList.add('sidebar-collapsed'); setTimeout(()=>{ try{ map.resize(); }catch(_){ } }, 120); }
+  function expandSidebar(){ document.body.classList.remove('sidebar-collapsed'); setTimeout(()=>{ try{ map.resize(); }catch(_){ } }, 120); }
+  document.getElementById('btnCollapse').onclick = collapseSidebar;
+  document.getElementById('sidebarToggle').onclick = ()=>{
+    if (document.body.classList.contains('sidebar-collapsed')) expandSidebar(); else collapseSidebar();
+  };
+  window.addEventListener('resize', ()=>{ try{ map.resize(); }catch(_){ } });
 
   // Авто-створити порожній файл
   newFile();
