@@ -323,11 +323,22 @@
       Farm: document.getElementById('pFarm').value.trim(),
       Client: document.getElementById('pClient').value.trim()
     };
+    // Обчислення площі (га) та запис у властивість Area
+    try{
+      if (window.turf){
+        const poly = turf.polygon([ ring ]);
+        const m2 = turf.area(poly);
+        const ha = m2 / 10000.0;
+        // Формат: зберігаємо число з 4 знаками (для малих площ) як Number
+        props.Area = Number(ha.toFixed(4));
+      }
+    }catch(_){ /* ігноруємо, якщо не вдалося */ }
     const feat = { type:'Feature', properties: props, geometry:{ type:'Polygon', coordinates:[ ring ] } };
     fc.features.push(feat);
     setState(`Додано геозону: ${props.Name} (всього ${fc.features.length})`);
     updatePreview();
     updateLoadedOverlay();
+    updateDrawAreaInfo();
   }
 
   function updatePreview(){
@@ -361,6 +372,25 @@
 
   function download(){
     if (!fc || !fc.features.length){ alert('Немає даних для експорту. Додайте принаймні один полігон.'); return; }
+    // Масове заповнення Area, якщо відсутня
+    try{
+      if (window.turf){
+        fc.features.forEach(f => {
+          try{
+            if (f && f.geometry && f.geometry.type === 'Polygon'){
+              const ring = (f.geometry.coordinates && f.geometry.coordinates[0]) ? f.geometry.coordinates[0] : null;
+              if (ring && (!f.properties || f.properties.Area === undefined)){
+                const poly = turf.polygon([ ring ]);
+                const m2 = turf.area(poly);
+                const ha = m2 / 10000.0;
+                f.properties = f.properties || {};
+                f.properties.Area = Number(ha.toFixed(4));
+              }
+            }
+          }catch(_){ }
+        });
+      }
+    }catch(_){ }
     const blob = new Blob([JSON.stringify(fc, null, 2)], { type:'application/json' });
     const a = document.createElement('a');
     const nm = (fc.name || 'geozones').replace(/[^a-zA-Z0-9_\-]+/g,'_');
