@@ -114,11 +114,6 @@
       <div class="row" style="margin-bottom:8px;">
         <button id="btnToggleTilesets" class="ghost">🗺 Показати геозони</button>
       </div>
-      <h3 style="margin:12px 0 6px;">Хмарний GeoJSON (Storage)</h3>
-      <div class="row" style="margin-bottom:8px;">
-        <button id="btnToggleCloud" class="ghost">☁ Показати хмарні геозони</button>
-      </div>
-      <div id="cloudNote" class="hint">Не завантажено</div>
     </div>
 
     <div class="card" style="display:grid; grid-template-rows:auto 1fr; gap:10px;">
@@ -173,8 +168,6 @@
   let geozonesVisible = false; // за замовчуванням приховані
   let __tilesetsUnsub = null;
   let __tilesetsHash = '';
-  let cloudVisible = false;
-  let cloudLoaded = false;
 
   /* ===== Українські підписи топонімів у стилі ===== */
   function applyUkrainianLabels(){
@@ -528,48 +521,6 @@
     map.off('moveend', rebuildLabelsOnce);
     map.on('moveend', rebuildLabelsOnce);
   }
-
-  /* ====== Хмарний GeoJSON (той самий, що головна сторінка бачить як source 'geozones') ====== */
-  async function loadCloudGeozones(){
-    if (cloudLoaded) return;
-    const note = document.getElementById('cloudNote');
-    try{
-      if (!window.APP_CONFIG || !APP_CONFIG.firebase){ note.textContent='Немає конфіг Firebase'; return; }
-      // Ініціалізація Firebase (якщо ще ні)
-      try{ firebase.apps?.length ? firebase.app() : firebase.initializeApp(APP_CONFIG.firebase); }catch(_){ }
-      const storage = firebase.storage();
-      // Шлях до файлу — припустимо стандартний: geozones/geozones.geojson (можеш змінити тут)
-      const ref = storage.ref('geozones/geozones.geojson');
-      note.textContent = 'Завантаження…';
-      const url = await ref.getDownloadURL();
-      const res = await fetch(url);
-      if (!res.ok) throw new Error('HTTP '+res.status);
-      const data = await res.json();
-      if (!data || data.type!=='FeatureCollection'){ throw new Error('Невірний формат (очікується FeatureCollection)'); }
-      if (!map.getSource('geozones-cloud')){
-        map.addSource('geozones-cloud', { type:'geojson', data });
-        map.addLayer({ id:'geozones-cloud-fill', type:'fill', source:'geozones-cloud', paint:{ 'fill-color':'#ef4444', 'fill-opacity':0.12 }, layout:{ visibility: cloudVisible ? 'visible':'none' } });
-        map.addLayer({ id:'geozones-cloud-line', type:'line', source:'geozones-cloud', paint:{ 'line-color':'#dc2626', 'line-width':1.4 }, layout:{ visibility: cloudVisible ? 'visible':'none' } });
-      } else {
-        map.getSource('geozones-cloud').setData(data);
-      }
-      cloudLoaded = true;
-      note.textContent = `Завантажено: ${Array.isArray(data.features)?data.features.length:0}`;
-    }catch(e){
-      note.textContent = 'Помилка: ' + (e.message||e);
-    }
-  }
-  function setCloudVisibility(show){
-    cloudVisible = !!show;
-    const vis = cloudVisible ? 'visible':'none';
-    try{ map.setLayoutProperty('geozones-cloud-fill','visibility', vis); }catch(_){ }
-    try{ map.setLayoutProperty('geozones-cloud-line','visibility', vis); }catch(_){ }
-    const btn = document.getElementById('btnToggleCloud'); if (btn) btn.textContent = cloudVisible ? '☁ Приховати хмарні геозони' : '☁ Показати хмарні геозони';
-  }
-  document.getElementById('btnToggleCloud').onclick = async ()=>{
-    if (!cloudLoaded){ await loadCloudGeozones(); }
-    setCloudVisibility(!cloudVisible);
-  };
 
   async function loadTilesetsConfig(){
     // Спроба Firestore (і підписка на зміни)
