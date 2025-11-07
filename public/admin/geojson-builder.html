@@ -182,7 +182,59 @@
   const Draw = new MapboxDraw({
     displayControlsDefault: false,
     controls: { polygon: true, trash: true },
-    defaultMode: 'draw_polygon'
+    defaultMode: 'draw_polygon',
+    styles: [
+      // ACTIVE (being drawn)
+      {
+        id: 'gl-draw-polygon-fill-active',
+        type: 'fill',
+        filter: ['all', ['==', 'active', 'true'], ['==', '$type', 'Polygon']],
+        paint: {
+          'fill-color': '#ffcc00',
+          'fill-outline-color': '#ff8c00',
+          'fill-opacity': 0.35
+        }
+      },
+      // INACTIVE (already drawn)
+      {
+        id: 'gl-draw-polygon-fill-inactive',
+        type: 'fill',
+        filter: ['all', ['==', 'active', 'false'], ['==', '$type', 'Polygon']],
+        paint: {
+          'fill-color': '#12b886',
+          'fill-outline-color': '#0f766e',
+          'fill-opacity': 0.28
+        }
+      },
+      // OUTLINES
+      {
+        id: 'gl-draw-polygon-stroke-active',
+        type: 'line',
+        filter: ['all', ['==', 'active', 'true'], ['==', '$type', 'Polygon']],
+        layout: { 'line-cap': 'round', 'line-join': 'round' },
+        paint: { 'line-color': '#ff8c00', 'line-width': 3 }
+      },
+      {
+        id: 'gl-draw-polygon-stroke-inactive',
+        type: 'line',
+        filter: ['all', ['==', 'active', 'false'], ['==', '$type', 'Polygon']],
+        layout: { 'line-cap': 'round', 'line-join': 'round' },
+        paint: { 'line-color': '#0f766e', 'line-width': 2 }
+      },
+      // VERTICES
+      {
+        id: 'gl-draw-polygon-and-line-vertex-halo-active',
+        type: 'circle',
+        filter: ['all', ['==', 'meta', 'vertex'], ['==', '$type', 'Point']],
+        paint: { 'circle-radius': 7, 'circle-color': '#ffffff' }
+      },
+      {
+        id: 'gl-draw-polygon-and-line-vertex-active',
+        type: 'circle',
+        filter: ['all', ['==', 'meta', 'vertex'], ['==', '$type', 'Point']],
+        paint: { 'circle-radius': 4, 'circle-color': '#ff8c00' }
+      }
+    ]
   });
   map.addControl(Draw, 'top-left');
   map.addControl(new mapboxgl.NavigationControl(), 'top-left');
@@ -287,8 +339,8 @@
   function ensureLoadedOverlay(){
     if (!map.getSource('fc-source')){
       map.addSource('fc-source', { type:'geojson', data: { type:'FeatureCollection', features: [] } });
-      map.addLayer({ id:'fc-fill', type:'fill', source:'fc-source', paint:{ 'fill-color':'#22c55e', 'fill-opacity': 0.25 } });
-      map.addLayer({ id:'fc-line', type:'line', source:'fc-source', paint:{ 'line-color':'#16a34a', 'line-width': 2 } });
+      map.addLayer({ id:'fc-fill', type:'fill', source:'fc-source', paint:{ 'fill-color':'#0ea5e9', 'fill-opacity': 0.30 } });
+      map.addLayer({ id:'fc-line', type:'line', source:'fc-source', paint:{ 'line-color':'#0369a1', 'line-width': 3 } });
     }
   }
   function updateLoadedOverlay(){
