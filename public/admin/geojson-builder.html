@@ -113,7 +113,9 @@
       <h3 style="margin:16px 0 8px;">Геозони з Mapbox Tilesets</h3>
       <div class="row" style="margin-bottom:8px;">
         <button id="btnToggleTilesets" class="ghost">🗺 Показати геозони</button>
+        <button id="btnReloadTilesets" class="ghost" title="Примусово перечитати конфіг (debug)">🔄 Оновити</button>
       </div>
+      <div id="tilesetInfo" class="hint" style="min-height:18px"></div>
     </div>
 
     <div class="card" style="display:grid; grid-template-rows:auto 1fr; gap:10px;">
@@ -525,6 +527,7 @@
   async function loadTilesetsConfig(){
     // Спроба Firestore (і підписка на зміни)
     let got = false;
+    let sourceName = 'json';
     try{
       const CFG = window.APP_CONFIG && window.APP_CONFIG.firebase;
       if (CFG && window.firebase && typeof firebase.initializeApp === 'function'){
@@ -539,6 +542,7 @@
             TILESETS = arr;
             got = true;
             __tilesetsHash = JSON.stringify(getActiveTilesets());
+            sourceName = 'firestore';
           }
         }
         // підписка realtime
@@ -551,6 +555,7 @@
               TILESETS = arr;
               const h = JSON.stringify(getActiveTilesets());
               if (h !== __tilesetsHash){ __tilesetsHash = h; rebuildTilesetsLayers(); }
+              updateTilesetInfo('snapshot');
             }
           }catch(_){ }
         }, err => { console.warn('tilesets onSnapshot:', err?.message||err); });
@@ -564,9 +569,22 @@
         const data = await res.json().catch(()=> null);
         TILESETS = Array.isArray(data) ? data : (data && Array.isArray(data.tilesets) ? data.tilesets : []);
         __tilesetsHash = JSON.stringify(getActiveTilesets());
+        sourceName = 'json';
       }catch(e){ console.warn('tilesets.json недоступний', e); TILESETS = []; __tilesetsHash = '[]'; }
     }
+    updateTilesetInfo('load', sourceName);
   }
+
+  function updateTilesetInfo(stage, sourceName){
+    try{
+      const box = document.getElementById('tilesetInfo');
+      if (!box) return;
+      const active = getActiveTilesets();
+      const enabledKeys = active.map(t=>t.key).filter(Boolean);
+      box.textContent = `(${stage}) джерело: ${sourceName||'—'} | enabled: ${enabledKeys.length} | keys: ${enabledKeys.join(', ')}`;
+    }catch(_){ }
+  }
+  document.getElementById('btnReloadTilesets').onclick = async ()=>{ await loadTilesetsConfig(); rebuildTilesetsLayers(); };
 
   // Після кожного завантаження стилю: застосувати укр. підписи та відновити наші шари
   map.on('style.load', async ()=>{
