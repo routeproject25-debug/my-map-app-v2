@@ -820,10 +820,74 @@ async function loadTilesetsForExport(){
       _map.addLayer({ id: hlTo, type:'fill', source: srcId, 'source-layer': ts.layer, filter:['==',['get','__never__'],1], paint:{ 'fill-color':'#f43f5e','fill-opacity':0.45 } });
     }
     _tsFillIds.push(fillId); _tsOutlineIds.push(outlineId); _tsHlFrom.push(hlFrom); _tsHlTo.push(hlTo);
+
+    // Реєструємо клік по геозонах для показу інформації
+    try { registerGeozoneInfoHandlers(ts, [fillId, hlFrom, hlTo]); } catch(_) {}
   }
 
   // Застосуємо видимість геозон за дозволеними хабами
   try { applyTilesetHubVisibilitySafe(); } catch(_) {}
+}
+
+// ======= Попап з інформацією про геозону (тільки за кліком; без підписів) =======
+const _gzHandlersBound = new Set();
+let _gzPopup = null;
+
+function pickProp(props, keys){
+  for (const k of keys){
+    const v = props?.[k];
+    if (v === 0) return '0';
+    if (v !== undefined && v !== null && String(v).trim() !== '') return String(v);
+  }
+  return '';
+}
+
+function formatGeozonePopupHTML(props, tilesetKey){
+  const name = pickProp(props, ['Name','name','Назва','Назва поля','field','Поле']);
+  const code = pickProp(props, ['Code','code','Код','field_code','fieldCode']);
+  const hub  = pickProp(props, ['Hub','hub','Хаб','hubs']);
+  const area = pickProp(props, ['Area','area','Площа','Area_ha','area_ha','Площа_га']);
+  const rows = [];
+  if (name) rows.push(`<tr><td>Назва</td><td>${name}</td></tr>`);
+  if (code) rows.push(`<tr><td>Код</td><td>${code}</td></tr>`);
+  if (hub)  rows.push(`<tr><td>Хаб</td><td>${hub}</td></tr>`);
+  if (area) rows.push(`<tr><td>Площа</td><td>${area}</td></tr>`);
+  rows.push(`<tr><td>Tileset</td><td>${tilesetKey}</td></tr>`);
+  const table = rows.length ? `<table class="gz-info"><tbody>${rows.join('')}</tbody></table>` : '<div>Немає відомих полів</div>';
+  return `
+    <div class="gz-popup">
+      ${table}
+      <details style="margin-top:8px">
+        <summary>Показати всі властивості</summary>
+        <pre style="max-width:360px; max-height:200px; overflow:auto; white-space:pre-wrap;">${escapeHtml(JSON.stringify(props, null, 2))}</pre>
+      </details>
+    </div>`;
+}
+
+function escapeHtml(s){
+  return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','\'':'&#39;'}[c]));
+}
+
+function registerGeozoneInfoHandlers(ts, ids){
+  if (!_map) return;
+  ids.forEach(id => {
+    if (_gzHandlersBound.has(id)) return;
+    _gzHandlersBound.add(id);
+    try{
+      _map.on('mouseenter', id, ()=>{ _map.getCanvas().style.cursor = 'pointer'; });
+      _map.on('mouseleave', id, ()=>{ _map.getCanvas().style.cursor = ''; });
+      _map.on('click', id, (e)=>{
+        const f = e?.features && e.features[0];
+        if (!f) return;
+        const html = formatGeozonePopupHTML(f.properties || {}, ts.key);
+        try { if (_gzPopup) _gzPopup.remove(); } catch(_){ }
+        _gzPopup = new window.mapboxgl.Popup({ closeButton:true, closeOnClick:true, maxWidth:'360px' })
+          .setLngLat(e.lngLat)
+          .setHTML(html)
+          .addTo(_map);
+      });
+    }catch(_){ }
+  });
 }
 
 // ---- Хаб-фільтрація tilesets (ідентично головній сторінці) ----
