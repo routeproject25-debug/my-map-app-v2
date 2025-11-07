@@ -12,6 +12,14 @@
   <!-- Firebase (для підтяжки tilesets з Firestore, якщо доступно) -->
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+  <!-- Turf.js для центроїдів підписів -->
+  <script>
+    (function(){
+      const s = document.createElement('script');
+      s.src = 'https://cdn.jsdelivr.net/npm/@turf/turf@6.5.0/turf.min.js';
+      document.head.appendChild(s);
+    })();
+  </script>
   <style>
     :root{ --w:1180px; }
     *{ box-sizing: border-box; }
@@ -406,6 +414,55 @@
       map.addLayer({ id: lineId, type:'line', source: srcId, 'source-layer': ts.layer, paint:{ 'line-color':'#0284c7', 'line-width': 1.5 }, layout:{ visibility: geozonesVisible ? 'visible' : 'none' } });
     }
   }
+  // Центроїди + підписи геозон (на основі відрендерених fill-шарів)
+  function buildGeozoneCentroids(){
+    try{
+      if (!window.turf) return;
+      const style = map.getStyle();
+      if (!style || !Array.isArray(style.layers)) return;
+      const fillLayerIds = style.layers.map(l=>l.id).filter(id => id && id.startsWith('ts-fill-'));
+      if (!fillLayerIds.length) return;
+      const feats = map.queryRenderedFeatures({ layers: fillLayerIds }) || [];
+      const out = []; const seen = new Set();
+      for (const f of feats){
+        const p = f.properties || {};
+        const label = p.Name || p.name || p.Code || p.code || 'Поле';
+        const uniq = `${f.source||'ts'}:${p.id||p.fid||p.OBJECTID||p.OBJECTID_1||p.Code||p.Name||label}`;
+        if (seen.has(uniq)) continue;
+        let center = null;
+        try{ center = turf.centerOfMass(f).geometry.coordinates; }
+        catch(_){ try{ const b = turf.bbox(f); center = [(b[0]+b[2])/2,(b[1]+b[3])/2]; }catch(_){ } }
+        if (!center) continue;
+        out.push({ type:'Feature', geometry:{ type:'Point', coordinates:center }, properties:{ label } });
+        seen.add(uniq);
+      }
+      const fc = { type:'FeatureCollection', features: out };
+      if (map.getSource('geozones-centroids')){
+        map.getSource('geozones-centroids').setData(fc);
+      } else {
+        map.addSource('geozones-centroids', { type:'geojson', data: fc });
+        map.addLayer({
+          id: 'geozones-labels',
+          type: 'symbol',
+          source: 'geozones-centroids',
+          layout: {
+            'text-field': ['get','label'],
+            'text-font': ['Open Sans Bold', 'Arial Unicode MS Bold'],
+            'text-size': 12,
+            'text-anchor': 'center',
+            'text-allow-overlap': false,
+            'visibility': geozonesVisible ? 'visible' : 'none'
+          },
+          paint: {
+            'text-color': '#1f2937',
+            'text-halo-color': '#ffffff',
+            'text-halo-width': 1.2
+          }
+        });
+      }
+    }catch(_){ }
+  }
+  const rebuildLabelsOnce = (fn=>{ let t; return (...a)=>{ clearTimeout(t); t=setTimeout(()=>fn(...a),150); }; })(buildGeozoneCentroids);
   function setAllTilesetsVisibility(show){
     geozonesVisible = !!show;
     const vis = geozonesVisible ? 'visible' : 'none';
@@ -419,6 +476,8 @@
           }
         });
       }
+      // Підписи
+      if (map.getLayer('geozones-labels')){ try{ map.setLayoutProperty('geozones-labels','visibility', vis); }catch(_){ } }
     }catch(_){}
     try{
       const b = document.getElementById('btnToggleTilesets');
@@ -457,6 +516,10 @@
     list.forEach(ts => ensureTilesetLayers(ts));
     // застосувати поточну видимість
     setAllTilesetsVisibility(geozonesVisible);
+    // побудувати/оновити підписи
+    buildGeozoneCentroids();
+    map.off('moveend', rebuildLabelsOnce);
+    map.on('moveend', rebuildLabelsOnce);
   }
 
   async function loadTilesetsConfig(){
