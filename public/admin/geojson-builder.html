@@ -170,6 +170,8 @@
   let geozonesVisible = false; // за замовчуванням приховані
   let __tilesetsUnsub = null;
   let __tilesetsHash = '';
+  // Доступи хабів як на головній сторінці
+  let ALLOWED_HUBS = []; // [] = всі хаби дозволені
 
   /* ===== Українські підписи топонімів у стилі ===== */
   function applyUkrainianLabels(){
@@ -416,6 +418,27 @@
       map.addLayer({ id: lineId, type:'line', source: srcId, 'source-layer': ts.layer, paint:{ 'line-color':'#0284c7', 'line-width': 1.5 }, layout:{ visibility: geozonesVisible ? 'visible' : 'none' } });
     }
   }
+  // ===== Фільтрація за хабами (як на головній) =====
+  function isAllHubs(){ return Array.isArray(ALLOWED_HUBS) && ALLOWED_HUBS.length === 0; }
+  function tilesetAllowed(ts){
+    const tags = Array.isArray(ts?.hubs) ? ts.hubs : [];
+    if (tags.includes('*')) return true;
+    if (isAllHubs()) return true;
+    return tags.some(h => (ALLOWED_HUBS || []).includes(h));
+  }
+  function applyTilesetHubVisibility(){
+    try{
+      const list = getActiveTilesets();
+      list.forEach(ts => {
+        const allow = tilesetAllowed(ts) && geozonesVisible;
+        const vis = allow ? 'visible' : 'none';
+        try{ map.setLayoutProperty('ts-fill-' + ts.key, 'visibility', vis); }catch(_){ }
+        try{ map.setLayoutProperty('ts-line-' + ts.key, 'visibility', vis); }catch(_){ }
+      });
+      // підписи також підпорядковуються загальній видимості
+      try{ if (map.getLayer('geozones-labels')) map.setLayoutProperty('geozones-labels','visibility', geozonesVisible ? 'visible':'none'); }catch(_){ }
+    }catch(_){ }
+  }
   // Центроїди + підписи геозон (на основі відрендерених fill-шарів)
   function buildGeozoneCentroids(){
     try{
@@ -485,6 +508,8 @@
       const b = document.getElementById('btnToggleTilesets');
       if (b) b.textContent = geozonesVisible ? '🗺 Приховати геозони' : '🗺 Показати геозони';
     }catch(_){}
+    // застосувати хаб-фільтр поверх загальної видимості
+    applyTilesetHubVisibility();
   }
   document.getElementById('btnToggleTilesets').onclick = ()=> setAllTilesetsVisibility(!geozonesVisible);
 
@@ -518,6 +543,8 @@
     list.forEach(ts => ensureTilesetLayers(ts));
     // застосувати поточну видимість
     setAllTilesetsVisibility(geozonesVisible);
+    // після створення шарів — застосувати фільтр за хабами
+    applyTilesetHubVisibility();
     // побудувати/оновити підписи
     buildGeozoneCentroids();
     map.off('moveend', rebuildLabelsOnce);
@@ -581,7 +608,8 @@
       if (!box) return;
       const active = getActiveTilesets();
       const enabledKeys = active.map(t=>t.key).filter(Boolean);
-      box.textContent = `(${stage}) джерело: ${sourceName||'—'} | enabled: ${enabledKeys.length} | keys: ${enabledKeys.join(', ')}`;
+      const hubsInfo = isAllHubs() ? 'всі хаби' : (ALLOWED_HUBS||[]).join(', ') || '—';
+      box.textContent = `(${stage}) джерело: ${sourceName||'—'} | hubs: ${hubsInfo} | enabled: ${enabledKeys.length} | keys: ${enabledKeys.join(', ')}`;
     }catch(_){ }
   }
   document.getElementById('btnReloadTilesets').onclick = async ()=>{ await loadTilesetsConfig(); rebuildTilesetsLayers(); };
@@ -600,6 +628,14 @@
     applyUkrainianLabels();
     ensureLoadedOverlay();
     setLoadedOverlayVisibility(true);
+    // Зчитати доступи хабів (як на головній) з localStorage
+    try{
+      const raw = localStorage.getItem('userAccess');
+      if (raw){
+        const { hubs, all } = JSON.parse(raw) || {};
+        if (all === true) ALLOWED_HUBS = []; else if (Array.isArray(hubs)) ALLOWED_HUBS = hubs; else ALLOWED_HUBS = [];
+      }
+    }catch(_){ ALLOWED_HUBS = []; }
     await loadTilesetsConfig();
     rebuildTilesetsLayers();
   });
