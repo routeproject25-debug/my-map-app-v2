@@ -728,12 +728,15 @@ async function ensureMap(){
     ensureOverlaySourcesAndLayers();
     await loadTilesetsForExport();
     applyUkrainianLabelsExport();
+    // додатково форсуємо застосування видимості після первинного завантаження стилю
+    try { applyExportTilesetHubVisibilitySafe(); } catch(_){ }
   });
   _map.on('style.load', async ()=>{
     // re-add overlays and tilesets after style change
     ensureOverlaySourcesAndLayers();
     await loadTilesetsForExport();
     applyUkrainianLabelsExport();
+    try { applyExportTilesetHubVisibilitySafe(); } catch(_){ }
     // redraw selection if exists
     if (_selectedId){
       const row = allRows.find(r=>r.id===_selectedId);
@@ -768,6 +771,15 @@ async function loadTilesetsForExport(){
       _tilesets = await r.json();
     }
   }catch(e){ console.warn('tilesets.json error:', e); return; }
+
+  // Якщо ще не ініціалізовано — спробуємо підхопити дозволені хаби з window
+  try{
+    if (!Array.isArray(EXPORT_ALLOWED_HUBS)){
+      const hubsNow = Array.isArray(window.__userHubs) ? window.__userHubs.slice() : (Array.isArray(allowedHubs) ? allowedHubs.slice() : []);
+      const allNow  = !!(window.__userAllHubs ?? allowAllHubs);
+      EXPORT_ALLOWED_HUBS = allNow ? [] : hubsNow;
+    }
+  }catch(_){ }
 
   _tsFillIds = []; _tsOutlineIds = []; _tsHlFrom = []; _tsHlTo = [];
   for (const ts of _tilesets){
@@ -805,15 +817,20 @@ function exportIsAllHubs(){
   return !Array.isArray(EXPORT_ALLOWED_HUBS) || EXPORT_ALLOWED_HUBS.length === 0;
 }
 function exportTilesetAllowedForUser(ts){
-  const tags = Array.isArray(ts.hubs) ? ts.hubs : [];
+  const tagsRaw = Array.isArray(ts.hubs) ? ts.hubs : [];
+  const tags = tagsRaw.map(x => String(x||'').trim()).filter(Boolean);
   if (!tags.length || tags.includes('*')) return true;  // не розмічено або глобальний
   if (exportIsAllHubs()) return true;                   // користувачу дозволено "всі хаби"
-  return tags.some(h => (EXPORT_ALLOWED_HUBS || []).includes(h));
+  const userHubsNorm = (EXPORT_ALLOWED_HUBS || []).map(x => String(x||'').trim());
+  return tags.some(h => userHubsNorm.includes(String(h||'').trim()));
 }
 function applyExportTilesetHubVisibility(){
   if (!_map || !_tilesets || !_tilesets.length) return;
+  try { console.log('[HUB DEBUG] EXPORT_ALLOWED_HUBS =', EXPORT_ALLOWED_HUBS); } catch(_){ }
   _tilesets.forEach(ts => {
-    const vis = exportTilesetAllowedForUser(ts) ? 'visible' : 'none';
+    const allowed = exportTilesetAllowedForUser(ts);
+    const vis = allowed ? 'visible' : 'none';
+    try { console.log('[HUB DEBUG] tileset', ts.key, 'hubs=', ts.hubs, '=> allowed?', allowed); } catch(_){ }
     const ids = [
       `tileset-fill-${ts.key}`,
       `tileset-outline-${ts.key}`,
