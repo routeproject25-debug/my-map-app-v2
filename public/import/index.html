@@ -463,6 +463,16 @@ function makeNGrams(s, n = 3){
     return sanitizeId(base);
   }
 
+  // Новий стабільний ключ для directory: Назва + Підприємство + Підрозділ + ХАБ
+  function makeDirectoryId(name, company, unit, hub){
+    const norm = (v) => {
+      const t = toUkLower(v||'').replace(/\s+/g,' ').trim();
+      return t || '∅'; // позначаємо порожні частини щоб відрізняти від реально пустих
+    };
+    const parts = [norm(name), norm(company), norm(unit), norm(hub)];
+    return sanitizeId(parts.join('__'));
+  }
+
   // === Ручний одиночний запис ===
   async function addSingleDirectoryEntry(){
     try{
@@ -475,10 +485,26 @@ function makeNGrams(s, n = 3){
       const unit    = $('singleUnit').value.trim();
       const hub     = $('singleHub').value.trim();
       if (!name){ alert('Поле "Назва" обовʼязкове'); return; }
+      const legacyNameId = makeNameId(name); // старий формат (тільки назва)
+      const compositeId = makeDirectoryId(name, company, unit, hub); // новий формат
+      const ref = db.collection('directory').doc(compositeId);
+      let snap = await ref.get();
 
-      const nameId = makeNameId(name);
-      const ref = db.collection('directory').doc(nameId);
-      const snap = await ref.get();
+      // Якщо нового ще немає – перевіримо чи існує legacy-док із тим самим набором атрибутів
+      let legacySnap = null;
+      if (!snap.exists){
+        const legacyRef = db.collection('directory').doc(legacyNameId);
+        const ls = await legacyRef.get();
+        if (ls.exists){
+          const ldata = ls.data()||{};
+            if ((ldata.company||'') === company && (ldata.unit||'') === unit && (ldata.hub||'') === hub) {
+              // Використовуємо legacy як ціль оновлення (не мігруємо щоб уникнути дублюючих операцій тут)
+              snap = ls; // діємо як ніби це наш doc
+            } else {
+              legacySnap = ls; // залишаємо як окремий (інша комбінація → буде створено новий)
+            }
+        }
+      }
 
       const newData = {
         name,
@@ -494,19 +520,19 @@ function makeNGrams(s, n = 3){
       function setMsg(html){ statusEl.innerHTML = html; }
 
       if (!snap.exists){
-        // створюємо новий
+        // жодного запису з такою комбінацією – створюємо новий (навіть якщо існують інші з тією ж назвою)
         await ref.set(newData, { merge:true });
-        setMsg(`<span class='ok'>Додано новий запис: <b>${name}</b></span>`);
-        log(`(single) NEW name="${name}" id=${nameId} data=${JSON.stringify(newData)}`,'ok');
+        setMsg(`<span class='ok'>Створено новий запис (нове поєднання атрибутів)</span>`);
+        log(`(single) NEW COMBO name="${name}" id=${compositeId} data=${JSON.stringify(newData)}`,'ok');
         return;
       }
 
       const old = snap.data() || {};
       // Перевірка унікальності за чотирма полями (company, unit, hub, name)
-      const sameKey = (toUkLower(old.name||'') === toUkLower(name)) &&
-                      ((old.company||'') === company) &&
-                      ((old.unit||'') === unit) &&
-                      ((old.hub||'') === hub);
+  const sameKey = (toUkLower(old.name||'') === toUkLower(name)) &&
+          ((old.company||'') === company) &&
+          ((old.unit||'') === unit) &&
+          ((old.hub||'') === hub);
 
       if (sameKey){
         const oldCode = old.code || '';
@@ -522,12 +548,13 @@ function makeNGrams(s, n = 3){
         return;
       }
 
-      // Ключ (name) той самий, але інші атрибути змінилися → перезаписуємо весь документ.
-      // Якщо код порожній, зберігаємо старий, щоб не втратити.
+      // Тут ми НЕ перезаписуємо інший набір атрибутів тим самим id – за новими правилами це має бути окремий документ.
+      // Але якщо ми сюди потрапили, snap уже існує (sameKey=false) і це означає: назва та id (composite) не узгоджені.
+      // На практиці цього НЕ має статись (бо composite включає атрибути). Якщо трапиться – лог і оновлення без зміни ключа.
       if (!codeIn && old.code){ newData.code = old.code; }
       await ref.set(newData, { merge:true });
-      setMsg(`<span class='ok'>Оновлено запис «${name}» (змінені атрибути company/unit/hub)</span>`);
-      log(`(single) UPDATE ATTRS name="${name}" id=${nameId} data=${JSON.stringify(newData)}`,'warn');
+      setMsg(`<span class='ok'>Оновлено (вирівнювання даних з існуючим записом)</span>`);
+      log(`(single) ALIGN UPDATE name="${name}" id=${compositeId} data=${JSON.stringify(newData)}`,'warn');
     }catch(e){
       $('singleStatus').innerHTML = `<span class='err'>Помилка: ${e.message||e}</span>`;
       log(`(single) ERROR: ${e.message||e}`,'err');
@@ -587,14 +614,16 @@ function makeNGrams(s, n = 3){
       if (!name) { skippedEmptyName++; continue; }
       if (!code) { skippedEmptyCode++; continue; }
 
-      const idByName = makeNameId(name);
+  const idByName = makeNameId(name); // для попереджень по кодах
+  const id = makeDirectoryId(name, company, unit, hub); // новий унікальний ключ
 
       if (!nameToCodes.has(idByName)) nameToCodes.set(idByName, new Set());
       nameToCodes.get(idByName).add(code);
       if (!nameToSample.has(idByName)) nameToSample.set(idByName, name);
 
       entries.push({
-        id: idByName,
+        id,
+        legacyId: idByName,
         data: {
           name,
           code,
@@ -620,12 +649,12 @@ function makeNGrams(s, n = 3){
       if (dupWarnings.length>10) log(`  … ще ${dupWarnings.length-10} груп(и)`, 'warn');
     }
 
-    // Дедуп за назвою
-    const map = new Map();
-    for (const e of entries) map.set(e.id, e);
-    const deduped = Array.from(map.values());
+  // Дедуп тепер за повним composite id (повторні рядки з однаковою комбінацією)
+  const map = new Map();
+  for (const e of entries) map.set(e.id, e);
+  const deduped = Array.from(map.values());
 
-    log(`Знайдено записів: ${entries.length}. Після дедуплікації за назвою: ${deduped.length}`, 'ok');
+  log(`Знайдено рядків: ${entries.length}. Після дедуплікації (комбінація): ${deduped.length}`, 'ok');
     log(`Пропущено → blank:${skippedBlankRow} | emptyName:${skippedEmptyName} | emptyCode:${skippedEmptyCode}`, 'ok');
 
     return deduped;
@@ -696,8 +725,8 @@ function equalData(a, b){
         const slice = entries.slice(b*SAFE_BATCH, (b+1)*SAFE_BATCH);
 
   // 1) читаємо документи за новою схемою (id = nameId)
-        const refsByNameId = slice.map(({id}) => db.collection('directory').doc(id));
-        const snapsByNameId = await Promise.all(refsByNameId.map(r => r.get()));
+  const refsByComposite = slice.map(({id}) => db.collection('directory').doc(id));
+  const snapsByComposite = await Promise.all(refsByComposite.map(r => r.get()));
 
         // 2) додатково шукаємо наявні документи з такою ж назвою (legacy id=код)
         // Firestore дозволяє where('field','in',[...]) максимум на 10 значень → чанкуємо
@@ -722,8 +751,8 @@ function equalData(a, b){
         const batch = !dry ? db.batch() : null;
 
         for (let i = 0; i < slice.length; i++){
-          const { id, data } = slice[i];
-          const snapByNameId = snapsByNameId[i];
+          const { id, data, legacyId } = slice[i];
+          const snapByComposite = snapsByComposite[i];
 
           // Підбираємо цільовий документ для оновлення/міграції:
           //  - якщо mergeDup = true → канонічний id = nameId; усі інші з такою nameLower вважаються legacy і будуть видалені
@@ -732,45 +761,49 @@ function equalData(a, b){
           let targetSnap = null, targetRef = null, targetId = id;
 
           if (mergeDup){
-            // Канонічний — id=nameId
-            targetRef = refsByNameId[i];
-            targetSnap = snapByNameId;
+            // Канонічний — composite id
+            targetRef = refsByComposite[i];
+            targetSnap = snapByComposite;
 
-            const others = candidates.filter(d => d.id !== id);
-            // Якщо канонічного ще нема, але є legacy — перенесемо поля й видалимо legacy
-            if (!snapByNameId.exists && candidates.length){
-              const primary = candidates[0];
-              const old = primary.data() || {};
-              const extras = {};
-              if (old.company && !data.company) extras.company = old.company;
-              if (old.unit    && !data.unit)    extras.unit    = old.unit;
-              if (old.hub     && !data.hub)     extras.hub     = old.hub;
-              // розширимо data перед записом, щоб не втратити метадані
-              Object.assign(data, extras);
-              log(`↻ Міграція «${data.name}»: переносимо з legacy id=${primary.id} → id=${id}`, 'warn');
+            // Інші з тією ж nameLower, але ТІЛЬКИ якщо їх company/unit/hub збігаються → legacy дублікати для видалення
+            const others = candidates.filter(d => d.id !== id).filter(d => {
+              const od = d.data()||{};
+              return (od.company||'') === (data.company||'') && (od.unit||'') === (data.unit||'') && (od.hub||'') === (data.hub||'');
+            });
+
+            if (!snapByComposite.exists && candidates.length){
+              const primary = others[0];
+              if (primary){
+                const old = primary.data() || {};
+                const extras = {};
+                if (old.company && !data.company) extras.company = old.company;
+                if (old.unit    && !data.unit)    extras.unit    = old.unit;
+                if (old.hub     && !data.hub)     extras.hub     = old.hub;
+                Object.assign(data, extras);
+                log(`↻ Міграція (комбінація) «${data.name}»: legacy id=${primary.id} → id=${id}`, 'warn');
+              }
             }
 
-            // Плануємо видалення всіх неканонічних документів цієї назви
             if (!dry && others.length){
               for (const d of others){ batch.delete(db.collection('directory').doc(d.id)); writes++; deletedThisBatch++; }
             } else if (dry && others.length){
-              log(`(dry-run) Було б видалено legacy дублікат(и) для «${data.name}»: ${others.map(o=>o.id).join(', ')}`,'warn');
+              log(`(dry-run) Було б видалено legacy дублікати (комбінація) для «${data.name}»: ${others.map(o=>o.id).join(', ')}`,'warn');
             }
           } else {
-            // Старий безпечний режим — без видалення
-            if (snapByNameId.exists){
-              targetSnap = snapByNameId; targetRef = refsByNameId[i]; targetId = id;
-            } else if (candidates.length){
-              const byName = candidates.find(d => d.id === id);
-              const chosen = byName || candidates[0];
-              targetSnap = chosen;
-              targetId = chosen.id;
-              targetRef = db.collection('directory').doc(targetId);
-              if (chosen.id !== id) {
-                log(`↻ Оновлюю наявний запис за назвою «${data.name}» (id=${chosen.id}), щоб уникнути дубліката.`, 'warn');
-              }
+            // Безпечний режим — оновлюємо лише якщо composite існує; інакше створюємо новий, не чіпаючи інші комбінації цієї ж назви
+            if (snapByComposite.exists){
+              targetSnap = snapByComposite; targetRef = refsByComposite[i]; targetId = id;
             } else {
-              targetSnap = snapByNameId; targetRef = refsByNameId[i]; targetId = id;
+              // шукаємо чи є legacy-док ТІЄЇ Ж комбінації → тоді оновимо його, інакше створимо новий
+              const sameComboLegacy = candidates.find(d => {
+                const od = d.data()||{};
+                return (od.company||'') === (data.company||'') && (od.unit||'') === (data.unit||'') && (od.hub||'') === (data.hub||'');
+              });
+              if (sameComboLegacy){
+                targetSnap = sameComboLegacy; targetId = sameComboLegacy.id; targetRef = db.collection('directory').doc(targetId);
+              } else {
+                targetSnap = snapByComposite; targetRef = refsByComposite[i]; targetId = id;
+              }
             }
           }
 
