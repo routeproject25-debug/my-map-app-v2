@@ -212,6 +212,40 @@
     <pre id="log"></pre>
   </div>
 
+  <!-- ===== Один запис у довідник (ручний режим) ===== -->
+  <div class="wrap">
+    <div class="card">
+      <b>Додати/оновити одиночний запис у довідник</b>
+      <div class="sub">Ключ унікальності: Назва + Підприємство + Підрозділ + ХАБ. Якщо відрізняється лише КОД — оновлюється; якщо все збігається — пропускається.</div>
+      <div class="grid two">
+        <div>
+          <label>Назва</label>
+          <input id="singleName" placeholder="Напр.: Елеватор А" style="width:100%" />
+        </div>
+        <div>
+          <label>КОД (необовʼязково)</label>
+          <input id="singleCode" placeholder="Напр.: ELV01" style="width:100%" />
+        </div>
+        <div>
+          <label>Підприємство</label>
+          <input id="singleCompany" placeholder="Компанія" style="width:100%" />
+        </div>
+        <div>
+          <label>Підрозділ</label>
+          <input id="singleUnit" placeholder="Підрозділ" style="width:100%" />
+        </div>
+        <div>
+          <label>ХАБ</label>
+          <input id="singleHub" placeholder="Напр.: Центральний" style="width:100%" />
+        </div>
+      </div>
+      <div class="toolbar" style="margin-top:10px">
+        <button id="btnAddSingle" class="btn primary">Зберегти запис</button>
+        <span id="singleStatus" class="muted"></span>
+      </div>
+    </div>
+  </div>
+
 <script>
 document.addEventListener('DOMContentLoaded', () => {
   'use strict';
@@ -427,6 +461,77 @@ function makeNGrams(s, n = 3){
   function makeNameId(name){
     const base = toUkLower(name).replace(/\s+/g, ' ').trim();
     return sanitizeId(base);
+  }
+
+  // === Ручний одиночний запис ===
+  async function addSingleDirectoryEntry(){
+    try{
+      if (!db) { alert('Firestore недоступний'); return; }
+      if (!currentUser) { alert('Спершу увійдіть'); return; }
+      if (!WRITE_ROLES.has(currentRole)) { alert('Недостатньо прав (потрібно: admin або logist)'); return; }
+      const name    = $('singleName').value.trim();
+      const codeIn  = $('singleCode').value.trim();
+      const company = $('singleCompany').value.trim();
+      const unit    = $('singleUnit').value.trim();
+      const hub     = $('singleHub').value.trim();
+      if (!name){ alert('Поле "Назва" обовʼязкове'); return; }
+
+      const nameId = makeNameId(name);
+      const ref = db.collection('directory').doc(nameId);
+      const snap = await ref.get();
+
+      const newData = {
+        name,
+        nameLower: toUkLower(name),
+        nameNgrams: makeNGrams(name),
+        ...(company && { company }),
+        ...(unit && { unit }),
+        ...(hub && { hub }),
+        ...(codeIn && { code: codeIn })
+      };
+
+      const statusEl = $('singleStatus');
+      function setMsg(html){ statusEl.innerHTML = html; }
+
+      if (!snap.exists){
+        // створюємо новий
+        await ref.set(newData, { merge:true });
+        setMsg(`<span class='ok'>Додано новий запис: <b>${name}</b></span>`);
+        log(`(single) NEW name="${name}" id=${nameId} data=${JSON.stringify(newData)}`,'ok');
+        return;
+      }
+
+      const old = snap.data() || {};
+      // Перевірка унікальності за чотирма полями (company, unit, hub, name)
+      const sameKey = (toUkLower(old.name||'') === toUkLower(name)) &&
+                      ((old.company||'') === company) &&
+                      ((old.unit||'') === unit) &&
+                      ((old.hub||'') === hub);
+
+      if (sameKey){
+        const oldCode = old.code || '';
+        // якщо код відрізняється і введено новий → оновлюємо тільки код
+        if (codeIn && codeIn !== oldCode){
+          await ref.set({ code: codeIn }, { merge:true });
+          setMsg(`<span class='ok'>Оновлено код для «${name}»: ${oldCode||'—'} → ${codeIn}</span>`);
+          log(`(single) UPDATE CODE name="${name}" ${oldCode||'—'} → ${codeIn}`,'warn');
+        } else {
+          setMsg(`<span class='muted'>Без змін — запис вже існує</span>`);
+          log(`(single) SKIP (no change) name="${name}"`,'ok');
+        }
+        return;
+      }
+
+      // Ключ (name) той самий, але інші атрибути змінилися → перезаписуємо весь документ.
+      // Якщо код порожній, зберігаємо старий, щоб не втратити.
+      if (!codeIn && old.code){ newData.code = old.code; }
+      await ref.set(newData, { merge:true });
+      setMsg(`<span class='ok'>Оновлено запис «${name}» (змінені атрибути company/unit/hub)</span>`);
+      log(`(single) UPDATE ATTRS name="${name}" id=${nameId} data=${JSON.stringify(newData)}`,'warn');
+    }catch(e){
+      $('singleStatus').innerHTML = `<span class='err'>Помилка: ${e.message||e}</span>`;
+      log(`(single) ERROR: ${e.message||e}`,'err');
+    }
   }
 
   // Підготовка entries
@@ -743,6 +848,12 @@ function equalData(a, b){
   // стартова підказка
   statusTop.textContent = 'Увійдіть';
   updateImportButton();
+
+  // Подія для одиночного запису
+  $('btnAddSingle')?.addEventListener('click', (e) => {
+    e.preventDefault();
+    addSingleDirectoryEntry();
+  });
 });
 </script>
 <script>
