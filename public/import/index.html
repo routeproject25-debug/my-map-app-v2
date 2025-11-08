@@ -58,6 +58,23 @@
     .authbar { display:flex; gap:6px; align-items:center; flex-wrap:wrap; }
     .authbar .btn { height:30px; padding:4px 10px; }
     .role-badge { background:rgba(255,255,255,.2); padding:2px 8px; border-radius:999px; font-size:12px; }
+
+    /* Summary modal */
+    .modal-backdrop{ position:fixed; inset:0; background:rgba(2,6,23,.54); display:none; align-items:center; justify-content:center; z-index:9999; }
+    .modal{ background:#fff; border:1px solid var(--line); border-radius:14px; box-shadow:var(--shadow); width:min(1000px, 96vw); max-height:86vh; display:flex; flex-direction:column; }
+    .modal header{ display:flex; align-items:center; justify-content:space-between; padding:10px 14px; border-bottom:1px solid var(--line); }
+    .modal header h3{ margin:0; font-size:16px; }
+    .modal .content{ padding:10px 14px; overflow:auto; }
+    .tabs{ display:flex; gap:8px; border-bottom:1px solid var(--line); margin-bottom:8px; }
+    .tab{ padding:6px 10px; border:1px solid var(--line); border-bottom:none; border-top-left-radius:8px; border-top-right-radius:8px; background:#f8fafc; cursor:pointer; font-size:13px; }
+    .tab.active{ background:#fff; }
+    table.summary{ width:100%; border-collapse:collapse; font-size:13px; }
+    table.summary th, table.summary td{ border-bottom:1px solid #eef2f7; padding:6px 8px; text-align:left; }
+    .badge{ display:inline-block; padding:2px 8px; border-radius:999px; font-size:12px; }
+    .b-new{ background:#ecfdf5; color:#065f46; }
+    .b-upd{ background:#fff7ed; color:#9a3412; }
+    .b-same{ background:#f1f5f9; color:#334155; }
+    .modal .toolbar{ justify-content:space-between; }
   </style>
 
   <!-- === AUTH GUARD у <head> === -->
@@ -246,6 +263,36 @@
     </div>
   </div>
 
+  <!-- Modal: Підсумок імпорту -->
+  <div id="summaryBackdrop" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="summaryTitle">
+    <div class="modal">
+      <header>
+        <h3 id="summaryTitle">Підсумок імпорту</h3>
+        <div class="toolbar">
+          <div style="display:flex; gap:8px; align-items:center;">
+            <button id="btnSummaryCSV" class="btn ghost">Експорт CSV</button>
+            <button id="btnSummaryJSON" class="btn ghost">Копіювати JSON</button>
+          </div>
+          <button id="btnSummaryClose" class="btn">Закрити</button>
+        </div>
+      </header>
+      <div class="content">
+        <div class="tabs">
+          <div class="tab active" data-tab="overview">Підсумок</div>
+          <div class="tab" data-tab="new">Створені</div>
+          <div class="tab" data-tab="updated">Оновлені</div>
+          <div class="tab" data-tab="unchanged">Без змін</div>
+          <div class="tab" data-tab="other">Інше</div>
+        </div>
+        <div id="tab-overview"></div>
+        <div id="tab-new" style="display:none"></div>
+        <div id="tab-updated" style="display:none"></div>
+        <div id="tab-unchanged" style="display:none"></div>
+        <div id="tab-other" style="display:none"></div>
+      </div>
+    </div>
+  </div>
+
 <script>
 document.addEventListener('DOMContentLoaded', () => {
   'use strict';
@@ -260,6 +307,99 @@ document.addEventListener('DOMContentLoaded', () => {
   function setProg(pct, label){
     $('prog').value = Math.max(0, Math.min(100, Math.round(pct)));
     $('progLabel').textContent = label || '';
+  }
+
+  // ===== Summary helpers =====
+  const SUMMARY_LIMIT = 200; // показуємо у таблиці максимум N записів на категорію
+  const LastSummary = { data:null }; // зберігаємо останній результат для повторного відкриття/експорту
+
+  function toCSV(rows){
+    if (!rows || !rows.length) return '';
+    const headers = Object.keys(rows[0]);
+    const escape = (v) => {
+      const s = (v==null?'' : String(v));
+      return /[",\n]/.test(s) ? '"'+s.replace(/"/g,'""')+'"' : s;
+    };
+    const lines = [headers.join(',')];
+    for (const r of rows){ lines.push(headers.map(h => escape(r[h])).join(',')); }
+    return lines.join('\n');
+  }
+
+  function renderTable(rows, title){
+    if (!rows || !rows.length) return `<div class="muted">Немає даних</div>`;
+    const shown = rows.slice(0, SUMMARY_LIMIT);
+    const more = rows.length - shown.length;
+    const headers = Object.keys(shown[0]);
+    const th = headers.map(h=>`<th>${h}</th>`).join('');
+    const tr = shown.map(r=>`<tr>${headers.map(h=>`<td>${(r[h]==null?'':String(r[h]))}</td>`).join('')}</tr>`).join('');
+    const note = more>0? `<div class="muted" style="margin-top:6px">Показано ${shown.length} з ${rows.length}. Для повного списку — експортуйте CSV/JSON.</div>` : '';
+    return `
+      <div class="muted" style="margin-bottom:6px">${title||''}</div>
+      <table class="summary"><thead><tr>${th}</tr></thead><tbody>${tr}</tbody></table>
+      ${note}
+    `;
+  }
+
+  function showImportSummary(summary){
+    LastSummary.data = summary;
+    const bd = $('summaryBackdrop');
+    const tabs = Array.from(document.querySelectorAll('.tabs .tab'));
+    function activate(name){
+      tabs.forEach(t=>{ t.classList.toggle('active', t.dataset.tab===name); });
+      ['overview','new','updated','unchanged','other'].forEach(id=>{
+        const el = $('tab-'+id);
+        if (el) el.style.display = (id===name)? '' : 'none';
+      });
+    }
+    // Overview content
+    const o = summary;
+    const overviewHTML = `
+      <div style="display:flex; gap:12px; flex-wrap:wrap;">
+        <span class="badge b-new">Створено: ${o.new.length}</span>
+        <span class="badge b-upd">Оновлено: ${o.updated.length}</span>
+        <span class="badge b-same">Без змін: ${o.unchanged.length}</span>
+        ${o.deleted?.length? `<span class="badge">Видалено legacy: ${o.deleted.length}</span>`:''}
+      </div>
+      <div class="muted" style="margin-top:8px">Dry-run: ${o.dry? 'так' : 'ні'}</div>
+    `;
+    $('tab-overview').innerHTML = overviewHTML;
+    $('tab-new').innerHTML = renderTable(o.new, 'Створені документи');
+    $('tab-updated').innerHTML = renderTable(o.updated, 'Оновлені документи');
+    $('tab-unchanged').innerHTML = renderTable(o.unchanged, 'Без змін');
+    $('tab-other').innerHTML = renderTable(o.other||[], 'Інше');
+
+    activate('overview');
+    bd.style.display = 'flex';
+  }
+
+  function exportSummaryCSV(){
+    const s = LastSummary.data; if (!s) return;
+    const rows = [
+      ...s.new.map(x=>({action:'new',...x})),
+      ...s.updated.map(x=>({action:'updated',...x})),
+      ...s.unchanged.map(x=>({action:'unchanged',...x})),
+      ...(s.deleted||[]).map(x=>({action:'deleted-legacy',...x})),
+      ...(s.other||[]).map(x=>({action:'other',...x}))
+    ];
+    const csv = toCSV(rows);
+    const blob = new Blob([csv], { type:'text/csv;charset=utf-8;' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `directory-import-summary-${Date.now()}.csv`;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(()=>URL.revokeObjectURL(a.href), 1000);
+  }
+
+  function copySummaryJSON(){
+    const s = LastSummary.data; if (!s) return;
+    const txt = JSON.stringify(s, null, 2);
+    navigator.clipboard?.writeText(txt).then(()=>{
+      setStatus('<span class="ok">JSON скопійовано у буфер обміну</span>');
+    }).catch(()=>{
+      // fallback
+      const ta = document.createElement('textarea'); ta.value = txt; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); ta.remove();
+      setStatus('<span class="ok">JSON скопійовано (fallback)</span>');
+    });
   }
 
   // ----- AUTH / FIREBASE -----
@@ -524,6 +664,7 @@ function makeNGrams(s, n = 3){
         await ref.set(newData, { merge:true });
         setMsg(`<span class='ok'>Створено новий запис (нове поєднання атрибутів)</span>`);
         log(`(single) NEW COMBO name="${name}" id=${compositeId} data=${JSON.stringify(newData)}`,'ok');
+        showImportSummary({ new: [{ id: compositeId, name, code: newData.code||'', company: company||'', unit: unit||'', hub: hub||'' }], updated: [], unchanged: [], deleted: [], other: [], dry: false });
         return;
       }
 
@@ -541,9 +682,11 @@ function makeNGrams(s, n = 3){
           await ref.set({ code: codeIn }, { merge:true });
           setMsg(`<span class='ok'>Оновлено код для «${name}»: ${oldCode||'—'} → ${codeIn}</span>`);
           log(`(single) UPDATE CODE name="${name}" ${oldCode||'—'} → ${codeIn}`,'warn');
+          showImportSummary({ new: [], updated: [{ id: ref.id, name, codeOld: oldCode||'', codeNew: codeIn||'', company: company||'', unit: unit||'', hub: hub||'', changed: 'code' }], unchanged: [], deleted: [], other: [], dry: false });
         } else {
           setMsg(`<span class='muted'>Без змін — запис вже існує</span>`);
           log(`(single) SKIP (no change) name="${name}"`,'ok');
+          showImportSummary({ new: [], updated: [], unchanged: [{ id: ref.id, name, code: oldCode||'', company: company||'', unit: unit||'', hub: hub||'' }], deleted: [], other: [], dry: false });
         }
         return;
       }
@@ -555,6 +698,7 @@ function makeNGrams(s, n = 3){
       await ref.set(newData, { merge:true });
       setMsg(`<span class='ok'>Оновлено (вирівнювання даних з існуючим записом)</span>`);
       log(`(single) ALIGN UPDATE name="${name}" id=${compositeId} data=${JSON.stringify(newData)}`,'warn');
+      showImportSummary({ new: [], updated: [{ id: ref.id, name, codeOld: old.code||'', codeNew: newData.code||'', company: company||'', unit: unit||'', hub: hub||'', changed: 'attrs|code?' }], unchanged: [], deleted: [], other: [], dry: false });
     }catch(e){
       $('singleStatus').innerHTML = `<span class='err'>Помилка: ${e.message||e}</span>`;
       log(`(single) ERROR: ${e.message||e}`,'err');
@@ -711,7 +855,13 @@ function equalData(a, b){
     $('parseBtn').disabled = true;
     $('clearBtn').disabled = true;
 
-    const total = entries.length;
+  const total = entries.length;
+  // Recap containers
+  const recapNew = [];
+  const recapUpdated = [];
+  const recapUnchanged = [];
+  const recapDeleted = [];
+  const recapOther = [];
     const SAFE_BATCH = 450;
     const totalBatches = Math.ceil(total / SAFE_BATCH);
     let ok = 0, fail = 0;
@@ -784,10 +934,14 @@ function equalData(a, b){
               }
             }
 
-            if (!dry && others.length){
-              for (const d of others){ batch.delete(db.collection('directory').doc(d.id)); writes++; deletedThisBatch++; }
-            } else if (dry && others.length){
-              log(`(dry-run) Було б видалено legacy дублікати (комбінація) для «${data.name}»: ${others.map(o=>o.id).join(', ')}`,'warn');
+            if (others.length){
+              for (const d of others){
+                (dry ? recapDeleted : recapDeleted).push({ id:d.id, name:data.name, company:data.company||'', unit:data.unit||'', hub:data.hub||'', reason:'legacy-duplicate' });
+                if (!dry){ batch.delete(db.collection('directory').doc(d.id)); writes++; deletedThisBatch++; }
+              }
+              if (dry){
+                log(`(dry-run) Було б видалено legacy дублікати (комбінація) для «${data.name}»: ${others.map(o=>o.id).join(', ')}`,'warn');
+              }
             }
           } else {
             // Безпечний режим — оновлюємо лише якщо composite існує; інакше створюємо новий, не чіпаючи інші комбінації цієї ж назви
@@ -809,6 +963,7 @@ function equalData(a, b){
 
           if (!targetSnap.exists){
             newCount++;
+            recapNew.push({ id:targetId, name:data.name, code:data.code||'', company:data.company||'', unit:data.unit||'', hub:data.hub||'' });
             if (!dry){ batch.set(targetRef, data, { merge: true }); writes++; }
           } else {
             const old = targetSnap.data() || {};
@@ -817,9 +972,16 @@ function equalData(a, b){
                 log(`↻ Код змінено для «${data.name}»: ${old.code || '—'} → ${data.code || '—'}`,'warn');
               }
               updatedCount++;
+              const changed = [];
+              if ((old.code||'') !== (data.code||'')) changed.push('code');
+              if ((old.company||'') !== (data.company||'')) changed.push('company');
+              if ((old.unit||'') !== (data.unit||'')) changed.push('unit');
+              if ((old.hub||'') !== (data.hub||'')) changed.push('hub');
+              recapUpdated.push({ id:targetId, name:data.name, codeOld:old.code||'', codeNew:data.code||'', company:data.company||'', unit:data.unit||'', hub:data.hub||'', changed:changed.join('|') });
               if (!dry){ batch.set(targetRef, data, { merge: true }); writes++; }
             } else {
               unchangedCount++;
+              recapUnchanged.push({ id:targetId, name:data.name, code:data.code||'', company:data.company||'', unit:data.unit||'', hub:data.hub||'' });
             }
           }
         }
@@ -849,6 +1011,16 @@ function equalData(a, b){
       `);
       log(`Підсумок → Нових: ${newCount} | Оновлено: ${updatedCount} | Без змін: ${unchangedCount}${dry ? ' (dry-run)' : ''}`, 'ok');
       setProg(100, 'Готово');
+
+      // Відкрити модальне вікно з деталями
+      showImportSummary({
+        new: recapNew,
+        updated: recapUpdated,
+        unchanged: recapUnchanged,
+        deleted: recapDeleted,
+        other: recapOther,
+        dry
+      });
     }catch(e){
       fail = total - ok;
       log(`Помилка імпорту: ${e.message || e}`, 'err');
@@ -876,6 +1048,20 @@ function equalData(a, b){
     setProg(0, 'Готово');
     $('raw').focus();
     updateImportButton();
+  });
+
+  // Summary modal wiring
+  $('btnSummaryClose').addEventListener('click', ()=>{ $('summaryBackdrop').style.display='none'; });
+  $('btnSummaryCSV').addEventListener('click', exportSummaryCSV);
+  $('btnSummaryJSON').addEventListener('click', copySummaryJSON);
+  document.querySelectorAll('.tabs .tab').forEach(tab=>{
+    tab.addEventListener('click', ()=>{
+      const name = tab.dataset.tab; if (!name) return;
+      document.querySelectorAll('.tabs .tab').forEach(t=>t.classList.toggle('active', t===tab));
+      ['overview','new','updated','unchanged','other'].forEach(id=>{
+        const el = $('tab-'+id); if (el) el.style.display = (id===name)? '' : 'none';
+      });
+    });
   });
 
   // стартова підказка
