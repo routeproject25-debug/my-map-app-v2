@@ -2517,6 +2517,11 @@ function userCanReserveRouteKeys(){
   const r = userRoleLower();
   return r === 'admin' || r === 'security';
 }
+// Хто може виконувати остаточне (фізичне) видалення маршрутів
+function userCanHardDeleteRoutes(){
+  const r = userRoleLower();
+  return r === 'admin' || r === 'security';
+}
 
 /* ===================== Directory / helpers / UI ===================== */
 const dirByCode = {};
@@ -3259,6 +3264,8 @@ async function saveToDB() {
   updatedAt: new Date().toISOString(),
   hub: hub || null
 };
+    // Поле активності (для soft-delete). Якщо існуючий (overwrite) був неактивним — зберігаємо неактивність.
+    try { if (existing) { payload.isActive = (existing.data()?.isActive === false ? false : true); } else { payload.isActive = true; } } catch(_){ payload.isActive = true; }
 
     // 🧠 ІНДЕКСНІ ПОЛЯ РАХУЄМО ОДИН РАЗ (поза транзакцією)
     const searchText = [finalName, fromLabel, toLabel].filter(Boolean).join(' | ');
@@ -3780,8 +3787,12 @@ async function refreshRoutesList(mode='reset'){
 
   const pageSize = 100; // скільки підтягувати за раз
   let q = db.collection('routes');
-q = withHubFilter(q, 'hub');
-q = q.orderBy('updatedAt','desc').limit(pageSize);
+  // Показуємо лише активні для не-адмінів. Адмін/СБ бачать усі (можливість керувати неактивними).
+  if (!userCanHardDeleteRoutes()){
+    try { q = q.where('isActive','==', true); } catch(_){ /* якщо ще немає поля або індексу */ }
+  }
+  q = withHubFilter(q, 'hub');
+  q = q.orderBy('updatedAt','desc').limit(pageSize);
   if (routesPageLastDoc) q = q.startAfter(routesPageLastDoc);
 
   try{
@@ -3895,6 +3906,10 @@ async function loadFromDB() {
   alert('⛔ У вас немає доступу до хабу цього маршруту: ' + (data.hub || '—'));
   return;
 }
+    // Інформаційне повідомлення про неактивний (soft-deleted) маршрут
+    if (data.isActive === false){
+      alert('ℹ️ Маршрут позначено як неактивний (видалений логістом). Адмін може його відновити або видалити остаточно.');
+    }
 
     const fName = getNameByCode(data.fromCode) || parseNameFromLabel(data.fromLabel);
     const tName = getNameByCode(data.toCode)   || parseNameFromLabel(data.toLabel);
@@ -3941,25 +3956,88 @@ async function deleteFromDB() {
     const id = sel.value;
     if (!id) { alert('Оберіть маршрут у списку'); return; }
     // Додаткова перевірка доступу за хабом перед видаленням
-    try {
-      const snap = await db.collection('routes').doc(id).get();
-      if (snap.exists) {
-        const data = snap.data() || {};
-        if (!userAllowsHub(data.hub || '')) {
-          alert('⛔ У вас немає доступу до хабу цього маршруту: ' + (data.hub || '—'));
-          return;
-        }
-      }
-    } catch(_) { /* у разі помилки покладаймося на правила безпеки Firestore */ }
-    if (!confirm(`Точно видалити маршрут "${id}"?`)) return;
+    let snap = null;
+    try { snap = await db.collection('routes').doc(id).get(); } catch(_){ snap = null; }
+    let data = snap && snap.exists ? (snap.data()||{}) : {};
+    // Перевірка доступу до хабу
+    if (snap && snap.exists && !userAllowsHub(data.hub || '')){
+      alert('⛔ У вас немає доступу до хабу цього маршруту: ' + (data.hub || '—'));
+      return;
+    }
+    const role = userRoleLower();
+    const isInactive = (data && data.isActive === false);
 
-    await db.collection('routes').doc(id).delete();
-    alert('Видалено з БД: ' + id);
+    if (!userCanHardDeleteRoutes()){
+      // Логіст/інший — лише soft-delete
+      if (isInactive){
+        alert('Маршрут вже позначено як неактивний. Зверніться до адміністратора для відновлення або остаточного видалення.');
+        return;
+      }
+      if (!confirm('Позначити маршрут як неактивний (видалений для користувачів)?')) return;
+      await markRouteInactive(id);
+      alert('✅ Маршрут позначено як неактивний. Адмін може його відновити або видалити остаточно.');
+      await refreshRoutesList();
+      return;
+    }
+
+    // Адмін / СБ — пропонуємо варіанти
+    let actionPrompt = '';
+    if (!isInactive){
+      actionPrompt = 'Дія над активним маршрутом: введіть inactive (позначити), hard (остаточно видалити) або cancel.';
+    } else {
+      actionPrompt = 'Маршрут неактивний. Введіть restore (відновити), hard (остаточно видалити) або cancel.';
+    }
+    const choiceRaw = prompt(actionPrompt, isInactive ? 'restore' : 'inactive');
+    const choice = (choiceRaw || '').trim().toLowerCase();
+    if (!choice || choice === 'cancel') return;
+    if (!isInactive && choice === 'inactive'){
+      await markRouteInactive(id);
+      alert('✅ Маршрут позначено як неактивний.');
+    } else if (isInactive && (choice === 'restore')){
+      await restoreRoute(id);
+      alert('✅ Маршрут відновлено (активний).');
+    } else if (choice === 'hard'){
+      if (!confirm('Остаточно видалити маршрут? Це НЕМОЖЛИВО повернути.')) return;
+      await hardDeleteRoute(id);
+      alert('🗑️ Маршрут остаточно видалено.');
+    } else {
+      alert('❎ Невідома дія або скасовано.');
+      return;
+    }
     await refreshRoutesList();
   } catch (err) {
     console.error('❌ Помилка видалення з БД:', err);
     alert('❌ Не вдалося видалити: ' + (err?.message || err));
   }
+}
+// Soft-delete: позначити маршрут неактивним
+async function markRouteInactive(id){
+  const ref = db.collection('routes').doc(id);
+  await ref.set({
+    isActive: false,
+    deletedAt: new Date().toISOString(),
+    deletedByUid: auth?.currentUser?.uid || null,
+    deletedByEmail: auth?.currentUser?.email || null,
+    deletedByRole: userRoleLower()
+  }, { merge:true });
+  try { await clientWriteRouteLog(id, 'mark-deleted', { isActive:false }); } catch(_){ }
+}
+// Restore soft-deleted route
+async function restoreRoute(id){
+  const ref = db.collection('routes').doc(id);
+  await ref.set({
+    isActive: true,
+    restoredAt: new Date().toISOString(),
+    restoredByUid: auth?.currentUser?.uid || null,
+    restoredByEmail: auth?.currentUser?.email || null,
+    deletedAt: null
+  }, { merge:true });
+  try { await clientWriteRouteLog(id, 'restore', { isActive:true }); } catch(_){ }
+}
+// Hard delete (admin/security only)
+async function hardDeleteRoute(id){
+  await db.collection('routes').doc(id).delete();
+  try { await clientWriteRouteLog(id, 'hard-delete', { isActive:null }); } catch(_){ }
 }
 /* ======== APPROVAL: helpers + UI ======== */
 
