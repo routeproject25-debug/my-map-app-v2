@@ -978,6 +978,7 @@ async function loadTilesetsConfigOnce(){
 
 // Перевірка: чи дозволено tileset користувачу за хабами
 function tilesetAllowedForUser(ts){
+  if (hasNoHubs()) return false;
   const tags = Array.isArray(ts.hubs) ? ts.hubs : [];
   if (!tags.length || tags.includes('*')) return true;    // не розмічено або глобальний
   if (isAllHubs()) return true;                           // користувачу дозволено "всі хаби"
@@ -1167,7 +1168,7 @@ let readOnly    = true;
 
     // просто прогріваємо змінні; applyRoleUI викличеться нижче в onAuthStateChanged
     window.__userRole = role || 'guest';
-    if (all === true)        window.ALLOWED_HUBS = []; // [] = всі хаби
+    if (all === true)        window.ALLOWED_HUBS = null; // null = всі хаби
     else if (Array.isArray(hubs)) window.ALLOWED_HUBS = hubs;
   }catch(_){}
 })();
@@ -2439,32 +2440,36 @@ try {
 }
 // ===== HUB ACCESS (глобально) =====
 
-let ALLOWED_HUBS = null;   // null або [] => ВСІ хаби
+// Семантика доступу:
+//   ALLOWED_HUBS === null  → ВСІ хаби дозволені (admin/security/allowAll)
+//   ALLOWED_HUBS === []     → ЖОДНОГО хабу не дозволено
+//   ALLOWED_HUBS === ['X','Y'] → дозволено перелік
+let ALLOWED_HUBS = null;
 
-function isAllHubs(){
-  // null або порожній масив означає "всі хаби дозволені"
-  return !Array.isArray(ALLOWED_HUBS) || ALLOWED_HUBS.length === 0;
-}
+function isAllHubs(){ return ALLOWED_HUBS === null; }
+function hasNoHubs(){ return Array.isArray(ALLOWED_HUBS) && ALLOWED_HUBS.length === 0; }
 
 function userAllowsHub(h){
   if (!h) return isAllHubs();
-  return isAllHubs() || ALLOWED_HUBS.includes(h);
+  return isAllHubs() || (Array.isArray(ALLOWED_HUBS) && ALLOWED_HUBS.includes(h));
 }
 
 async function getAllowedHubsForUser(uid, role){
   try{
     // адміни/СБ — бачать всі
-    if (String(role).toLowerCase() === 'admin' || String(role).toLowerCase() === 'security') return [];
+    const rl = String(role||'').toLowerCase();
+    if (rl === 'admin' || rl === 'security') return null;
     const snap = await db.collection('users').doc(uid).get({ source: 'server' });
     const d = snap.exists ? (snap.data() || {}) : {};
+    if (d.allowAllHubs === true || d.allowedHubs === '*' || d.hubs === '*') return null;
     if (Array.isArray(d.allowedHubs) && d.allowedHubs.length) return d.allowedHubs.slice(0, 10);
     if (Array.isArray(d.hubs) && d.hubs.length)               return d.hubs.slice(0, 10);
     if (typeof d.hub === 'string' && d.hub.trim())            return [d.hub.trim()];
     if (typeof d.hubAccess === 'string' && d.hubAccess.trim())return [d.hubAccess.trim()];
-    return []; // дефолт — всі
+    return []; // жодного
   }catch(e){
     console.warn('getAllowedHubsForUser:', e?.message||e);
-    return [];
+    return []; // безпечний дефолт — жодного
   }
 }
 
@@ -2472,6 +2477,13 @@ async function getAllowedHubsForUser(uid, role){
 function applyHubSelectVisibility(){
   const sel = document.getElementById('hubSelect');
   if (!sel) return;
+
+  if (hasNoHubs()){
+    sel.value='';
+    sel.disabled = true;
+    [...sel.options].forEach(o=>{ if (o.value){ o.hidden=true; o.disabled=true; }});
+    return;
+  }
 
   [...sel.options].forEach(opt => {
     if (!opt.value) return; // “— не вказано —”
@@ -2494,6 +2506,7 @@ function applyHubSelectVisibility(){
 // Обгортач Firestore-запиту фільтром по хабу
 function withHubFilter(q, field = 'hub'){
   if (isAllHubs()) return q;
+  if (hasNoHubs()) return q.where(field,'==','__NO_ACCESS__');
   if (ALLOWED_HUBS.length === 1) return q.where(field, '==', ALLOWED_HUBS[0]);
   return q.where(field, 'in', ALLOWED_HUBS.slice(0, 10)); // Firestore in: до 10 значень
 }
@@ -5061,6 +5074,30 @@ try {
   ALLOWED_HUBS = [];
 }
 applyHubSelectVisibility();
+// Якщо нема доступу до жодного хабу — залочити UI і показати банер
+if (hasNoHubs()) {
+  (function lockUiForNoHub(){
+    let b = document.getElementById('noHubBanner');
+    if (!b){
+      b = document.createElement('div');
+      b.id = 'noHubBanner';
+      b.style.cssText = 'position:absolute;left:50%;top:12px;transform:translateX(-50%);background:#fee2e2;color:#b91c1c;padding:8px 16px;border:1px solid #fecaca;border-radius:10px;font-size:14px;z-index:1200;box-shadow:0 2px 6px rgba(0,0,0,.08);';
+      b.textContent = 'Немає доступу до жодного хабу. Зверніться до адміністратора.';
+      document.body.appendChild(b);
+    }
+    b.style.display='block';
+    const ids = [
+      'fromName','toName','routeType','routePurpose','intermediateText','logistInput','hubSelect',
+      'toggleAdd','startLineMode','endLineMode','clearRoute','clearRulers','popRulerPoint','toggleMarkers',
+      'findSimilarBtn','saveRoute','loadRoute','saveRouteKml','loadRouteKml','saveToDB','deleteFromDB',
+      'refreshDirectory','refreshList','loadMoreRoutes','loadAllRoutes','loadFromDB'
+    ];
+    ids.forEach(id=>{ const el=document.getElementById(id); if(el){ el.disabled=true; el.classList.add('muted'); }});
+    try{ geozonesVisible=false; setGeozonesVisibility(false); updateGeozonesToggleLabel(); }catch(_){ }
+  })();
+} else {
+  const b = document.getElementById('noHubBanner'); if (b) b.style.display='none';
+}
 
 // Перечитати довідник під доступи (без force — спробує кеш)
 if (!DIR_LOADED_ONCE) {
