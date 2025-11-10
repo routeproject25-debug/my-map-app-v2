@@ -3985,16 +3985,9 @@ async function deleteFromDB() {
       return;
     }
 
-    // Адмін / СБ — пропонуємо варіанти
-    let actionPrompt = '';
-    if (!isInactive){
-      actionPrompt = 'Дія над активним маршрутом: введіть inactive (позначити), hard (остаточно видалити) або cancel.';
-    } else {
-      actionPrompt = 'Маршрут неактивний. Введіть restore (відновити), hard (остаточно видалити) або cancel.';
-    }
-    const choiceRaw = prompt(actionPrompt, isInactive ? 'restore' : 'inactive');
-    const choice = (choiceRaw || '').trim().toLowerCase();
-    if (!choice || choice === 'cancel') return;
+    // Адмін / СБ — пропонуємо варіанти через випадаючий список
+    const choice = await promptRouteActionDropdown(isInactive);
+    if (!choice) return; // скасовано
     if (!isInactive && choice === 'inactive'){
       await markRouteInactive(id);
       alert('✅ Маршрут позначено як неактивний.');
@@ -4043,6 +4036,66 @@ async function restoreRoute(id){
 async function hardDeleteRoute(id){
   await db.collection('routes').doc(id).delete();
   try { await clientWriteRouteLog(id, 'hard-delete', { isActive:null }); } catch(_){ }
+}
+
+// ---------- Невелике модальне вікно з випадаючим списком дій для адміна ----------
+async function promptRouteActionDropdown(isInactive){
+  return new Promise((resolve)=>{
+    const overlay = document.createElement('div');
+    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:9999;display:flex;align-items:center;justify-content:center;';
+    const box = document.createElement('div');
+    box.style.cssText = 'background:#111827;color:#e5e7eb;max-width:420px;width:92vw;border-radius:12px;box-shadow:0 10px 24px rgba(0,0,0,.3);padding:16px;border:1px solid #374151;';
+    const title = document.createElement('div');
+    title.style.cssText = 'font-weight:600;margin-bottom:8px;';
+    title.textContent = isInactive ? 'Маршрут неактивний' : 'Маршрут активний';
+    const msg = document.createElement('div');
+    msg.style.cssText = 'font-size:13px;margin-bottom:10px;line-height:1.35;';
+    msg.textContent = isInactive
+      ? 'Виберіть дію: відновити, остаточно видалити або скасувати.'
+      : 'Виберіть дію: позначити як неактивний, остаточно видалити або скасувати.';
+
+    const row = document.createElement('div');
+    row.style.cssText = 'display:flex;gap:8px;align-items:center;margin-bottom:12px;';
+    const label = document.createElement('label');
+    label.style.cssText = 'font-size:13px;';
+    label.textContent = 'Дія:';
+    const select = document.createElement('select');
+    select.style.cssText = 'flex:1 1 auto;padding:8px 10px;border:1px solid #6b7280;border-radius:8px;background:#111827;color:#e5e7eb;';
+
+    const makeOpt = (val, text) => { const o=document.createElement('option'); o.value=val; o.textContent=text; return o; };
+    if (isInactive){
+      select.appendChild(makeOpt('restore','Відновити'));
+      select.appendChild(makeOpt('hard','Остаточно видалити'));
+    } else {
+      select.appendChild(makeOpt('inactive','Позначити як неактивний'));
+      select.appendChild(makeOpt('hard','Остаточно видалити'));
+    }
+    select.value = isInactive ? 'restore' : 'inactive';
+
+    row.appendChild(label); row.appendChild(select);
+
+    const actions = document.createElement('div');
+    actions.style.cssText = 'display:flex;justify-content:flex-end;gap:8px;';
+    const ok = document.createElement('button');
+    ok.textContent = 'OK';
+    ok.style.cssText = 'padding:8px 12px;border-radius:8px;border:1px solid #2563eb;background:#2563eb;color:#fff;cursor:pointer;';
+    const cancel = document.createElement('button');
+    cancel.textContent = 'Скасувати';
+    cancel.style.cssText = 'padding:8px 12px;border-radius:8px;border:1px solid #6b7280;background:#374151;color:#e5e7eb;cursor:pointer;';
+    actions.appendChild(ok); actions.appendChild(cancel);
+
+    box.appendChild(title); box.appendChild(msg); box.appendChild(row); box.appendChild(actions);
+    overlay.appendChild(box);
+    document.body.appendChild(overlay);
+
+    const cleanup = ()=>{ try{ document.body.removeChild(overlay); }catch(_){} };
+    ok.addEventListener('click', ()=>{ const v = String(select.value||''); cleanup(); resolve(v || null); });
+    cancel.addEventListener('click', ()=>{ cleanup(); resolve(null); });
+    overlay.addEventListener('click', (e)=>{ if (e.target === overlay){ cleanup(); resolve(null); } });
+    document.addEventListener('keydown', function onKey(ev){ if (ev.key==='Escape'){ ev.preventDefault(); document.removeEventListener('keydown', onKey); cleanup(); resolve(null);} });
+
+    try{ select.focus(); }catch(_){ }
+  });
 }
 /* ======== APPROVAL: helpers + UI ======== */
 
