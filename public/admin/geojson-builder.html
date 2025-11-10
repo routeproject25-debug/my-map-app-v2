@@ -109,6 +109,17 @@
       </div>
       <div class="hint" id="drawAreaInfo" style="margin-top:4px;">Площа: —</div>
 
+      <h4 style="margin:12px 0 6px;">Редагування геозони з файлу</h4>
+      <div class="row" style="gap:8px; align-items:center; margin-bottom:6px;">
+        <select id="featureSelect" style="flex:1 1 auto;" title="Оберіть геозону для редагування"></select>
+        <button id="btnEditFeature" class="ghost" title="Завантажити геозону в редактор на карті">✏️ Редагувати</button>
+      </div>
+      <div class="row" style="gap:8px; align-items:center;">
+        <button id="btnApplyEdit" class="warn" title="Зберегти зміни з карти у файл">✅ Застосувати зміни</button>
+        <button id="btnCancelEdit" class="ghost" title="Скасувати редагування (очистити редактор)">Скасувати</button>
+      </div>
+      <div class="hint">Порада: після натискання «Редагувати» переміщайте вершини полігона на карті. «Застосувати зміни» запише оновлену геометрію в файл.</div>
+
       <div class="row" style="margin-top:8px;">
         <button id="btnDeleteFeature" class="danger">🗑 Видалити геозону з файлу</button>
       </div>
@@ -288,6 +299,7 @@
     };
     setState(`Створено новий файл «${name}»`);
     updatePreview();
+    refreshFeatureSelect();
   }
 
   function setState(msg){ document.getElementById('state').textContent = msg; }
@@ -345,6 +357,7 @@
     const out = document.getElementById('jsonOut');
     if (!out) return;
     out.value = fc ? JSON.stringify(fc, null, 2) : '';
+    refreshFeatureSelect();
   }
 
   // ===== Показ завантаженого/створеного файлу як шару =====
@@ -369,6 +382,81 @@
   }
 
   function clearDraw(){ try{ Draw.deleteAll(); }catch(_){ } }
+
+  /* ===== Редагування геозон з завантаженого файлу ===== */
+  let __editCtx = { index: null, drawId: null };
+
+  function refreshFeatureSelect(){
+    const sel = document.getElementById('featureSelect');
+    if (!sel) return;
+    sel.innerHTML = '';
+    const list = (fc && Array.isArray(fc.features)) ? fc.features : [];
+    if (!list.length){
+      const o = document.createElement('option'); o.value=''; o.textContent='— Немає геозон —'; sel.appendChild(o);
+      return;
+    }
+    list.forEach((f, i) => {
+      const p = (f && f.properties) || {};
+      const nm = p.Name || p.name || p['Назва'] || p.Code || p.code || `Без назви #${i+1}`;
+      const o = document.createElement('option');
+      o.value = String(i);
+      o.textContent = `${i+1}) ${nm}`;
+      sel.appendChild(o);
+    });
+    // якщо є активний контекст редагування — тримай вибір
+    if (Number.isInteger(__editCtx.index) && __editCtx.index >= 0 && __editCtx.index < list.length){ sel.value = String(__editCtx.index); }
+  }
+
+  function featureToDrawFeature(f){
+    if (!f || !f.geometry) return null;
+    if (f.geometry.type === 'Polygon'){
+      return { type:'Feature', properties:{}, geometry:{ type:'Polygon', coordinates: JSON.parse(JSON.stringify(f.geometry.coordinates)) } };
+    } else if (f.geometry.type === 'MultiPolygon'){
+      // візьмемо перший полігон як базовий (спрощений сценарій)
+      const first = Array.isArray(f.geometry.coordinates) && f.geometry.coordinates[0];
+      if (!first) return null;
+      return { type:'Feature', properties:{}, geometry:{ type:'Polygon', coordinates: JSON.parse(JSON.stringify(first)) } };
+    }
+    return null;
+  }
+
+  function loadFeatureIntoEditor(){
+    if (!fc || !Array.isArray(fc.features) || !fc.features.length){ alert('Спершу завантажте файл або додайте геозону.'); return; }
+    const sel = document.getElementById('featureSelect');
+    const idx = parseInt(sel.value, 10);
+    if (!Number.isFinite(idx) || idx < 0 || idx >= fc.features.length){ alert('Оберіть геозону зі списку.'); return; }
+    const feat = fc.features[idx];
+    const df = featureToDrawFeature(feat);
+    if (!df){ alert('Підтримується редагування лише Polygon (для MultiPolygon береться перший полігон)'); return; }
+    clearDraw();
+    try{ const added = Draw.add(df); __editCtx.index = idx; __editCtx.drawId = (Array.isArray(added) ? added[0] : added); }catch(e){ console.warn(e); }
+    try{ map.fitBounds([[df.geometry.coordinates[0][0][0], df.geometry.coordinates[0][0][1]],[df.geometry.coordinates[0][0][0], df.geometry.coordinates[0][0][1]]], { padding:40 }); }catch(_){ }
+    setState(`Режим редагування: елемент #${idx+1}`);
+    updateDrawAreaInfo();
+  }
+
+  function applyEditFromEditor(){
+    if (!fc || !Array.isArray(fc.features) || !Number.isInteger(__editCtx.index)){ alert('Немає активного редагування.'); return; }
+    const ring = getDrawnPolygon();
+    if (!ring || ring.length < 4){ alert('Немає намальованої геометрії для збереження.'); return; }
+    try{
+      const f = fc.features[__editCtx.index];
+      if (!f.geometry || f.geometry.type !== 'Polygon'){ f.geometry = { type:'Polygon', coordinates:[ ring ] }; }
+      else { f.geometry.coordinates = [ ring ]; }
+      // перерахунок площі (га)
+      try{
+        if (window.turf){
+          const poly = turf.polygon([ ring ]);
+          const m2 = turf.area(poly); const ha = m2 / 10000.0;
+          f.properties = f.properties || {}; f.properties.Area = Number(ha.toFixed(4));
+        }
+      }catch(_){ }
+      updatePreview(); updateLoadedOverlay();
+      setState(`Зміни застосовано до #${__editCtx.index+1}`);
+    }catch(e){ alert('Не вдалося застосувати зміни: ' + (e?.message || e)); }
+  }
+
+  function cancelEdit(){ __editCtx = { index:null, drawId:null }; clearDraw(); setState('Редагування скасовано'); }
 
   function download(){
     if (!fc || !fc.features.length){ alert('Немає даних для експорту. Додайте принаймні один полігон.'); return; }
@@ -416,6 +504,7 @@
         document.getElementById('fcName').value = String(fc.name || '');
         setState(`Завантажено: features=${fc.features.length}`);
         updatePreview();
+        refreshFeatureSelect();
       }catch(e){
         alert('Не вдалося розпізнати GeoJSON: ' + (e?.message || e));
       }
@@ -426,6 +515,9 @@
   document.getElementById('btnNew').onclick = newFile;
   document.getElementById('btnUseDrawn').onclick = addPolygonFromDraw;
   document.getElementById('btnClearDraw').onclick = clearDraw;
+  document.getElementById('btnEditFeature').onclick = loadFeatureIntoEditor;
+  document.getElementById('btnApplyEdit').onclick = applyEditFromEditor;
+  document.getElementById('btnCancelEdit').onclick = cancelEdit;
   document.getElementById('btnDownload').onclick = download;
   document.getElementById('btnCopy').onclick = copyJson;
   document.getElementById('btnLoad').onclick = ()=>{
