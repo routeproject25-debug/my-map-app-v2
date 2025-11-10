@@ -3764,6 +3764,7 @@ function ensureRouteOptionSelected(id, data){
 
   // Запам'ятати останній збережений
   LAST_SAVED_ROUTE = { id, label, data };
+  try { window.__currentRouteActive = (data && data.isActive === false) ? false : true; } catch(_){}
 
   // Оновити кнопку "Перегляд" у панелі погодження
   const open = document.getElementById('openReviewLink');
@@ -3910,6 +3911,8 @@ async function loadFromDB() {
   alert('⛔ У вас немає доступу до хабу цього маршруту: ' + (data.hub || '—'));
   return;
 }
+    // зафіксувати активність вибраного маршруту в глобальному стані — до setApprovalUI
+    try { window.__currentRouteActive = (data.isActive === false) ? false : true; } catch(_){}
     // Інформаційне повідомлення про неактивний (soft-deleted) маршрут
     if (data.isActive === false){
       alert('ℹ️ Маршрут позначено як неактивний (видалений логістом). Адмін може його відновити або видалити остаточно.');
@@ -4148,22 +4151,12 @@ if (open){
     } else {
       chip.dataset.status = st;           // тригер для стилів (pending/approved/rejected)
     }
-    // Позначка активності (🟩 / 🟥)
+    // Позначка активності (🟩 / 🟥) — беремо з глобального стану поточного маршруту
     try {
-      const sel  = document.getElementById('remoteRoutes');
-      const rid  = (sel && sel.value) || (LAST_SAVED_ROUTE && LAST_SAVED_ROUTE.id) || null;
-      if (rid){
-        // шукаємо у кеші вибраного маршруту
-        const optData = LAST_SAVED_ROUTE && LAST_SAVED_ROUTE.id === rid ? LAST_SAVED_ROUTE.data : null;
-        if (optData && typeof optData.isActive !== 'undefined'){
-          chip.dataset.active = optData.isActive ? 'true' : 'false';
-        } else {
-          chip.dataset.active = 'true';
-        }
-      } else {
-        chip.dataset.active = 'true';
-      }
-    } catch(_) { chip.dataset.active = 'true'; }
+      const act = (window.__currentRouteActive !== false); // undefined => true
+      chip.dataset.active = act ? 'true' : 'false';
+      chip.title = act ? 'Маршрут активний' : 'Маршрут неактивний';
+    } catch(_){ chip.dataset.active = 'true'; }
     chip.textContent = (icon ? (icon + ' ') : '') + 'Статус: ' + label;
   }
 }
