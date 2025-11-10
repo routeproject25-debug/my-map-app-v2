@@ -282,6 +282,11 @@
   .map-panel .map-resize::after{content:"";position:absolute;left:50%;top:2px;transform:translateX(-50%);width:36px;height:4px;border-radius:999px;background:#9ca3af}
   /* Selected row highlight */
   #resTable tbody tr.is-selected{background:#fff7ed}
+  /* Неактивні маршрути (soft-deleted) виділяємо м'яким червоним фоном */
+  #resTable tbody tr.is-inactive{background:#fef2f2;}
+  #resTable tbody tr.is-inactive td{color:#374151;}
+  #resTable tbody tr.is-inactive .cell-id{position:relative;}
+  #resTable tbody tr.is-inactive .cell-id::after{content:"🟥"; position:absolute; right:4px; top:4px; font-size:12px;}
 
   /* Mini style dock (bottom-left) like on main page */
   .style-dock{position:fixed;left:8px;bottom:8px;z-index:3500;display:flex;align-items:center;gap:6px;background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:6px 8px;box-shadow:0 2px 12px rgba(0,0,0,.12)}
@@ -1955,6 +1960,7 @@ function parseSnap(snap){
       updatedAtRaw: d.updatedAt || null,
 	  updatedAt: formatDate(d.updatedAt),
 	  raw: d,
+      isActive: (d.isActive === false) ? false : true,
       hasProposal: !!d.proposal
     });
   });
@@ -2515,7 +2521,7 @@ function renderTable(rows){
   const canDelete = (roleNow === 'admin');
 
   const tb = document.querySelector('#resTable tbody');
-  tb.innerHTML = rows.map(r=>`<tr data-id="${r.id}">
+  tb.innerHTML = rows.map(r=>`<tr data-id="${r.id}" class="${r.isActive ? '' : 'is-inactive'}">
     <td>${r.hub || ''}</td>
     <td>${r.fromUnit || ''}</td>
     <td class="cell-code" title="${r.fromCode}">${r.fromCode}</td>
@@ -2526,7 +2532,7 @@ function renderTable(rows){
     <td>${Number.isFinite(r.distance_km) ? r.distance_km.toFixed(3) : ''}</td>
     <td>${r.type}</td>
     <td>${r.logisticName || ''}</td>
-    <td>${r.statusLabel || ''}</td>
+  <td>${r.statusLabel || ''}${r.isActive ? ' 🟩' : ' 🟥'}</td>
     <td class="cell-comment">${r.rejectComment ? r.rejectComment : ''}${r.hasProposal ? ` <span class="proposal-flag" title="Є пропозиція змін">Є пропозиція</span>` : ''}</td>
     <td>${r.updatedAt}</td>
     <td class="cell-key" title="${r.routeKey || ''}">

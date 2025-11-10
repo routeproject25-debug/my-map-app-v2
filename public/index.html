@@ -218,6 +218,10 @@
 #statusChip.status-chip[data-status="approved"]{ background:#e6f4ea; border-color:#22c55e; }
 #statusChip.status-chip[data-status="rejected"]{ background:#fee2e2; border-color:#ef4444; }
 #statusChip.status-chip[data-status="draft"]{ background:#eef2ff; border-color:#c7d2fe; }
+#statusChip.status-chip[data-active="true"]::after{ content:" 🟩"; }
+#statusChip.status-chip[data-active="false"]::after{ content:" 🟥"; }
+/* неактивний варіант — тьмяніший фон та сіра рамка */
+#statusChip.status-chip[data-active="false"]{ opacity:.85; background:#f8fafc; border-color:#e2e8f0; }
 /* proposal (yellow) */
 #statusChip.status-chip[data-status="proposal"]{ background:#fef9c3; border-color:#f59e0b; }
 
@@ -3909,6 +3913,7 @@ async function loadFromDB() {
     // Інформаційне повідомлення про неактивний (soft-deleted) маршрут
     if (data.isActive === false){
       alert('ℹ️ Маршрут позначено як неактивний (видалений логістом). Адмін може його відновити або видалити остаточно.');
+      try { const chip = document.getElementById('statusChip'); if (chip) chip.dataset.active='false'; } catch(_){}
     }
 
     const fName = getNameByCode(data.fromCode) || parseNameFromLabel(data.fromLabel);
@@ -4090,6 +4095,22 @@ if (open){
     } else {
       chip.dataset.status = st;           // тригер для стилів (pending/approved/rejected)
     }
+    // Позначка активності (🟩 / 🟥)
+    try {
+      const sel  = document.getElementById('remoteRoutes');
+      const rid  = (sel && sel.value) || (LAST_SAVED_ROUTE && LAST_SAVED_ROUTE.id) || null;
+      if (rid){
+        // шукаємо у кеші вибраного маршруту
+        const optData = LAST_SAVED_ROUTE && LAST_SAVED_ROUTE.id === rid ? LAST_SAVED_ROUTE.data : null;
+        if (optData && typeof optData.isActive !== 'undefined'){
+          chip.dataset.active = optData.isActive ? 'true' : 'false';
+        } else {
+          chip.dataset.active = 'true';
+        }
+      } else {
+        chip.dataset.active = 'true';
+      }
+    } catch(_) { chip.dataset.active = 'true'; }
     chip.textContent = (icon ? (icon + ' ') : '') + 'Статус: ' + label;
   }
 }
