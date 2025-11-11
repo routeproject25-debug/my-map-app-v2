@@ -1345,12 +1345,10 @@ function fillDirectoryUI(rows){
 async function loadDirectory(forceServer){
   if (!db || !currentUser) return;
 
-  // якщо логіст і НЕ всі хаби — фільтруємо
- const roleNow = String(window.__userRole ?? currentRole ?? '').toLowerCase();
-// завжди беремо найактуальніше значення з window; якщо його ще нема — падати на локальне
-const allNow = !!(window.__userAllHubs ?? allowAllHubs);
-const hubs = (Array.isArray(window.__userHubs) ? window.__userHubs : allowedHubs).filter(Boolean);
-const limitByHub = (roleNow === 'logist' && !allNow);
+  // Раніше ми фільтрували довідник за хабами для логіста. Це призводило до прогалин,
+  // якщо у деяких записах directory відсутній «hub». Тепер завжди тягнемо повний довідник,
+  // кешуємо його на 12 годин і використовуємо локально. Це гарантує коректний «Підрозділ» на всіх пристроях.
+  const limitByHub = false;
 
   try{
     if (!forceServer && !limitByHub){
@@ -1363,10 +1361,6 @@ const limitByHub = (roleNow === 'logist' && !allNow);
   }catch{}
 
   let q = db.collection('directory');
-  if (limitByHub && hubs.length){
-    if (hubs.length === 1) q = q.where('hub','==', hubs[0]);
-    else q = q.where('hub','in', hubs.slice(0,10));
-  }
 
   let snap = null;
   try {
@@ -1380,10 +1374,11 @@ const limitByHub = (roleNow === 'logist' && !allNow);
     rows.push({ code: (d.code || doc.id), name: d.name || (d.code || doc.id), company: d.company || '', unit: d.unit || '' });
   });
   fillDirectoryUI(rows);
+  try { console.log('[directory] loaded rows:', rows.length, 'forceServer=', !!forceServer); } catch(_) {}
 
   try{
-    // кешуємо ТІЛЬКИ коли не фільтрували по хабах
-    if (!limitByHub) localStorage.setItem(DIR_CACHE_KEY, JSON.stringify({ ts: Date.now(), rows }));
+    // кешуємо повний довідник
+    localStorage.setItem(DIR_CACHE_KEY, JSON.stringify({ ts: Date.now(), rows }));
   }catch{}
 }
 
@@ -1950,10 +1945,11 @@ function parseSnap(snap){
       toCode: d.toCode||'',
       // Показ назв «Від/До»: спершу беремо з документа маршруту (fromLabel/toLabel),
       // а вже потім фолбеком з довідника за кодом. Так логіст побачить назви навіть без повного довідника.
-      fromName: (d.fromName || shortByLabel(d.fromLabel) || nameByCode(d.fromCode) || ''),
-      toName:   (d.toName   || shortByLabel(d.toLabel)   || nameByCode(d.toCode)   || ''),
-      fromUnit: unitByCode(d.fromCode)||'',
-      toUnit: unitByCode(d.toCode)||'',
+  fromName: (d.fromName || shortByLabel(d.fromLabel) || nameByCode(d.fromCode) || ''),
+  toName:   (d.toName   || shortByLabel(d.toLabel)   || nameByCode(d.toCode)   || ''),
+  // Підрозділ: спершу беремо з документа (якщо є), далі — з довідника
+  fromUnit: (d.fromUnit || d.unitFrom || d.fromUnitName || d.unitFromName || unitByCode(d.fromCode) || ''),
+  toUnit:   (d.toUnit   || d.unitTo   || d.toUnitName   || d.unitToName   || unitByCode(d.toCode)   || ''),
       viaNames: viaArr.join(' • '),
       distance_km: (typeof d.distance_km==='number')? d.distance_km : NaN,
       type: d.routeType||'',
