@@ -36,6 +36,9 @@
   header.topbar a{ color:#fff; text-decoration:none; margin-right:12px; white-space:nowrap; }
   header .left, header .right{ display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
   header .spacer{ flex:1 1 auto; }
+  /* Перемикач між десктопними лінками та мобільним меню */
+  .nav-link{ display:inline-block; }
+  #mainMenuWrap{ display:none; }
 
   /* ===== Notifications ===== */
   #notifArea{ position:relative; display:flex; align-items:center; gap:6px; }
@@ -70,6 +73,7 @@
 
   #mobileAuthToggle{ display:none; }
   @media (max-width: 640px){
+    :root{ --nav-h:48px; --nav-real:48px; }
     #mobileAuthToggle{
       display:inline-flex; align-items:center; justify-content:center;
       height:34px; padding:0 10px; border-radius:8px; border:1px solid rgba(255,255,255,.35);
@@ -78,6 +82,8 @@
     #authBar.collapsed input,
     #authBar.collapsed #authLogin,
     #authBar.collapsed #authLogout{ display:none !important; }
+    /* Сховати текстові чіпи «Увійшли як…» та «Роль: …» на мобільних */
+    #authHello, #roleChip{ display:none !important; }
   }
 
   #map{position:absolute; top:var(--nav-real); bottom:0; width:100%}
@@ -168,6 +174,22 @@
   .style-dock .mapbox-brand{
     font-size:11px; color:#6b7280; border-left:1px dashed var(--line);
     padding-left:8px;
+  }
+  /* Мобільна компактність нижнього лівого доку (стиль/пошук) */
+  @media(max-width:640px){
+    /* Показати мобільне меню і сховати окремі лінки */
+    .nav-link{ display:none; }
+    #mainMenuWrap{ display:inline-block; }
+    /* Компактніший хедер */
+    header.topbar{ padding:6px; gap:6px; }
+    /* Лише іконка дзвіночка */
+    #notifBell .label{ display:none; }
+    /* Показати роль-емодзі біля адмін-кнопки */
+    #roleEmoji{ display:inline; margin-right:4px; }
+    .style-dock{ padding:4px 6px; gap:4px; }
+    .style-dock select{ padding:4px 6px; font-size:12px; }
+    .style-dock input[type="text"]{ padding:4px 6px; font-size:12px; width:130px; }
+    .style-dock .mapbox-brand{ display:none; }
   }
 
   #logistsMsg{display:none;font-size:12px;color:#b91c1c;margin-top:4px}
@@ -407,6 +429,9 @@
   /* ===== Адмін-меню (випадаючий список) ===== */
   .admin-menu .admin-item{ display:block; padding:8px 12px; color:#111; text-decoration:none; font-size:13px; }
   .admin-menu .admin-item:hover{ background:#f3f4f6; }
+  /* Головне (мобільне) меню */
+  #mainMenu a{ display:block; padding:8px 12px; color:#111; text-decoration:none; font-size:13px; }
+  #mainMenu a:hover{ background:#f3f4f6; }
 
   @media (max-width:640px){
     .entry-dock{ left:8px; right:8px; top:calc(var(--nav-real) + 8px); }
@@ -422,11 +447,20 @@
 <header class="topbar">
   <div class="left">
     <button id="panelToggle" class="btn xs" title="Сховати/показати панель">◀ Сховати</button>
-    <a href="/">🏠 Карта</a>
-    <a href="/export/">📤 Експорт</a>
+    <!-- Десктопні посилання -->
+    <a class="nav-link" href="/">🏠 Карта</a>
+    <a class="nav-link" href="/export/">📤 Експорт</a>
+    <!-- Мобільний компактний мейн-меню -->
+    <div id="mainMenuWrap" style="display:none; position:relative;">
+      <button id="mainMenuBtn" class="btn xs" type="button" aria-haspopup="true" aria-expanded="false" title="Меню">☰ Меню ▾</button>
+      <div id="mainMenu" role="menu" aria-label="Головне меню" style="display:none; position:absolute; top:100%; left:0; min-width:180px; background:#fff; border:1px solid #d5d9e0; border-radius:10px; box-shadow:0 4px 16px rgba(0,0,0,.15); padding:6px 0; z-index:5000;">
+        <a href="/" class="admin-item" role="menuitem">🏠 Карта</a>
+        <a href="/export/" class="admin-item" role="menuitem">📤 Експорт</a>
+      </div>
+    </div>
     <!-- Групований випадаючий список адмін-сторінок -->
     <div id="adminMenuWrap" class="admin-menu" style="display:none; position:relative;">
-      <button id="adminMenuBtn" class="btn xs" type="button" aria-haspopup="true" aria-expanded="false" title="Адмінські сторінки">🔧 Адмін сторінки ▾</button>
+      <button id="adminMenuBtn" class="btn xs" type="button" aria-haspopup="true" aria-expanded="false" title="Адмінські сторінки"><span id="roleEmoji" aria-hidden="true" style="display:none;">👤</span> <span class="label">🔧 Адмін сторінки ▾</span></button>
       <div id="adminMenu" class="admin-menu-dropdown" role="menu" aria-label="Адмінські сторінки" style="display:none; position:absolute; top:100%; left:0; min-width:220px; background:#fff; border:1px solid #d5d9e0; border-radius:10px; box-shadow:0 4px 16px rgba(0,0,0,.15); padding:6px 0; z-index:5000;">
         <a href="/admin.html" class="admin-item" role="menuitem">👨‍💻 Адмін панель</a>
         <a href="/Firestore_Viewe.html" target="_blank" class="admin-item" role="menuitem">📂 Firestore Viewer</a>
@@ -440,7 +474,7 @@
   <div class="spacer"></div>
 
   <div id="notifArea" class="right">
-    <button id="notifBell" class="btn">🔔 Сповіщення<span id="notifCount"></span></button>
+    <button id="notifBell" class="btn">🔔 <span class="label">Сповіщення</span><span id="notifCount"></span></button>
     <div id="notifDropdown" role="region" aria-label="Сповіщення">
       <header>
         <span>Сповіщення</span>
@@ -747,6 +781,37 @@ function setupAdminMenu(isAdmin){
   document.addEventListener('click', (ev)=>{ if (!wrap.contains(ev.target)) close(); });
   document.addEventListener('keydown', (ev)=>{ if (ev.key==='Escape') close(); });
 }
+
+/* ====== Головне меню (мобільне) ====== */
+function setupMainMenu(){
+  const wrap = document.getElementById('mainMenuWrap');
+  if (!wrap) return;
+  const btn = document.getElementById('mainMenuBtn');
+  const menu = document.getElementById('mainMenu');
+  if (!btn || !menu) return;
+  function close(){ menu.style.display='none'; btn.setAttribute('aria-expanded','false'); }
+  function open(){ menu.style.display='block'; btn.setAttribute('aria-expanded','true'); }
+  btn.onclick = (e)=>{ e.preventDefault(); (menu.style.display==='block') ? close() : open(); };
+  document.addEventListener('click', (ev)=>{ if (!wrap.contains(ev.target)) close(); });
+  document.addEventListener('keydown', (ev)=>{ if (ev.key==='Escape') close(); });
+}
+
+/* ====== Роль-емодзі на кнопці адмін-меню (мобільно) ====== */
+function setRoleVisual(role){
+  try{
+    const map = {
+      admin: '👨‍💻',
+      logist: '🚛',
+      reviewer: '👮🏻‍♂️',
+      pending: '🚧',
+      user: '👤',
+      guest: '👤'
+    };
+    const emoji = map[String(role||'guest').toLowerCase()] || '👤';
+    const el = document.getElementById('roleEmoji');
+    if (el){ el.textContent = emoji; }
+  }catch(_){ }
+}
 (function(){
   const CFG = window.APP_CONFIG?.firebase;
   if (!CFG) {
@@ -791,10 +856,12 @@ function setupAdminMenu(isAdmin){
       console.log('[role][cache] uid:', u.uid, 'role:', role, 'data:', snap.data());
     } catch (e) { console.warn('[role][cache] error:', e?.message||e); }
 
-    window.__userRole = role || 'guest';
+  window.__userRole = role || 'guest';
 
-    // Показ/приховання адмін-лінків «на зараз»
-    setupAdminMenu(window.__userRole === 'admin');
+  // Показ/приховання адмін-лінків «на зараз» + роль-емодзі
+  setupAdminMenu(window.__userRole === 'admin');
+  setRoleVisual(window.__userRole);
+  setupMainMenu();
 
     // 2) тихо оновлюємо роль з сервера і, якщо не ок — редіректимо
     (async () => {
@@ -805,6 +872,7 @@ function setupAdminMenu(isAdmin){
         console.log('[role][server] uid:', u.uid, 'role:', r, 'data:', s.data());
 
   setupAdminMenu(r === 'admin');
+  setRoleVisual(r);
 
         if (!ALLOWED.has(r)) {
           alert(r === 'pending'
@@ -1233,6 +1301,7 @@ function applyRoleUI(role){
   document.getElementById('routeSearch').disabled = false;
 
   document.getElementById('roleChip').textContent = 'Роль: ' + (currentRole || '–');
+  try { setRoleVisual(currentRole); } catch(_){}
 }
 
 /* ===== Context menu ===== */
