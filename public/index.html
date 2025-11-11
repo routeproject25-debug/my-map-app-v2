@@ -5340,7 +5340,12 @@ auth?.onAuthStateChanged(async (user) => {
   if (user){
   window.__canHideSplash = true;
   hideSplash();          // ⬅️ ховаємо сплеш тільки після успішної авторизації
-    authHello.textContent = 'Увійшли як ' + (user.email || user.uid);
+    {
+      const dn = (user && typeof user.displayName === 'string' && user.displayName.trim())
+        ? user.displayName.trim()
+        : (`Хтось не місцевий і ${user.email || user.uid}`);
+      authHello.textContent = 'Увійшли як ' + dn;
+    }
     loginBtn.style.display='none'; authEmail.style.display='none'; authPass.style.display='none';
     logoutBtn.style.display='inline-block';
     if (window.matchMedia('(max-width: 1024px)').matches || document.body.classList.contains('force-compact')) {

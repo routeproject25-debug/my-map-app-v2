@@ -1282,7 +1282,12 @@ auth?.onAuthStateChanged(async (u) => {
   }
   fillHubsList();
 
-  authInfo.textContent = `Увійшли як ${u.email || u.uid}`;
+  {
+    const dn = (u && typeof u.displayName === 'string' && u.displayName.trim())
+      ? u.displayName.trim()
+      : (`Хтось не місцевий і ${u.email || u.uid}`);
+    authInfo.textContent = `Увійшли як ${dn}`;
+  }
   btnLogout.style.display = '';
   authRoleBadge.textContent = `Роль: ${currentRole}`;
   authRoleBadge.style.display = '';

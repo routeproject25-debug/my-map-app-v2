@@ -1165,7 +1165,12 @@ function drawManualSegments(d){
       location.replace('/login.html?next=' + encodeURIComponent(location.pathname + location.search));
       return;
     }
-    hello.textContent = 'Увійшли як ' + (u.email||u.uid);
+    {
+      const dn = (u && typeof u.displayName === 'string' && u.displayName.trim())
+        ? u.displayName.trim()
+        : (`Хтось не місцевий і ${u.email || u.uid}`);
+      hello.textContent = 'Увійшли як ' + dn;
+    }
 
     const role = await getNormalizedRole();
 	const sec = (role === 'security' || role === 'admin');

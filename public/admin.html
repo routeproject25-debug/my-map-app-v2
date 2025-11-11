@@ -379,7 +379,12 @@ auth.onAuthStateChanged(async (u) => {
     return;
   }
 
-  helloEl.textContent = 'Увійшли як ' + (u.email || u.uid);
+  {
+    const dn = (u && typeof u.displayName === 'string' && u.displayName.trim())
+      ? u.displayName.trim()
+      : (`Хтось не місцевий і ${u.email || u.uid}`);
+    helloEl.textContent = 'Увійшли як ' + dn;
+  }
   btnLogout.style.display = '';
 
   let role = 'pending';
