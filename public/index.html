@@ -74,7 +74,7 @@
   }
 
   #mobileAuthToggle{ display:none; }
-  @media (max-width: 640px){
+  @media (max-width: 1024px){
     header .left{ flex-wrap:nowrap; }
     .btn.xs{ padding:6px 8px; }
     :root{ --nav-h:48px; --nav-real:48px; }
@@ -125,7 +125,7 @@
   .segment{display:flex;gap:6px;flex-wrap:wrap}
   .btn-row{display:flex;gap:6px;flex-wrap:wrap}
 
-  @media (max-width: 640px){
+  @media (max-width: 1024px){
     #controls{ left:8px; right:8px; max-width:unset; width:auto; }
     .segment, .btn-row{ display:grid; grid-template-columns:1fr 1fr; gap:8px; }
     .btn, .btn.xs{ min-height:44px; font-size:15px; padding:10px 12px; }
@@ -180,7 +180,7 @@
     padding-left:8px;
   }
   /* Мобільна компактність нижнього лівого доку (стиль/пошук) і верхнього хедера */
-  @media(max-width:640px){
+  @media(max-width:1024px){
     /* Показати мобільне меню і сховати окремі лінки */
     .nav-link{ display:none; }
     #mainMenuWrap{ display:inline-block; }
@@ -355,7 +355,7 @@
   #panel-create .route-toolbar input[type=text],
   #panel-create .route-toolbar select{ height:36px; }
 
-  @media (max-width: 640px){
+  @media (max-width: 1024px){
     #panel-create .panel-head .layout{ grid-template-columns:1fr; }
     /* На мобільних залишаємо стовпчик кнопок зліва зверху */
     #panel-create .tools-left{ flex-direction:column; flex-wrap:nowrap; }
@@ -5101,7 +5101,7 @@ function clearForm() {
 const panelToggleBtn = document.getElementById('panelToggle');
 function updatePanelToggleLabel(){
   const hidden = document.body.classList.contains('controls-hidden');
-  const isMobile = window.matchMedia && window.matchMedia('(max-width: 640px)').matches;
+  const isMobile = window.matchMedia && window.matchMedia('(max-width: 1024px)').matches;
   panelToggleBtn.textContent = hidden
     ? (isMobile ? '▶' : '▶ Панель')
     : (isMobile ? '◀' : '◀ Сховати');
@@ -5307,7 +5307,7 @@ auth?.onAuthStateChanged(async (user) => {
     authHello.textContent = 'Увійшли як ' + (user.email || user.uid);
     loginBtn.style.display='none'; authEmail.style.display='none'; authPass.style.display='none';
     logoutBtn.style.display='inline-block';
-    if (window.matchMedia('(max-width: 640px)').matches) {
+  if (window.matchMedia('(max-width: 1024px)').matches) {
       document.getElementById('authBar').classList.add('collapsed');
     }
     requestAnimationFrame(updateLayoutHeights);
