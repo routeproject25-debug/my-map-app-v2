@@ -39,6 +39,8 @@
   /* Перемикач між десктопними лінками та мобільним меню */
   .nav-link{ display:inline-block; }
   #mainMenuWrap{ display:none; }
+  /* За замовчуванням ключик для адмін-кнопки приховано (показується лише на мобільних) */
+  #adminKeyIcon{ display:none; }
 
   /* ===== Notifications ===== */
   #notifArea{ position:relative; display:flex; align-items:center; gap:6px; }
@@ -175,7 +177,7 @@
     font-size:11px; color:#6b7280; border-left:1px dashed var(--line);
     padding-left:8px;
   }
-  /* Мобільна компактність нижнього лівого доку (стиль/пошук) */
+  /* Мобільна компактність нижнього лівого доку (стиль/пошук) і верхнього хедера */
   @media(max-width:640px){
     /* Показати мобільне меню і сховати окремі лінки */
     .nav-link{ display:none; }
@@ -184,8 +186,12 @@
     header.topbar{ padding:6px; gap:6px; }
     /* Лише іконка дзвіночка */
     #notifBell .label{ display:none; }
-    /* Показати роль-емодзі біля адмін-кнопки */
-    #roleEmoji{ display:inline; margin-right:4px; }
+    /* Адмін-кнопка як ключик (без підпису та ролі) */
+    #roleEmoji{ display:none !important; }
+    #adminMenuBtn .label{ display:none !important; }
+    #adminKeyIcon{ display:inline !important; }
+    /* Кнопка «Меню»: лише іконка */
+    #mainMenuBtn .label{ display:none !important; }
     .style-dock{ padding:4px 6px; gap:4px; }
     .style-dock select{ padding:4px 6px; font-size:12px; }
     .style-dock input[type="text"]{ padding:4px 6px; font-size:12px; width:130px; }
@@ -446,7 +452,7 @@
 
 <header class="topbar">
   <div class="left">
-    <button id="panelToggle" class="btn xs" title="Сховати/показати панель">◀ Сховати</button>
+    <button id="panelToggle" class="btn xs" title="Сховати/показати панель" data-label-full="◀ Сховати" data-label-mini="◀" aria-label="Перемикач панелі">◀ Сховати</button>
     <!-- Десктопні посилання -->
     <a class="nav-link" href="/">🏠 Карта</a>
     <a class="nav-link" href="/export/">📤 Експорт</a>
@@ -460,7 +466,7 @@
     </div>
     <!-- Групований випадаючий список адмін-сторінок -->
     <div id="adminMenuWrap" class="admin-menu" style="display:none; position:relative;">
-      <button id="adminMenuBtn" class="btn xs" type="button" aria-haspopup="true" aria-expanded="false" title="Адмінські сторінки"><span id="roleEmoji" aria-hidden="true" style="display:none;">👤</span> <span class="label">🔧 Адмін сторінки ▾</span></button>
+  <button id="adminMenuBtn" class="btn xs" type="button" aria-haspopup="true" aria-expanded="false" title="Адмінські сторінки" data-label-full="🔧 Адмін сторінки ▾" data-label-mini="🔑" aria-label="Адмінські сторінки"><span id="adminKeyIcon" aria-hidden="true">🔑</span><span id="roleEmoji" aria-hidden="true" style="display:none; margin-left:4px;">👤</span> <span class="label" style="margin-left:4px;">🔧 Адмін сторінки ▾</span></button>
       <div id="adminMenu" class="admin-menu-dropdown" role="menu" aria-label="Адмінські сторінки" style="display:none; position:absolute; top:100%; left:0; min-width:220px; background:#fff; border:1px solid #d5d9e0; border-radius:10px; box-shadow:0 4px 16px rgba(0,0,0,.15); padding:6px 0; z-index:5000;">
         <a href="/admin.html" class="admin-item" role="menuitem">👨‍💻 Адмін панель</a>
         <a href="/Firestore_Viewe.html" target="_blank" class="admin-item" role="menuitem">📂 Firestore Viewer</a>
@@ -5085,12 +5091,16 @@ function clearForm() {
 const panelToggleBtn = document.getElementById('panelToggle');
 function updatePanelToggleLabel(){
   const hidden = document.body.classList.contains('controls-hidden');
-  panelToggleBtn.textContent = hidden ? '▶ Панель' : '◀ Сховати';
+  const isMobile = window.matchMedia && window.matchMedia('(max-width: 640px)').matches;
+  panelToggleBtn.textContent = hidden
+    ? (isMobile ? '▶' : '▶ Панель')
+    : (isMobile ? '◀' : '◀ Сховати');
   if (typeof map?.resize === 'function') requestAnimationFrame(() => map.resize());
 }
 panelToggleBtn.addEventListener('click', () => {
   document.body.classList.toggle('controls-hidden'); updatePanelToggleLabel();
 });
+window.addEventListener('resize', () => updatePanelToggleLabel());
 updatePanelToggleLabel();
 
 /* ======== ⬇️ ГЕОЗОНИ зі STORAGE (geozones/all.geojson) ========= */
