@@ -646,6 +646,32 @@
     if (!map.getLayer(hlTo)){
       map.addLayer({ id: hlTo, type:'fill', source: srcId, 'source-layer': ts.layer, filter:['==',['get','__never__'],1], paint:{ 'fill-color':'#f43f5e','fill-opacity':0.45 }, layout:{ visibility: geozonesVisible ? 'visible':'none' } });
     }
+    // highlight label-шари (як на головній)
+    const textExpr = ['coalesce', ['get','Name'], ['get','name'], ['get','Назва'], ['get','Назва поля'], ['get','Code'], ['get','code']];
+    const hlFromLbl = 'tileset-hl-from-label-' + ts.key;
+    const hlToLbl = 'tileset-hl-to-label-' + ts.key;
+    if (!map.getLayer(hlFromLbl)){
+      map.addLayer({
+        id: hlFromLbl,
+        type: 'symbol',
+        source: srcId,
+        'source-layer': ts.layer,
+        filter: ['==', ['get','__never__'], 1],
+        layout: { 'text-field': textExpr, 'text-size': 12, 'text-anchor': 'center', 'text-allow-overlap': false, 'visibility': geozonesVisible ? 'visible':'none' },
+        paint: { 'text-color':'#111', 'text-halo-color':'#fff', 'text-halo-width':1.2 }
+      });
+    }
+    if (!map.getLayer(hlToLbl)){
+      map.addLayer({
+        id: hlToLbl,
+        type: 'symbol',
+        source: srcId,
+        'source-layer': ts.layer,
+        filter: ['==', ['get','__never__'], 1],
+        layout: { 'text-field': textExpr, 'text-size': 12, 'text-anchor': 'center', 'text-allow-overlap': false, 'visibility': geozonesVisible ? 'visible':'none' },
+        paint: { 'text-color':'#111', 'text-halo-color':'#fff', 'text-halo-width':1.2 }
+      });
+    }
   }
   // ===== Фільтрація за хабами (як на головній) =====
   function isAllHubs(){ return ALLOWED_HUBS === null; }
@@ -665,6 +691,8 @@
         try{ map.setLayoutProperty('tileset-outline-' + ts.key, 'visibility', vis); }catch(_){ }
         try{ map.setLayoutProperty('tileset-hl-from-' + ts.key, 'visibility', vis); }catch(_){ }
         try{ map.setLayoutProperty('tileset-hl-to-' + ts.key, 'visibility', vis); }catch(_){ }
+        try{ map.setLayoutProperty('tileset-hl-from-label-' + ts.key, 'visibility', vis); }catch(_){ }
+        try{ map.setLayoutProperty('tileset-hl-to-label-' + ts.key, 'visibility', vis); }catch(_){ }
       });
       // підписи також підпорядковуються загальній видимості
       try{ if (map.getLayer('geozones-labels')) map.setLayoutProperty('geozones-labels','visibility', geozonesVisible ? 'visible':'none'); }catch(_){ }
@@ -749,7 +777,7 @@
       if (style && Array.isArray(style.layers)){
         style.layers.forEach(l =>{
           const id = l.id || '';
-          if (id.startsWith('tileset-fill-') || id.startsWith('tileset-outline-') || id.startsWith('tileset-hl-from-') || id.startsWith('tileset-hl-to-')){
+          if (id.startsWith('tileset-fill-') || id.startsWith('tileset-outline-') || id.startsWith('tileset-hl-from-') || id.startsWith('tileset-hl-to-') || id.startsWith('tileset-hl-from-label-') || id.startsWith('tileset-hl-to-label-')){
             try{ map.setLayoutProperty(id, 'visibility', vis); }catch(_){}
           }
         });
@@ -775,7 +803,7 @@
       if (style && Array.isArray(style.layers)){
         style.layers.forEach(l => {
           const id = l.id || '';
-          if (id.startsWith('tileset-fill-') || id.startsWith('tileset-outline-') || id.startsWith('tileset-hl-from-') || id.startsWith('tileset-hl-to-')) ids.push(id);
+          if (id.startsWith('tileset-fill-') || id.startsWith('tileset-outline-') || id.startsWith('tileset-hl-from-') || id.startsWith('tileset-hl-to-') || id.startsWith('tileset-hl-from-label-') || id.startsWith('tileset-hl-to-label-')) ids.push(id);
         });
       }
       // знімати шари у зворотньому порядку
