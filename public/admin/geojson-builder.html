@@ -255,12 +255,11 @@
   map.addControl(new mapboxgl.NavigationControl(), 'top-left');
 
   let fc = null; // поточний FeatureCollection
-  let TILESETS = [];
+  let _tilesets = [];
   let geozonesVisible = true; // за замовчуванням показані
   let __tilesetsUnsub = null;
-  let __tilesetsHash = '';
-  // Доступи хабів як на головній сторінці
-  let ALLOWED_HUBS = []; // [] = всі хаби дозволені
+  // Доступи хабів як на головній сторінці: null = всі хаби дозволені
+  let ALLOWED_HUBS = null;
 
   /* ===== Українські підписи топонімів у стилі ===== */
   function applyUkrainianLabels(){
@@ -623,25 +622,38 @@
   // ===== Tilesets (як на основній: беремо Firestore/JSON, показ/приховати всі) =====
   function getActiveTilesets(){
     // показуємо лише enabled (як на головній)
-    return (Array.isArray(TILESETS) ? TILESETS : []).filter(t => t && t.enabled !== false);
+    return (Array.isArray(_tilesets) ? _tilesets : []).filter(t => t && t.enabled !== false);
   }
   function ensureTilesetLayers(ts){
-    const srcId = 'ts-src-' + ts.key;
+    const srcId = 'geozones-tileset-' + ts.key;
     if (!map.getSource(srcId)){
       map.addSource(srcId, { type:'vector', url: ts.url });
-      const fillId = 'ts-fill-' + ts.key;
-      const lineId = 'ts-line-' + ts.key;
+    }
+    const fillId = 'tileset-fill-' + ts.key;
+    const outlineId = 'tileset-outline-' + ts.key;
+    if (!map.getLayer(fillId)){
       map.addLayer({ id: fillId, type:'fill', source: srcId, 'source-layer': ts.layer, paint:{ 'fill-color':'#0ea5e9', 'fill-opacity': 0.15 }, layout:{ visibility: geozonesVisible ? 'visible' : 'none' } });
-      map.addLayer({ id: lineId, type:'line', source: srcId, 'source-layer': ts.layer, paint:{ 'line-color':'#0284c7', 'line-width': 1.5 }, layout:{ visibility: geozonesVisible ? 'visible' : 'none' } });
+    }
+    if (!map.getLayer(outlineId)){
+      map.addLayer({ id: outlineId, type:'line', source: srcId, 'source-layer': ts.layer, paint:{ 'line-color':'#0284c7', 'line-width': 1.5 }, layout:{ visibility: geozonesVisible ? 'visible' : 'none' } });
+    }
+    // highlight резервні шари (порожні фільтри)
+    const hlFrom = 'tileset-hl-from-' + ts.key;
+    const hlTo = 'tileset-hl-to-' + ts.key;
+    if (!map.getLayer(hlFrom)){
+      map.addLayer({ id: hlFrom, type:'fill', source: srcId, 'source-layer': ts.layer, filter:['==',['get','__never__'],1], paint:{ 'fill-color':'#3b82f6','fill-opacity':0.45 }, layout:{ visibility: geozonesVisible ? 'visible':'none' } });
+    }
+    if (!map.getLayer(hlTo)){
+      map.addLayer({ id: hlTo, type:'fill', source: srcId, 'source-layer': ts.layer, filter:['==',['get','__never__'],1], paint:{ 'fill-color':'#f43f5e','fill-opacity':0.45 }, layout:{ visibility: geozonesVisible ? 'visible':'none' } });
     }
   }
   // ===== Фільтрація за хабами (як на головній) =====
-  function isAllHubs(){ return Array.isArray(ALLOWED_HUBS) && ALLOWED_HUBS.length === 0; }
+  function isAllHubs(){ return ALLOWED_HUBS === null; }
   function tilesetAllowed(ts){
     const tags = Array.isArray(ts?.hubs) ? ts.hubs : [];
-    if (tags.includes('*')) return true;
+    if (!tags.length || tags.includes('*')) return true;
     if (isAllHubs()) return true;
-    return tags.some(h => (ALLOWED_HUBS || []).includes(h));
+    return Array.isArray(ALLOWED_HUBS) && tags.some(h => ALLOWED_HUBS.includes(h));
   }
   function applyTilesetHubVisibility(){
     try{
@@ -649,8 +661,10 @@
       list.forEach(ts => {
         const allow = tilesetAllowed(ts) && geozonesVisible;
         const vis = allow ? 'visible' : 'none';
-        try{ map.setLayoutProperty('ts-fill-' + ts.key, 'visibility', vis); }catch(_){ }
-        try{ map.setLayoutProperty('ts-line-' + ts.key, 'visibility', vis); }catch(_){ }
+        try{ map.setLayoutProperty('tileset-fill-' + ts.key, 'visibility', vis); }catch(_){ }
+        try{ map.setLayoutProperty('tileset-outline-' + ts.key, 'visibility', vis); }catch(_){ }
+        try{ map.setLayoutProperty('tileset-hl-from-' + ts.key, 'visibility', vis); }catch(_){ }
+        try{ map.setLayoutProperty('tileset-hl-to-' + ts.key, 'visibility', vis); }catch(_){ }
       });
       // підписи також підпорядковуються загальній видимості
       try{ if (map.getLayer('geozones-labels')) map.setLayoutProperty('geozones-labels','visibility', geozonesVisible ? 'visible':'none'); }catch(_){ }
@@ -662,7 +676,7 @@
       if (!window.turf) return;
       const style = map.getStyle();
       if (!style || !Array.isArray(style.layers)) return;
-      const fillLayerIds = style.layers.map(l=>l.id).filter(id => id && id.startsWith('ts-fill-'));
+  const fillLayerIds = style.layers.map(l=>l.id).filter(id => id && id.startsWith('tileset-fill-'));
       if (!fillLayerIds.length) return;
       const feats = map.queryRenderedFeatures({ layers: fillLayerIds }) || [];
       const out = []; const seen = new Set();
@@ -735,7 +749,7 @@
       if (style && Array.isArray(style.layers)){
         style.layers.forEach(l =>{
           const id = l.id || '';
-          if (id.startsWith('ts-fill-') || id.startsWith('ts-line-')){
+          if (id.startsWith('tileset-fill-') || id.startsWith('tileset-outline-') || id.startsWith('tileset-hl-from-') || id.startsWith('tileset-hl-to-')){
             try{ map.setLayoutProperty(id, 'visibility', vis); }catch(_){}
           }
         });
@@ -761,7 +775,7 @@
       if (style && Array.isArray(style.layers)){
         style.layers.forEach(l => {
           const id = l.id || '';
-          if (id.startsWith('ts-fill-') || id.startsWith('ts-line-')) ids.push(id);
+          if (id.startsWith('tileset-fill-') || id.startsWith('tileset-outline-') || id.startsWith('tileset-hl-from-') || id.startsWith('tileset-hl-to-')) ids.push(id);
         });
       }
       // знімати шари у зворотньому порядку
@@ -770,7 +784,7 @@
       // 2) Прибрати всі джерела tilesets
       const srcs = map.getStyle()?.sources || {};
       Object.keys(srcs).forEach(sid => {
-        if (sid.startsWith('ts-src-')){
+        if (sid.startsWith('geozones-tileset-')){
           try{ if (map.getSource(sid)) map.removeSource(sid); }catch(_){ }
         }
       });
@@ -803,11 +817,10 @@
         const snap = await db.collection('config').doc('tilesets').get({ source:'server' });
         if (snap.exists){
           const d = snap.data();
-          const arr = Array.isArray(d) ? d : (d && Array.isArray(d.tilesets) ? d.tilesets : []);
+          const arr = Array.isArray(d?.tilesets) ? d.tilesets : (Array.isArray(d) ? d : []);
           if (Array.isArray(arr)){
-            TILESETS = arr;
+            _tilesets = arr;
             got = true;
-            __tilesetsHash = JSON.stringify(getActiveTilesets());
             sourceName = 'firestore';
           }
         }
@@ -816,11 +829,10 @@
         __tilesetsUnsub = db.collection('config').doc('tilesets').onSnapshot(s => {
           try{
             const d = s.data();
-            const arr = Array.isArray(d) ? d : (d && Array.isArray(d.tilesets) ? d.tilesets : []);
+            const arr = Array.isArray(d?.tilesets) ? d.tilesets : (Array.isArray(d) ? d : []);
             if (Array.isArray(arr)){
-              TILESETS = arr;
-              const h = JSON.stringify(getActiveTilesets());
-              if (h !== __tilesetsHash){ __tilesetsHash = h; rebuildTilesetsLayers(); }
+              _tilesets = arr;
+              rebuildTilesetsLayers();
               updateTilesetInfo('snapshot');
             }
           }catch(_){ }
@@ -833,10 +845,9 @@
       try{
         const res = await fetch('/config/tilesets.json?v=' + Date.now());
         const data = await res.json().catch(()=> null);
-        TILESETS = Array.isArray(data) ? data : (data && Array.isArray(data.tilesets) ? data.tilesets : []);
-        __tilesetsHash = JSON.stringify(getActiveTilesets());
+        _tilesets = Array.isArray(data) ? data : (data && Array.isArray(data.tilesets) ? data.tilesets : []);
         sourceName = 'json';
-      }catch(e){ console.warn('tilesets.json недоступний', e); TILESETS = []; __tilesetsHash = '[]'; }
+      }catch(e){ console.warn('tilesets.json недоступний', e); _tilesets = []; }
     }
     updateTilesetInfo('load', sourceName);
   }
@@ -868,25 +879,24 @@
     ensureLoadedOverlay();
     setLoadedOverlayVisibility(true);
     // За замовчуванням для адмінського Builder показуємо ВСІ геозони (без фільтрації за хабами).
-    ALLOWED_HUBS = [];
+  ALLOWED_HUBS = null; // всі хаби дозволені
     // Якщо користувач увімкне фільтрацію — спробуємо підтягнути дозволені хаби з кешів
     function refreshHubsFromStorage(){
-      let hubs = [];
-      let all = true;
+      let hubs = null; // null = всі
       try{
-        // новий кеш із експорту / головної
         const rawRole = localStorage.getItem('role.cache.v1');
         if (rawRole){
-          const obj = JSON.parse(rawRole)||{}; hubs = Array.isArray(obj.hubs)?obj.hubs:[]; all = !!obj.all; 
+          const obj = JSON.parse(rawRole)||{};
+          if (obj.all === true) hubs = null; else if (Array.isArray(obj.hubs)) hubs = obj.hubs;
         }
       }catch(_){ }
-      if ((!hubs || !hubs.length) && all !== true){
+      if (hubs === null){
         try{
           const raw = localStorage.getItem('userAccess');
-          if (raw){ const obj = JSON.parse(raw)||{}; hubs = Array.isArray(obj.hubs)?obj.hubs:[]; all = !!obj.all; }
+          if (raw){ const obj = JSON.parse(raw)||{}; if (obj.all === true) hubs = null; else if (Array.isArray(obj.hubs)) hubs = obj.hubs; }
         }catch(_){ }
       }
-      ALLOWED_HUBS = (all === true) ? [] : (Array.isArray(hubs) ? hubs : []);
+      ALLOWED_HUBS = hubs; // null або масив
       applyTilesetHubVisibility();
       updateTilesetInfo('hubs');
     }
@@ -894,7 +904,7 @@
     if (hubChk){
       hubChk.checked = false; // вимкнено за замовчуванням
       hubChk.addEventListener('change', ()=>{
-        if (hubChk.checked) refreshHubsFromStorage(); else { ALLOWED_HUBS = []; applyTilesetHubVisibility(); updateTilesetInfo('hubs-off'); }
+        if (hubChk.checked) refreshHubsFromStorage(); else { ALLOWED_HUBS = null; applyTilesetHubVisibility(); updateTilesetInfo('hubs-off'); }
       });
     }
     await loadTilesetsConfig();
