@@ -202,6 +202,23 @@
   }
 
   #logistsMsg{display:none;font-size:12px;color:#b91c1c;margin-top:4px}
+  /* ===== Примусовий компактний режим через body.force-compact ===== */
+  body.force-compact .nav-link{ display:none; }
+  body.force-compact #mainMenuWrap{ display:inline-block; }
+  body.force-compact header.topbar{ padding:6px; gap:6px; }
+  body.force-compact #notifBell .label{ display:none; }
+  body.force-compact #roleEmoji{ display:none !important; }
+  body.force-compact #adminMenuBtn .label{ display:none !important; }
+  body.force-compact #adminKeyIcon{ display:inline !important; }
+  body.force-compact #mainMenuBtn .label{ display:none !important; }
+  body.force-compact #mainMenuBtn .icon{ display:inline !important; }
+  body.force-compact .style-dock{ padding:4px 6px; gap:4px; }
+  body.force-compact .style-dock select{ padding:4px 6px; font-size:12px; }
+  body.force-compact .style-dock input[type="text"]{ padding:4px 6px; font-size:12px; width:130px; }
+  body.force-compact .style-dock .mapbox-brand{ display:none; }
+  body.force-compact #panelDock .dock-btn{ padding:6px 8px; font-size:16px; }
+  body.force-compact #panelDock .dock-btn .label{ display:none; }
+  body.force-compact #authHello, body.force-compact #roleChip{ display:none !important; }
   
   #splash{
   position:fixed; inset:0; display:grid; place-items:center;
@@ -463,6 +480,7 @@
 <header class="topbar">
   <div class="left">
     <button id="panelToggle" class="btn xs" title="Сховати/показати панель" data-label-full="◀ Сховати" data-label-mini="◀" aria-label="Перемикач панелі">◀ Сховати</button>
+    <button id="compactToggle" class="btn xs" title="Перемкнути компактний режим" aria-pressed="false">⇆</button>
     <!-- Десктопні посилання -->
     <a class="nav-link" href="/">🏠 Карта</a>
     <a class="nav-link" href="/export/">📤 Експорт</a>
@@ -5113,6 +5131,24 @@ panelToggleBtn.addEventListener('click', () => {
 window.addEventListener('resize', () => updatePanelToggleLabel());
 updatePanelToggleLabel();
 
+/* ===== Примусовий компактний режим (тумблер) ===== */
+try{
+  const compactBtn = document.getElementById('compactToggle');
+  const applyCompact = () => {
+    const forced = document.body.classList.contains('force-compact');
+    if (compactBtn) compactBtn.setAttribute('aria-pressed', String(forced));
+    // оновити підпис стрілки при зміні режиму
+    try{ updatePanelToggleLabel(); }catch(_){ }
+  };
+  if (compactBtn){
+    compactBtn.addEventListener('click', () => {
+      document.body.classList.toggle('force-compact');
+      applyCompact();
+    });
+  }
+  applyCompact();
+}catch(_){ }
+
 /* ======== ⬇️ ГЕОЗОНИ зі STORAGE (geozones/all.geojson) ========= */
 const STORAGE_GEOJSON_PATH = 'geozones/all.geojson';
 // Якщо геозони зберігаються ТІЛЬКИ в Mapbox tilesets — вимкніть завантаження зі Storage
@@ -5307,7 +5343,7 @@ auth?.onAuthStateChanged(async (user) => {
     authHello.textContent = 'Увійшли як ' + (user.email || user.uid);
     loginBtn.style.display='none'; authEmail.style.display='none'; authPass.style.display='none';
     logoutBtn.style.display='inline-block';
-  if (window.matchMedia('(max-width: 1024px)').matches) {
+    if (window.matchMedia('(max-width: 1024px)').matches || document.body.classList.contains('force-compact')) {
       document.getElementById('authBar').classList.add('collapsed');
     }
     requestAnimationFrame(updateLayoutHeights);
