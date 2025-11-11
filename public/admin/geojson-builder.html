@@ -139,6 +139,9 @@
         <button id="btnToggleTilesets" class="ghost">🗺 Показати геозони</button>
         <button id="btnReloadTilesets" class="ghost" title="Примусово перечитати конфіг (debug)">🔄 Оновити</button>
       </div>
+      <label class="row" style="gap:8px; align-items:center; margin-bottom:6px;">
+        <input id="chkHubFilter" type="checkbox" /> Фільтрувати за хабами (як у користувача)
+      </label>
       <div id="tilesetInfo" class="hint" style="min-height:18px"></div>
     </div>
   </div>
@@ -253,7 +256,7 @@
 
   let fc = null; // поточний FeatureCollection
   let TILESETS = [];
-  let geozonesVisible = false; // за замовчуванням приховані
+  let geozonesVisible = true; // за замовчуванням показані
   let __tilesetsUnsub = null;
   let __tilesetsHash = '';
   // Доступи хабів як на головній сторінці
@@ -864,18 +867,42 @@
     applyUkrainianLabels();
     ensureLoadedOverlay();
     setLoadedOverlayVisibility(true);
-    // Зчитати доступи хабів (як на головній) з localStorage
-    try{
-      const raw = localStorage.getItem('userAccess');
-      if (raw){
-        const { hubs, all } = JSON.parse(raw) || {};
-        if (all === true) ALLOWED_HUBS = []; else if (Array.isArray(hubs)) ALLOWED_HUBS = hubs; else ALLOWED_HUBS = [];
+    // За замовчуванням для адмінського Builder показуємо ВСІ геозони (без фільтрації за хабами).
+    ALLOWED_HUBS = [];
+    // Якщо користувач увімкне фільтрацію — спробуємо підтягнути дозволені хаби з кешів
+    function refreshHubsFromStorage(){
+      let hubs = [];
+      let all = true;
+      try{
+        // новий кеш із експорту / головної
+        const rawRole = localStorage.getItem('role.cache.v1');
+        if (rawRole){
+          const obj = JSON.parse(rawRole)||{}; hubs = Array.isArray(obj.hubs)?obj.hubs:[]; all = !!obj.all; 
+        }
+      }catch(_){ }
+      if ((!hubs || !hubs.length) && all !== true){
+        try{
+          const raw = localStorage.getItem('userAccess');
+          if (raw){ const obj = JSON.parse(raw)||{}; hubs = Array.isArray(obj.hubs)?obj.hubs:[]; all = !!obj.all; }
+        }catch(_){ }
       }
-    }catch(_){ ALLOWED_HUBS = []; }
+      ALLOWED_HUBS = (all === true) ? [] : (Array.isArray(hubs) ? hubs : []);
+      applyTilesetHubVisibility();
+      updateTilesetInfo('hubs');
+    }
+    const hubChk = document.getElementById('chkHubFilter');
+    if (hubChk){
+      hubChk.checked = false; // вимкнено за замовчуванням
+      hubChk.addEventListener('change', ()=>{
+        if (hubChk.checked) refreshHubsFromStorage(); else { ALLOWED_HUBS = []; applyTilesetHubVisibility(); updateTilesetInfo('hubs-off'); }
+      });
+    }
     await loadTilesetsConfig();
     rebuildTilesetsLayers();
     bindAreaEvents();
     setTimeout(updateDrawAreaInfo, 200);
+    // Синхронізувати напис на кнопці видимості з поточним станом
+    try{ const b = document.getElementById('btnToggleTilesets'); if (b) b.textContent = geozonesVisible ? '🗺 Приховати геозони' : '🗺 Показати геозони'; }catch(_){ }
   });
 
   // ===== Панель: згортання/розгортання =====
