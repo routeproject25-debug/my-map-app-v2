@@ -12,6 +12,7 @@
   <!-- Firebase (для підтяжки tilesets з Firestore, якщо доступно) -->
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
   <!-- Turf.js для центроїдів підписів -->
   <script>
     (function(){
@@ -255,11 +256,21 @@
   map.addControl(new mapboxgl.NavigationControl(), 'top-left');
 
   let fc = null; // поточний FeatureCollection
-  let _tilesets = [];
-  let geozonesVisible = true; // за замовчуванням показані
-  let __tilesetsUnsub = null;
-  // Доступи хабів як на головній сторінці: null = всі хаби дозволені
+  // ==== Tilesets (переписано як на головній) ====
+  let TILESETS = [];
+  let __tilesetsLoaded = false; // guard від повторного первинного завантаження
+  let geozonesVisible = true; // показ геозон (toggle)
+  // Хаби (null = всі дозволені; [] = жодного; масив = обмеження) — як на `index.html`
   let ALLOWED_HUBS = null;
+  // Масиви ID для керування (аналог головної)
+  let TS_FILL_IDS = [];
+  let TS_OUTLINE_IDS = [];
+  let HL_IDS_FROM = [];
+  let HL_IDS_TO = [];
+  let HL_LABEL_IDS_FROM = [];
+  let HL_LABEL_IDS_TO = [];
+  // Джерело конфігурації (firestore/json) — для інформаційного рядка
+  let TILESETS_SOURCE = '—';
 
   /* ===== Українські підписи топонімів у стилі ===== */
   function applyUkrainianLabels(){
@@ -619,83 +630,26 @@
   }
   document.getElementById('btnDeleteFeature').onclick = promptDeleteFeature;
 
-  // ===== Tilesets (як на основній: беремо Firestore/JSON, показ/приховати всі) =====
-  function getActiveTilesets(){
-    // показуємо лише enabled (як на головній)
-    return (Array.isArray(_tilesets) ? _tilesets : []).filter(t => t && t.enabled !== false);
-  }
-  function ensureTilesetLayers(ts){
-    const srcId = 'geozones-tileset-' + ts.key;
-    if (!map.getSource(srcId)){
-      map.addSource(srcId, { type:'vector', url: ts.url });
-    }
-    const fillId = 'tileset-fill-' + ts.key;
-    const outlineId = 'tileset-outline-' + ts.key;
-    if (!map.getLayer(fillId)){
-      map.addLayer({ id: fillId, type:'fill', source: srcId, 'source-layer': ts.layer, paint:{ 'fill-color':'#0ea5e9', 'fill-opacity': 0.15 }, layout:{ visibility: geozonesVisible ? 'visible' : 'none' } });
-    }
-    if (!map.getLayer(outlineId)){
-      map.addLayer({ id: outlineId, type:'line', source: srcId, 'source-layer': ts.layer, paint:{ 'line-color':'#0284c7', 'line-width': 1.5 }, layout:{ visibility: geozonesVisible ? 'visible' : 'none' } });
-    }
-    // highlight резервні шари (порожні фільтри)
-    const hlFrom = 'tileset-hl-from-' + ts.key;
-    const hlTo = 'tileset-hl-to-' + ts.key;
-    if (!map.getLayer(hlFrom)){
-      map.addLayer({ id: hlFrom, type:'fill', source: srcId, 'source-layer': ts.layer, filter:['==',['get','__never__'],1], paint:{ 'fill-color':'#3b82f6','fill-opacity':0.45 }, layout:{ visibility: geozonesVisible ? 'visible':'none' } });
-    }
-    if (!map.getLayer(hlTo)){
-      map.addLayer({ id: hlTo, type:'fill', source: srcId, 'source-layer': ts.layer, filter:['==',['get','__never__'],1], paint:{ 'fill-color':'#f43f5e','fill-opacity':0.45 }, layout:{ visibility: geozonesVisible ? 'visible':'none' } });
-    }
-    // highlight label-шари (як на головній)
-    const textExpr = ['coalesce', ['get','Name'], ['get','name'], ['get','Назва'], ['get','Назва поля'], ['get','Code'], ['get','code']];
-    const hlFromLbl = 'tileset-hl-from-label-' + ts.key;
-    const hlToLbl = 'tileset-hl-to-label-' + ts.key;
-    if (!map.getLayer(hlFromLbl)){
-      map.addLayer({
-        id: hlFromLbl,
-        type: 'symbol',
-        source: srcId,
-        'source-layer': ts.layer,
-        filter: ['==', ['get','__never__'], 1],
-        layout: { 'text-field': textExpr, 'text-size': 12, 'text-anchor': 'center', 'text-allow-overlap': false, 'visibility': geozonesVisible ? 'visible':'none' },
-        paint: { 'text-color':'#111', 'text-halo-color':'#fff', 'text-halo-width':1.2 }
-      });
-    }
-    if (!map.getLayer(hlToLbl)){
-      map.addLayer({
-        id: hlToLbl,
-        type: 'symbol',
-        source: srcId,
-        'source-layer': ts.layer,
-        filter: ['==', ['get','__never__'], 1],
-        layout: { 'text-field': textExpr, 'text-size': 12, 'text-anchor': 'center', 'text-allow-overlap': false, 'visibility': geozonesVisible ? 'visible':'none' },
-        paint: { 'text-color':'#111', 'text-halo-color':'#fff', 'text-halo-width':1.2 }
-      });
-    }
-  }
-  // ===== Фільтрація за хабами (як на головній) =====
+  // ==== Хаб-фільтр (функції як на головній) ====
   function isAllHubs(){ return ALLOWED_HUBS === null; }
+  function hasNoHubs(){ return Array.isArray(ALLOWED_HUBS) && ALLOWED_HUBS.length === 0; }
   function tilesetAllowed(ts){
     const tags = Array.isArray(ts?.hubs) ? ts.hubs : [];
     if (!tags.length || tags.includes('*')) return true;
     if (isAllHubs()) return true;
+    if (hasNoHubs()) return false;
     return Array.isArray(ALLOWED_HUBS) && tags.some(h => ALLOWED_HUBS.includes(h));
   }
   function applyTilesetHubVisibility(){
     try{
-      const list = getActiveTilesets();
-      list.forEach(ts => {
+      TILESETS.filter(t => t && t.enabled !== false).forEach(ts => {
         const allow = tilesetAllowed(ts) && geozonesVisible;
-        const vis = allow ? 'visible' : 'none';
-        try{ map.setLayoutProperty('tileset-fill-' + ts.key, 'visibility', vis); }catch(_){ }
-        try{ map.setLayoutProperty('tileset-outline-' + ts.key, 'visibility', vis); }catch(_){ }
-        try{ map.setLayoutProperty('tileset-hl-from-' + ts.key, 'visibility', vis); }catch(_){ }
-        try{ map.setLayoutProperty('tileset-hl-to-' + ts.key, 'visibility', vis); }catch(_){ }
-        try{ map.setLayoutProperty('tileset-hl-from-label-' + ts.key, 'visibility', vis); }catch(_){ }
-        try{ map.setLayoutProperty('tileset-hl-to-label-' + ts.key, 'visibility', vis); }catch(_){ }
+        const vis = allow ? 'visible':'none';
+        ['tileset-fill-','tileset-outline-','tileset-hl-from-','tileset-hl-to-','tileset-hl-from-label-','tileset-hl-to-label-']
+          .map(pref => pref + ts.key).forEach(id => { try{ if (map.getLayer(id)) map.setLayoutProperty(id,'visibility',vis); }catch(_){ } });
       });
-      // підписи також підпорядковуються загальній видимості
-      try{ if (map.getLayer('geozones-labels')) map.setLayoutProperty('geozones-labels','visibility', geozonesVisible ? 'visible':'none'); }catch(_){ }
+      // центроїди
+      try{ if (map.getLayer('geozones-labels')) map.setLayoutProperty('geozones-labels', geozonesVisible ? 'visible':'none'); }catch(_){ }
     }catch(_){ }
   }
   // Центроїди + підписи геозон (на основі відрендерених fill-шарів)
@@ -771,126 +725,95 @@
   }
   function setAllTilesetsVisibility(show){
     geozonesVisible = !!show;
-    const vis = geozonesVisible ? 'visible' : 'none';
+    const vis = geozonesVisible ? 'visible':'none';
+    // загальна видимість — потім уточнення хабами
     try{
-      const style = map.getStyle();
-      if (style && Array.isArray(style.layers)){
-        style.layers.forEach(l =>{
-          const id = l.id || '';
-          if (id.startsWith('tileset-fill-') || id.startsWith('tileset-outline-') || id.startsWith('tileset-hl-from-') || id.startsWith('tileset-hl-to-') || id.startsWith('tileset-hl-from-label-') || id.startsWith('tileset-hl-to-label-')){
-            try{ map.setLayoutProperty(id, 'visibility', vis); }catch(_){}
-          }
-        });
-      }
-      // Підписи
+      TILESETS.filter(t=>t && t.enabled!==false).forEach(ts => {
+        ['tileset-fill-','tileset-outline-','tileset-hl-from-','tileset-hl-to-','tileset-hl-from-label-','tileset-hl-to-label-']
+          .map(p=>p+ts.key).forEach(id=>{ try{ if (map.getLayer(id)) map.setLayoutProperty(id,'visibility',vis); }catch(_){ } });
+      });
       if (map.getLayer('geozones-labels')){ try{ map.setLayoutProperty('geozones-labels','visibility', vis); }catch(_){ } }
-    }catch(_){}
-    try{
-      const b = document.getElementById('btnToggleTilesets');
-      if (b) b.textContent = geozonesVisible ? '🗺 Приховати геозони' : '🗺 Показати геозони';
-    }catch(_){}
-    // застосувати хаб-фільтр поверх загальної видимості
+    }catch(_){ }
+    try{ const b=document.getElementById('btnToggleTilesets'); if (b) b.textContent = geozonesVisible ? '🗺 Приховати геозони':'🗺 Показати геозони'; }catch(_){ }
     applyTilesetHubVisibility();
   }
   document.getElementById('btnToggleTilesets').onclick = ()=> setAllTilesetsVisibility(!geozonesVisible);
 
   // ——— Перебудова tilesets шарів під актуальний конфіг ———
-  function removeTilesetsCompletely(){
+  function removeTilesetLayers(){
     try{
-      // 1) Прибрати всі шари tilesets (знаходимо по префіксу)
       const style = map.getStyle();
-      const ids = [];
       if (style && Array.isArray(style.layers)){
-        style.layers.forEach(l => {
-          const id = l.id || '';
-          if (id.startsWith('tileset-fill-') || id.startsWith('tileset-outline-') || id.startsWith('tileset-hl-from-') || id.startsWith('tileset-hl-to-') || id.startsWith('tileset-hl-from-label-') || id.startsWith('tileset-hl-to-label-')) ids.push(id);
+        style.layers.slice().reverse().forEach(l => {
+          const id = l.id||'';
+          if (/^tileset-(fill|outline|hl-from|hl-to|hl-from-label|hl-to-label)-/.test(id)){
+            try{ map.removeLayer(id); }catch(_){ }
+          }
         });
       }
-      // знімати шари у зворотньому порядку
-      ids.reverse().forEach(id => { try{ if (map.getLayer(id)) map.removeLayer(id); }catch(_){ } });
-
-      // 2) Прибрати всі джерела tilesets
-      const srcs = map.getStyle()?.sources || {};
-      Object.keys(srcs).forEach(sid => {
-        if (sid.startsWith('geozones-tileset-')){
-          try{ if (map.getSource(sid)) map.removeSource(sid); }catch(_){ }
-        }
+      Object.keys(map.getStyle()?.sources||{}).forEach(sid => {
+        if (sid.startsWith('geozones-tileset-')){ try{ map.removeSource(sid); }catch(_){ } }
       });
+      TS_FILL_IDS = []; TS_OUTLINE_IDS = []; HL_IDS_FROM = []; HL_IDS_TO = []; HL_LABEL_IDS_FROM=[]; HL_LABEL_IDS_TO=[];
     }catch(_){ }
   }
-  function rebuildTilesetsLayers(){
-    removeTilesetsCompletely();
-    const list = getActiveTilesets();
-    list.forEach(ts => ensureTilesetLayers(ts));
-    // застосувати поточну видимість
-    setAllTilesetsVisibility(geozonesVisible);
-    // після створення шарів — застосувати фільтр за хабами
-    applyTilesetHubVisibility();
-    // побудувати/оновити підписи
-    buildGeozoneCentroids();
-    map.off('moveend', rebuildLabelsOnce);
-    map.on('moveend', rebuildLabelsOnce);
-  }
-
-  async function loadTilesetsConfig(){
-    // Спроба Firestore (і підписка на зміни)
-    let got = false;
-    let sourceName = 'json';
-    try{
-      const CFG = window.APP_CONFIG && window.APP_CONFIG.firebase;
-      if (CFG && window.firebase && typeof firebase.initializeApp === 'function'){
-        try { firebase.apps?.length ? firebase.app() : firebase.initializeApp(CFG); } catch(_){ }
-        const db = firebase.firestore();
-        // первинне читання
-        const snap = await db.collection('config').doc('tilesets').get({ source:'server' });
-        if (snap.exists){
-          const d = snap.data();
-          const arr = Array.isArray(d?.tilesets) ? d.tilesets : (Array.isArray(d) ? d : []);
-          if (Array.isArray(arr)){
-            _tilesets = arr;
-            got = true;
-            sourceName = 'firestore';
-          }
-        }
-        // підписка realtime
-        if (__tilesetsUnsub) { try{ __tilesetsUnsub(); }catch(_){ } __tilesetsUnsub = null; }
-        __tilesetsUnsub = db.collection('config').doc('tilesets').onSnapshot(s => {
-          try{
-            const d = s.data();
-            const arr = Array.isArray(d?.tilesets) ? d.tilesets : (Array.isArray(d) ? d : []);
-            if (Array.isArray(arr)){
-              _tilesets = arr;
-              rebuildTilesetsLayers();
-              updateTilesetInfo('snapshot');
-            }
-          }catch(_){ }
-        }, err => { console.warn('tilesets onSnapshot:', err?.message||err); });
+  function addTilesets(){
+    TS_FILL_IDS = []; TS_OUTLINE_IDS = [];
+    TILESETS.filter(ts => ts && ts.enabled !== false).forEach(ts => {
+      const sourceId = `geozones-tileset-${ts.key}`;
+      if (!map.getSource(sourceId)){
+        map.addSource(sourceId, { type:'vector', url: ts.url });
       }
-    }catch(e){ console.warn('tilesets (Firestore) недоступний:', e?.message||e); }
-
-    // Фолбек на статичний JSON
-    if (!got){
-      try{
-        const res = await fetch('/config/tilesets.json?v=' + Date.now());
-        const data = await res.json().catch(()=> null);
-        _tilesets = Array.isArray(data) ? data : (data && Array.isArray(data.tilesets) ? data.tilesets : []);
-        sourceName = 'json';
-      }catch(e){ console.warn('tilesets.json недоступний', e); _tilesets = []; }
-    }
-    updateTilesetInfo('load', sourceName);
+      const fillId = `tileset-fill-${ts.key}`;
+      const outlineId = `tileset-outline-${ts.key}`;
+      if (!map.getLayer(fillId)){
+        map.addLayer({ id: fillId, type:'fill', source: sourceId, 'source-layer': ts.layer, minzoom:0, maxzoom:22, paint:{ 'fill-color':'#16a34a','fill-opacity':['interpolate',['linear'],['zoom'],5,0.22,8,0.30,12,0.38,14,0.44,16,0.50] } });
+      }
+      if (!map.getLayer(outlineId)){
+        map.addLayer({ id: outlineId, type:'line', source: sourceId, 'source-layer': ts.layer, minzoom:0, maxzoom:22, paint:{ 'line-color':'#0d7a3a','line-width':['interpolate',['linear'],['zoom'],5,0.8,8,1.2,12,1.8,14,2.4] } });
+      }
+      TS_FILL_IDS.push(fillId); TS_OUTLINE_IDS.push(outlineId);
+    });
+    buildGeozoneCentroids();
+    map.off('moveend', rebuildLabelsOnce); map.on('moveend', rebuildLabelsOnce);
+    ensureHighlightLayers();
+    applyTilesetHubVisibility();
   }
-
-  function updateTilesetInfo(stage, sourceName){
-    try{
-      const box = document.getElementById('tilesetInfo');
-      if (!box) return;
-      const active = getActiveTilesets();
-      const enabledKeys = active.map(t=>t.key).filter(Boolean);
-      const hubsInfo = isAllHubs() ? 'всі хаби' : (ALLOWED_HUBS||[]).join(', ') || '—';
-      box.textContent = `(${stage}) джерело: ${sourceName||'—'} | hubs: ${hubsInfo} | enabled: ${enabledKeys.length} | keys: ${enabledKeys.join(', ')}`;
-    }catch(_){ }
+  function ensureHighlightLayers(){
+    TILESETS.filter(ts => ts && ts.enabled !== false).forEach(ts => {
+      const srcId = `geozones-tileset-${ts.key}`;
+      if (!map.getSource(srcId)) return;
+      const mk = t => `tileset-hl-${t}-${ts.key}`;
+      if (!map.getLayer(mk('from'))){ map.addLayer({ id: mk('from'), type:'fill', source: srcId, 'source-layer': ts.layer, filter:['==',['get','__never__'],1], paint:{'fill-color':'#3b82f6','fill-opacity':0.45} }); HL_IDS_FROM.push(mk('from')); }
+      if (!map.getLayer(mk('to'))){ map.addLayer({ id: mk('to'), type:'fill', source: srcId, 'source-layer': ts.layer, filter:['==',['get','__never__'],1], paint:{'fill-color':'#f43f5e','fill-opacity':0.45} }); HL_IDS_TO.push(mk('to')); }
+      // label highlights
+      const mkLbl = t => `tileset-hl-${t}-label-${ts.key}`;
+      const textExpr = ['coalesce',['get','Name'],['get','name'],['get','Назва'],['get','Назва поля'],['get','Code'],['get','code']];
+      if (!map.getLayer(mkLbl('from'))){ map.addLayer({ id: mkLbl('from'), type:'symbol', source: srcId, 'source-layer': ts.layer, filter:['==',['get','__never__'],1], layout:{ 'text-field': textExpr,'text-size':12,'text-anchor':'center','text-allow-overlap':false }, paint:{ 'text-color':'#111','text-halo-color':'#fff','text-halo-width':1.2 } }); HL_LABEL_IDS_FROM.push(mkLbl('from')); }
+      if (!map.getLayer(mkLbl('to'))){ map.addLayer({ id: mkLbl('to'), type:'symbol', source: srcId, 'source-layer': ts.layer, filter:['==',['get','__never__'],1], layout:{ 'text-field': textExpr,'text-size':12,'text-anchor':'center','text-allow-overlap':false }, paint:{ 'text-color':'#111','text-halo-color':'#fff','text-halo-width':1.2 } }); HL_LABEL_IDS_TO.push(mkLbl('to')); }
+    });
   }
-  document.getElementById('btnReloadTilesets').onclick = async ()=>{ await loadTilesetsConfig(); rebuildTilesetsLayers(); };
+  async function loadTilesetsConfigOnce(){
+    if (__tilesetsLoaded) return; let fromFs=[]; try{
+      try{ firebase.apps?.length ? firebase.app() : firebase.initializeApp(window.APP_CONFIG.firebase); }catch(_){ }
+      const auth = firebase.auth(); try{ await auth.signInAnonymously().catch(()=>{}); }catch(_){ }
+      try{ const doc = await firebase.firestore().collection('config').doc('tilesets').get({ source:'server' });
+        if (doc.exists){ const data = doc.data(); if (Array.isArray(data)) fromFs=data; else if (data && Array.isArray(data.tilesets)) fromFs=data.tilesets; }
+      }catch(e){ console.warn('[tilesets] Firestore недоступний:', e?.message||e); }
+      if (Array.isArray(fromFs) && fromFs.length){ TILESETS = fromFs; TILESETS_SOURCE='firestore'; }
+      if (!TILESETS.length){
+        try{ const res = await fetch('/config/tilesets.json?v='+Date.now()); if (res.ok){ const j = await res.json(); TILESETS = Array.isArray(j)? j : (Array.isArray(j?.tilesets)? j.tilesets : []); TILESETS_SOURCE='json'; } }
+        catch(e){ console.warn('[tilesets] json недоступний:', e?.message||e); TILESETS=[]; TILESETS_SOURCE='json'; }
+      }
+    } finally { __tilesetsLoaded = true; updateTilesetInfo('(load)'); }
+  }
+  function updateTilesetInfo(stage){
+    try{ const box=document.getElementById('tilesetInfo'); if (!box) return; const enabled=TILESETS.filter(t=>t && t.enabled!==false); const keys=enabled.map(t=>t.key).filter(Boolean); const hubsInfo = isAllHubs()? 'всі хаби' : (ALLOWED_HUBS||[]).join(', ') || '—'; box.textContent = `${stage} джерело: ${TILESETS_SOURCE} | hubs: ${hubsInfo} | enabled: ${enabled.length} | keys: ${keys.join(', ')}`; }catch(_){ }
+  }
+  async function reloadTilesets(){ __tilesetsLoaded=false; TILESETS=[]; TILESETS_SOURCE='—'; removeTilesetLayers(); await loadTilesetsConfigOnce(); addTilesets(); ensureHighlightLayers(); applyTilesetHubVisibility(); }
+  document.getElementById('btnReloadTilesets').onclick = reloadTilesets;
+
+  // (старий loadTilesetsConfig видалено — тепер використовується loadTilesetsConfigOnce + reloadTilesets)
 
   // Після кожного завантаження стилю: застосувати укр. підписи та відновити наші шари
   map.on('style.load', async ()=>{
@@ -935,8 +858,11 @@
         if (hubChk.checked) refreshHubsFromStorage(); else { ALLOWED_HUBS = null; applyTilesetHubVisibility(); updateTilesetInfo('hubs-off'); }
       });
     }
-    await loadTilesetsConfig();
-    rebuildTilesetsLayers();
+  await loadTilesetsConfigOnce();
+  addTilesets();
+  ensureHighlightLayers();
+  applyTilesetHubVisibility();
+  updateTilesetInfo('(init)');
     bindAreaEvents();
     setTimeout(updateDrawAreaInfo, 200);
     // Синхронізувати напис на кнопці видимості з поточним станом
