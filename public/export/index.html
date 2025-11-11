@@ -556,7 +556,7 @@
       <col>                           <!-- Від -->
       <col>                           <!-- До -->
       <col class="col-via">          <!-- Проміжні -->
-            <col><col><col>                  <!-- Відстань, Тип, Логіст -->
+            <col><col><col><col>            <!-- Відстань, Тип, Призначення, Логіст -->
             <col class="col-status"><col class="col-comment"> <!-- Статус, Причина -->
             <col>             <!-- Оновлено -->
             <col class="col-key"> <!-- Код маршруту -->
@@ -579,6 +579,7 @@
     <th class="sortable" data-sort="viaNames"      data-colkey="via">Проміжні пункти <span class="s">↕</span></th>
     <th class="sortable" data-sort="distance_km"   data-colkey="distance">Відстань, км <span class="s">↕</span></th>
     <th class="sortable" data-sort="type"          data-colkey="type">Тип <span class="s">↕</span></th>
+    <th class="sortable" data-sort="purpose"       data-colkey="purpose">Призначення <span class="s">↕</span></th>
     <th class="sortable" data-sort="logisticName"  data-colkey="logist">Логіст <span class="s">↕</span></th>
     <th class="sortable" data-sort="statusLabel"   data-colkey="status">Статус погодження <span class="s">↕</span></th>
     <th class="sortable" data-sort="rejectComment" data-colkey="comment">Причина відхилення <span class="s">↕</span></th>
@@ -615,6 +616,7 @@
         <option value="Альтернативний2">Альтернативний2</option>
       </select>
     </th>
+    <th><input id="f_purpose" type="text" placeholder="призначення…" list="fPurposeList"></th>
     <th><input id="f_logist" type="text" placeholder="логіст…" list="fLogistsList"></th>
     <th>
       <select id="f_status" title="Статус">
@@ -650,6 +652,7 @@
   <datalist id="fUnitsList"></datalist>
         <datalist id="fToNamesList"></datalist>
         <datalist id="fLogistsList"></datalist>
+        <datalist id="fPurposeList"></datalist>
         <datalist id="fViaList"></datalist>
         <datalist id="fCommentsList"></datalist>
         <datalist id="fRouteKeysList"></datalist>
@@ -1954,6 +1957,7 @@ function parseSnap(snap){
       viaNames: viaArr.join(' • '),
       distance_km: (typeof d.distance_km==='number')? d.distance_km : NaN,
       type: d.routeType||'',
+      purpose: (d.purpose || d.routePurpose || ''),
       logisticName: d.logisticName || '',
       logisticId: d.logisticId || '',
       statusRaw: statusValue, statusLabel, rejectComment,
@@ -2079,6 +2083,7 @@ function getTableFilterState(){
     distMin:   toNum(document.getElementById('f_distMin').value),
     distMax:   toNum(document.getElementById('f_distMax').value),
     type:      typeArr,
+    purpose:   document.getElementById('f_purpose').value.trim(),
     logist:    document.getElementById('f_logist').value.trim(),
     status:    statusArr,
     comment:   document.getElementById('f_comment').value.trim(),
@@ -2121,6 +2126,7 @@ function applyTableFilters(rows, fOverride){
   const unitNeedles     = splitMulti(f.unitFrom);
   const toNameNeedles   = splitMulti(f.toName);
   const viaNeedles      = splitMulti(f.via);
+  const purposeNeedles  = splitMulti(f.purpose);
   const logistNeedles   = splitMulti(f.logist);
   const commentNeedles  = splitMulti(f.comment);
   const keyNeedles      = splitMulti(f.routeKey);
@@ -2137,6 +2143,7 @@ function applyTableFilters(rows, fOverride){
     if (!matchTextNeedles(r.fromUnit,   unitNeedles)) return false;
     if (!matchTextNeedles(r.toName,     toNameNeedles)) return false;
     if (!matchTextNeedles(r.viaNames,   viaNeedles)) return false;
+  if (!matchTextNeedles(r.purpose,    purposeNeedles)) return false;
 
     const dist = r.distance_km;
     if (Number.isFinite(f.distMin) && dist < f.distMin) return false;
@@ -2212,6 +2219,7 @@ function updateColumnFilterLists(rows){
   const tNames = uniqSorted(rows.map(r => r.toName));
   const logs   = uniqSorted(rows.map(r => r.logisticName));
   const stats  = uniqSorted(rows.map(r => r.statusLabel));
+  const purposes = uniqSorted(rows.map(r => r.purpose));
   // Розбиваємо проміжні пункти на окремі назви
   const viaRaw = rows.map(r => r.viaNames || '').filter(Boolean);
   const viaParts = uniqSorted(viaRaw.flatMap(s => String(s).split(',').map(x => x.trim()).filter(Boolean)));
@@ -2227,6 +2235,7 @@ function updateColumnFilterLists(rows){
   setDatalistOptions('fUnitsList', fUnits);
   setDatalistOptions('fToNamesList', tNames);
   setDatalistOptions('fLogistsList', logs);
+  setDatalistOptions('fPurposeList', purposes);
   setDatalistOptions('fViaList', viaParts);
   setDatalistOptions('fCommentsList', comments);
   setDatalistOptions('fRouteKeysList', routeKeys);
@@ -2359,13 +2368,13 @@ async function exportJsonFromRows(rows){
 /* ==== Керування видимістю колонок (чекбокси ліворуч) ==== */
 const VCOL_KEY = 'export.visibleColumns.v1'; // ключ для localStorage  ← ДОДАТИ
 const COLS_ORDER = [
-  'hub','unit','fromCode','toCode','fromName','toName','via','distance','type',
+  'hub','unit','fromCode','toCode','fromName','toName','via','distance','type','purpose',
   'logist','status','comment','updated','routeKey','id','map','review','navigator','json',
   'delete' // ⬅ додано
 ];
 const COL_LABEL = {
   hub:'ХАБ', fromCode:'Код Від', toCode:'Код До', fromName:'Від', unit:'Підрозділ', toName:'До',
-  via:'Проміжні пункти', distance:'Відстань, км', type:'Тип', logist:'Логіст',
+  via:'Проміжні пункти', distance:'Відстань, км', type:'Тип', purpose:'Призначення', logist:'Логіст',
   status:'Статус погодження', comment:'Причина відхилення', updated:'Оновлено',
   routeKey:'Код маршруту', id:'ID', map:'Карта', navigator:'Навігатор', json:'JSON',
   review:'Погодження', delete:'Видалити' // ⬅ додано
@@ -2374,7 +2383,7 @@ const COL_INDEX = Object.fromEntries(COLS_ORDER.map((k,i)=>[k,i+1]));
 
 // Можеш забрати 'delete' із дефолтних, якщо не треба показувати одразу
 const DEFAULT_VISIBLE = new Set([
-  'hub','fromName','unit','toName','via','distance','type','status','map','review','delete'
+  'hub','fromName','unit','toName','via','distance','type','purpose','status','map','review','delete'
 ]);
 
 const EXCEL_EXCLUDE = new Set(['map','navigator','json','review','delete']); // ⬅ додано
@@ -2382,7 +2391,7 @@ const EXCEL_EXCLUDE = new Set(['map','navigator','json','review','delete']); // 
 // ваги для авто-розтягування
 const COL_WEIGHTS = {
   via: 2.2, comment: 2.0, fromName: 1.3, unit: 1.1, toName: 1.3,
-  hub: 1, fromCode: 1, toCode: 1, distance: 1, type: 1,
+  hub: 1, fromCode: 1, toCode: 1, distance: 1, type: 1, purpose: 1,
   logist: 1, status: 1, updated: 1, routeKey: 1, id: 1,
   map: 1, navigator: 1, json: 1, review: 1, delete: 1
 };
@@ -2531,6 +2540,7 @@ function renderTable(rows){
     <td class="cell-via">${r.viaNames || ''}</td>
     <td>${Number.isFinite(r.distance_km) ? r.distance_km.toFixed(3) : ''}</td>
     <td>${r.type}</td>
+    <td>${r.purpose || ''}</td>
     <td>${r.logisticName || ''}</td>
   <td>${r.statusLabel || ''}${r.isActive ? ' 🟩' : ' 🟥'}</td>
     <td class="cell-comment">${r.rejectComment ? r.rejectComment : ''}${r.hasProposal ? ` <span class="proposal-flag" title="Є пропозиція змін">Є пропозиція</span>` : ''}</td>
@@ -2587,6 +2597,7 @@ function exportToExcel(rows){
       case 'via':        return r.viaNames || '';
       case 'distance':   return Number.isFinite(r.distance_km) ? Number(r.distance_km.toFixed(3)) : '';
       case 'type':       return r.type || '';
+      case 'purpose':    return r.purpose || '';
       case 'logist':     return r.logisticName || '';
       case 'status':     return r.statusLabel || '';
       case 'comment':    return r.rejectComment || '';
