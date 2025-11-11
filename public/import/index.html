@@ -91,7 +91,7 @@
     const db   = firebase.firestore();
     const auth = firebase.auth();
     const loginURL = '/login.html?next=' + encodeURIComponent(location.pathname + location.search);
-    const ALLOWED = new Set(['admin','logist']);
+  const ALLOWED = new Set(['admin']);
 
     // запасний таймер, щоб сторінка гарантовано стала видимою
     const safety = setTimeout(() => { document.documentElement.style.visibility = 'visible'; }, 3000);
@@ -123,7 +123,7 @@
       if (!ALLOWED.has(role)) {
         alert(role === 'pending'
           ? 'Ваш акаунт очікує підтвердження адміністратором.'
-          : 'Недостатньо прав для сторінки Імпорту (потрібно: admin або logist).');
+          : 'Недостатньо прав: потрібна роль admin для сторінки Імпорту.');
         location.replace(loginURL);
       }
     });
@@ -136,7 +136,7 @@
     <nav style="display:flex;gap:16px;align-items:center;">
       <a href="/">🏠 Карта</a>
       <a href="/export/">📤 Експорт</a>
-      <a href="/import/">📥 Імпорт</a>
+      <!-- Імпорт недоступний у загальному меню: переходьте через "Адмін сторінки" на головній -->
     </nav>
     <div class="authbar">
       <span id="authInfo">Перевірка…</span>
@@ -410,7 +410,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const importBtn = $('importBtn');
 
   let db = null, auth = null, currentUser = null, currentRole = 'pending';
-const WRITE_ROLES = new Set(['admin','logist']);
+const WRITE_ROLES = new Set(['admin']);
 const NORM = r => String(r || 'pending').trim().toLowerCase();
 
 async function resolveUserRole(uid){
@@ -443,9 +443,9 @@ async function resolveUserRole(uid){
       importBtn.disabled = false;
       importBtn.title = 'Dry-run (без запису)';
     } else {
-      const canWrite = currentUser && WRITE_ROLES.has(currentRole);
-      importBtn.disabled = !canWrite;
-      importBtn.title = canWrite ? '' : 'Потрібна роль admin або logist';
+  const canWrite = currentUser && WRITE_ROLES.has(currentRole);
+  importBtn.disabled = !canWrite;
+  importBtn.title = canWrite ? '' : 'Потрібна роль admin';
     }
   }
   $('dryRun').addEventListener('change', updateImportButton);
@@ -510,7 +510,7 @@ auth?.onAuthStateChanged(async (u) => {
   function initFirebaseWrite(){
     if (!db) { alert('Firebase недоступний.'); return null; }
     if (!currentUser) { alert('Спершу увійди.'); return null; }
-    if (!WRITE_ROLES.has(currentRole)) { alert('Недостатньо прав. Потрібна роль admin або logist.'); return null; }
+  if (!WRITE_ROLES.has(currentRole)) { alert('Недостатньо прав. Потрібна роль admin.'); return null; }
     return db;
   }
 
@@ -618,7 +618,7 @@ function makeNGrams(s, n = 3){
     try{
       if (!db) { alert('Firestore недоступний'); return; }
       if (!currentUser) { alert('Спершу увійдіть'); return; }
-      if (!WRITE_ROLES.has(currentRole)) { alert('Недостатньо прав (потрібно: admin або logist)'); return; }
+  if (!WRITE_ROLES.has(currentRole)) { alert('Недостатньо прав (потрібно: admin)'); return; }
       const name    = $('singleName').value.trim();
       const codeIn  = $('singleCode').value.trim();
       const company = $('singleCompany').value.trim();
