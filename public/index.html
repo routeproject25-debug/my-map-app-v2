@@ -1176,7 +1176,9 @@ showPanel('panel-create');
 /* ==== HIGHLIGHT (FROM/TO) CONFIG ==== */
 // Додаємо більше можливих ключів і робимо порівняння без регістру
 const NAME_KEYS = ['Name','name','NAME','Назва','Назва поля','Title','title','Label','label'];
-const CODE_KEYS = ['Code','code','CODE','Код','Id','ID'];
+// Розширено перелік можливих «кодів» для tileset/geojson, бо в різних джерелах зустрічаються різні варіанти
+// (id/fid/OBJECTID/OBJECTID_1 тощо)
+const CODE_KEYS = ['Code','code','CODE','Код','Id','ID','id','fid','FID','OBJECTID','OBJECTID_1','objectid','objectid_1'];
 
 let HL_IDS_FROM = [];
 let HL_IDS_TO   = [];
