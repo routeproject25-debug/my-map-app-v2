@@ -157,6 +157,14 @@
   .mapboxgl-canvas{z-index:0!important}
   .mapboxgl-control-container{z-index:1!important}
   .mapboxgl-marker{z-index:2!important}
+  /* бейдж нумерації точки маршруту (DOM усередині маркера) */
+  .pt-badge{
+    position:absolute; top:-8px; left:-8px;
+    background:#111; color:#fff; border-radius:999px;
+    font-size:11px; line-height:1; padding:2px 6px;
+    border:1px solid #fff; box-shadow:0 1px 3px rgba(0,0,0,.25);
+    pointer-events:none; user-select:none;
+  }
   /* Стилі для дока перемикання стилю карти (нижній лівий кут) */
   .style-dock{
     position:fixed;
@@ -2181,6 +2189,14 @@ map.on('click', (e) => {
 function addMarker(lngLat, index = points.length - 1) {
   const marker = new mapboxgl.Marker({ draggable: !readOnly }).setLngLat(lngLat).addTo(map);
   const el = marker.getElement();
+  try{ el.style.position = 'relative'; }catch(_){ }
+  // номер точки як бейдж усередині DOM-маркера (видно поверх полотна на iPad)
+  try{
+    const badge = document.createElement('span');
+    badge.className = 'pt-badge';
+    badge.textContent = String(index + 1);
+    el.appendChild(badge);
+  }catch(_){ }
   // Контекст-меню: ПКМ + long-press (iOS/iPadOS)
   const openMenuAt = (x, y) => {
     if (readOnly) return;
@@ -2320,6 +2336,13 @@ document.getElementById('toggleMarkers').onclick = () => {
   startRulerMarkers.forEach(m => m.getElement().style.display = markersVisible ? 'block' : 'none');
   endRulerMarkers.forEach(m   => m.getElement().style.display = markersVisible ? 'block' : 'none');
   document.getElementById('toggleMarkers').textContent = markersVisible ? '📍 Приховати точки' : '📍 Показати точки';
+  // Якщо приховуємо DOM-маркери — покажемо canvas-номери, і навпаки
+  try{
+    const id='route-point-labels';
+    if (map.getLayer(id)) {
+      setLayerVisibility(id, !markersVisible);
+    }
+  }catch(_){ }
 };
 /* ===== Geozones toggle (all related layers) ===== */
 let geozonesVisible = true;
