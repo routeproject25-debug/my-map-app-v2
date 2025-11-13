@@ -616,6 +616,7 @@
           <button id="toggleMarkers" class="btn xs">📍 Точки</button>
           <button id="toggleGeozones" class="btn xs">🗺 Приховати геозони</button>
           <button id="toggleRoadGrid" class="btn xs" title="Показати/приховати сітку доріг">🛣 Показати сітку доріг</button>
+          <button id="exportPng" class="btn xs" title="Експорт PNG скріншота карти">🖼️ Експорт PNG</button>
         </div>
         <div class="head-right"></div>
       </div>
@@ -940,7 +941,13 @@ function setRoleVisual(role){
 mapboxgl.accessToken = window.APP_CONFIG?.mapboxToken || '';
 if (!mapboxgl.accessToken) console.error('APP_CONFIG.mapboxToken порожній або відсутній.');
 let currentStyle = 'mapbox://styles/mapbox/streets-v12';
-const map = new mapboxgl.Map({ container: 'map', style: currentStyle, center: [28.468, 49.234], zoom: 12 });
+const map = new mapboxgl.Map({
+  container: 'map',
+  style: currentStyle,
+  center: [28.468, 49.234],
+  zoom: 12,
+  preserveDrawingBuffer: true
+});
 
 /* ⬇️ додай цю функцію */
 function hideSplash(){
@@ -1949,6 +1956,27 @@ document.getElementById('endLineMode').onclick = () => {
   if (endLineMode) flyToRouteEdge('end');
 };
 
+// ===== Клавіатурні шорткати =====
+document.addEventListener('keydown', (e) => {
+  const tag = String(e.target?.tagName||'').toLowerCase();
+  if (tag === 'input' || tag === 'textarea' || tag === 'select' || (e.target && e.target.isContentEditable)) return;
+  if (readOnly) return;
+
+  const key = String(e.key||'').toLowerCase();
+  if (e.ctrlKey) {
+    if (key === 'm') { e.preventDefault(); document.getElementById('toggleAdd')?.click(); return; }
+    if (key === 's') { e.preventDefault(); document.getElementById('startLineMode')?.click(); return; }
+    if (key === 'e') { e.preventDefault(); document.getElementById('endLineMode')?.click(); return; }
+  }
+  if (key === 'escape'){
+    e.preventDefault();
+    addMode = false; startLineMode = false; endLineMode = false; insertAfterMode = false; insertMode = null; selectedMarkerIndex = null;
+    setActiveRuler(null);
+    try{ toggleButton('toggleAdd', false); toggleButton('startLineMode', false); toggleButton('endLineMode', false); }catch(_){ }
+    try{ const m = document.getElementById('contextMenu'); if (m) m.style.display='none'; }catch(_){ }
+  }
+});
+
 document.getElementById('popRulerPoint').onclick = () => {
   if (readOnly) return;
   const choose = () => activeRuler || lastActiveRuler || (startRuler.length >= endRuler.length ? 'start' : 'end');
@@ -2326,7 +2354,7 @@ function rebuildRulerMarkers(){
   endRuler.forEach((pt, idx)   => addRulerMarker('end',   pt, idx));
 }
 
-let markersVisible = true;
+let markersVisible = (()=>{ try{ return JSON.parse(localStorage.getItem('ui.markersVisible') ?? 'true'); }catch(_){ return true; } })();
 document.getElementById('toggleMarkers').onclick = () => {
   markersVisible = !markersVisible;
   markers.forEach(m => m.getElement().style.display = markersVisible ? 'block' : 'none');
@@ -2335,9 +2363,23 @@ document.getElementById('toggleMarkers').onclick = () => {
   endRulerMarkers.forEach(m   => m.getElement().style.display = markersVisible ? 'block' : 'none');
   // Нумерація маршруту вже в самих маркерах
   document.getElementById('toggleMarkers').textContent = markersVisible ? '📍 Приховати точки' : '📍 Показати точки';
+  try{ localStorage.setItem('ui.markersVisible', JSON.stringify(markersVisible)); }catch(_){ }
 };
+
+// Застосувати збережений стан видимості точок при завантаженні
+try{
+  const applyMarkersVisibility = () => {
+    markers.forEach(m => m.getElement().style.display = markersVisible ? 'block' : 'none');
+    startRulerMarkers.forEach(m => m.getElement().style.display = markersVisible ? 'block' : 'none');
+    endRulerMarkers.forEach(m   => m.getElement().style.display = markersVisible ? 'block' : 'none');
+    const b = document.getElementById('toggleMarkers');
+    if (b) b.textContent = markersVisible ? '📍 Приховати точки' : '📍 Показати точки';
+  };
+  // одразу після ініціалізації
+  applyMarkersVisibility();
+}catch(_){ }
 /* ===== Geozones toggle (all related layers) ===== */
-let geozonesVisible = true;
+let geozonesVisible = (()=>{ try{ return JSON.parse(localStorage.getItem('ui.geozonesVisible') ?? 'true'); }catch(_){ return true; } })();
 
 function setLayerVisibility(id, visible){
   try {
@@ -2420,13 +2462,20 @@ document.getElementById('toggleGeozones').onclick = () => {
   geozonesVisible = !geozonesVisible;
   setGeozonesVisibility(geozonesVisible);
   updateGeozonesToggleLabel();
+  try{ localStorage.setItem('ui.geozonesVisible', JSON.stringify(geozonesVisible)); }catch(_){ }
 };
 
 // Ініціалізуємо напис на кнопці при завантаженні
 updateGeozonesToggleLabel();
+// Синхронізуємо текст кнопки і стан видимості при старті
+try{ setGeozonesVisibility(geozonesVisible); }catch(_){ }
+// Застосувати збережений стан геозон після завантаження стилю
+try{
+  if (map && map.isStyleLoaded && map.isStyleLoaded()) setGeozonesVisibility(geozonesVisible);
+  else map.once('style.load', () => setGeozonesVisibility(geozonesVisible));
+}catch(_){ }
 
 /* ==== Дорожня сітка (тонка синя суцільна лінія) ==== */
-let roadGridVisible = true; // за замовчуванням увімкнено, але прозорість прив'язана до зуму
 const ROAD_SRC_ID = 'road-grid-src';
 const ROAD_LAYER_ID = 'road-grid';
 
@@ -2476,6 +2525,7 @@ function setRoadGridVisibility(v){
     }
   }catch(_){ }
   updateRoadGridToggleLabel();
+  try{ localStorage.setItem('ui.roadGridVisible', JSON.stringify(roadGridVisible)); }catch(_){ }
 }
 
 function updateRoadGridToggleLabel(){
@@ -2484,11 +2534,32 @@ function updateRoadGridToggleLabel(){
   b.textContent = roadGridVisible ? '🛣 Приховати сітку доріг' : '🛣 Показати сітку доріг';
 }
 
+let roadGridVisible = (()=>{ try{ return JSON.parse(localStorage.getItem('ui.roadGridVisible') ?? 'true'); }catch(_){ return true; } })();
 const __roadBtn = document.getElementById('toggleRoadGrid');
 if (__roadBtn){
   __roadBtn.onclick = () => setRoadGridVisibility(!roadGridVisible);
   updateRoadGridToggleLabel();
+  // Застосувати збережений стан після додавання шару
+  try{ setRoadGridVisibility(roadGridVisible); }catch(_){ }
 }
+
+/* ===== Експорт PNG скріншота карти ===== */
+function downloadMapPng(){
+  try{
+    const dataUrl = map.getCanvas().toDataURL('image/png');
+    const a = document.createElement('a');
+    const ts = new Date().toISOString().replace(/[:.]/g,'-');
+    a.href = dataUrl;
+    a.download = `map-${ts}.png`;
+    // iOS/Safari можуть не підтримувати download — fallback: відкрити в новій вкладці
+    if (typeof a.download !== 'string') window.open(dataUrl, '_blank');
+    else a.click();
+  }catch(e){
+    console.error('PNG export failed:', e);
+    alert('Не вдалося експортувати PNG. Спробуйте ще раз або збільшити масштаб.');
+  }
+}
+document.getElementById('exportPng')?.addEventListener('click', downloadMapPng);
 
 /* ===== Rulers (draw + distance) ===== */
 function drawRulers() {
