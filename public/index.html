@@ -625,6 +625,7 @@
           <button id="toggleMarkers" class="btn xs">📍 Точки</button>
           <button id="toggleGeozones" class="btn xs">🗺 Приховати геозони</button>
           <button id="toggleRoadGrid" class="btn xs" title="Показати/приховати сітку доріг">🛣 Показати сітку доріг</button>
+          <button id="toggleRoadLabels" class="btn xs" title="Перемкнути між щитками та простими підписами">🛡 Щитки</button>
           <button id="exportPng" class="btn xs" title="Експорт PNG скріншота карти">🖼️ Експорт PNG</button>
         </div>
         <div class="head-right"></div>
@@ -1740,6 +1741,8 @@ if (window.__canHideSplash) hideSplash();
   try { addRoadGridLayer(); setRoadGridVisibility(roadGridVisible); } catch(_) {}
   // Текстові підписи доріг (замість кольорових «щитів» без тексту)
   try { ensureRoadRefLabels(); } catch(_) {}
+  // Застосувати обраний режим відображення (щитки або прості підписи)
+  try { applyRoadRefMode(); } catch(_) {}
 });
 
 function setMapStyle(val){
@@ -2618,6 +2621,64 @@ function ensureRoadRefLabels(){
       }
     }, beforeId || undefined);
   }
+}
+
+// Режими відображення номерів доріг (щитки або прості підписи)
+let roadRefMode = (()=>{ try{ return localStorage.getItem('ui.roadRefMode') || 'shield'; }catch(_){ return 'shield'; } })();
+
+function updateRoadLabelsToggleLabel(){
+  const b = document.getElementById('toggleRoadLabels');
+  if (!b) return;
+  b.textContent = roadRefMode === 'shield' ? '🛡 Щитки' : '🔤 Підписи';
+}
+
+function applyRoadRefMode(){
+  const id = 'road-ref-text';
+  if (!map) return;
+  if (!map.getLayer(id)){
+    try{ ensureRoadRefLabels(); }catch(_){ }
+  }
+  // якщо шару все ще немає — вихід
+  if (!map.getLayer(id)) return;
+  try{
+    if (roadRefMode === 'shield'){
+      map.setLayoutProperty(id, 'symbol-placement', 'line-center');
+      map.setLayoutProperty(id, 'text-size', ['interpolate',['linear'],['zoom'], 8, 10, 12, 12, 16, 14]);
+      map.setLayoutProperty(id, 'text-letter-spacing', 0.05);
+      map.setLayoutProperty(id, 'text-allow-overlap', false);
+      map.setPaintProperty(id, 'text-color', [
+        'case',
+        ['match', ['slice', ['to-string', ['get','ref']], 0, 1], ['H','P'], true, false], '#111827',
+        '#ffffff'
+      ]);
+      map.setPaintProperty(id, 'text-halo-color', [
+        'match', ['slice', ['to-string', ['get','ref']], 0, 1],
+        'E', '#2E7D32', 'M', '#1967D2', 'H', '#F59E0B', 'P', '#F59E0B', 'T', '#6B7280', 'O', '#6B7280', '#374151'
+      ]);
+      map.setPaintProperty(id, 'text-halo-width', ['interpolate',['linear'],['zoom'], 8, 2.8, 12, 3.6, 16, 4.2]);
+      map.setPaintProperty(id, 'text-halo-blur', 0.5);
+    } else {
+      map.setLayoutProperty(id, 'symbol-placement', 'line');
+      map.setLayoutProperty(id, 'symbol-spacing', 250);
+      map.setLayoutProperty(id, 'text-size', ['interpolate',['linear'],['zoom'], 8, 10, 12, 12, 16, 13]);
+      map.setPaintProperty(id, 'text-color', '#1f2937');
+      map.setPaintProperty(id, 'text-halo-color', '#ffffff');
+      map.setPaintProperty(id, 'text-halo-width', 1.2);
+      map.setPaintProperty(id, 'text-halo-blur', 0.2);
+    }
+  }catch(_){ }
+}
+
+const __roadLabelsBtn = document.getElementById('toggleRoadLabels');
+if (__roadLabelsBtn){
+  __roadLabelsBtn.onclick = () => {
+    roadRefMode = (roadRefMode === 'shield') ? 'text' : 'shield';
+    try{ localStorage.setItem('ui.roadRefMode', roadRefMode); }catch(_){ }
+    applyRoadRefMode();
+    updateRoadLabelsToggleLabel();
+  };
+  updateRoadLabelsToggleLabel();
+  try{ applyRoadRefMode(); }catch(_){ }
 }
 
 /* ===== Експорт PNG скріншота карти ===== */
