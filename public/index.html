@@ -2660,7 +2660,14 @@ function updateRoutePointLabels(){
     map.addSource(SRC, { type:'geojson', data });
     map.addLayer({
       id: LYR, type:'symbol', source:SRC,
-      layout:{ 'text-field':['get','n'], 'text-size':12, 'text-offset':[0, -1], 'text-allow-overlap': true, 'text-anchor':'bottom' },
+      layout:{
+        'text-field':['get','n'],
+        'text-size':12,
+        // динамічно відсовуємо підпис від точки, щоб він не ховався під DOM-маркером
+        'text-variable-anchor': ['top','bottom','left','right'],
+        'text-radial-offset': 0.9,
+        'text-allow-overlap': true
+      },
       paint:{ 'text-color':'#111', 'text-halo-color':'#fff', 'text-halo-width':1.2 }
     });
   } else {
