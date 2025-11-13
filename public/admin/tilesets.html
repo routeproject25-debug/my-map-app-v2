@@ -37,6 +37,13 @@
     .actions{display:flex;gap:8px}
     .toolbar{display:flex;gap:8px;align-items:center}
     .mono{font-family:ui-monospace,Menlo,Consolas,monospace}
+    /* Групи за хабами */
+    .group-row td{padding:0;border-bottom:none}
+    .group-head{display:flex;align-items:center;gap:10px;justify-content:space-between;background:#0f172a;border:1px solid #1f2937;border-radius:8px;margin:10px 0;padding:8px 12px}
+    .group-head .title{display:flex;align-items:center;gap:10px}
+    .group-head .title b{color:#fff}
+    .group-actions{display:flex;gap:8px}
+    .count-pill{font-size:12px;color:#9ca3af;border:1px solid #374151;border-radius:999px;padding:2px 8px}
   </style>
 </head>
 <body>
@@ -100,26 +107,80 @@
 
     function debounce(fn, ms=250){ let t; return (...a)=>{ clearTimeout(t); t=setTimeout(()=>fn(...a), ms); } }
 
+    function hubsOf(t){
+      if (Array.isArray(t?.hubs)) return t.hubs.filter(Boolean).map(s=>String(s).trim());
+      const s = String(t?.hubs||'');
+      return s ? s.split(',').map(x=>x.trim()).filter(Boolean) : [];
+    }
+
     function render(){
       const q = filter.value.trim().toLowerCase();
       const onlyOn = !!onlyEnabled.checked;
       tbody.innerHTML = '';
+      // 1) Збираємо видимі індекси
+      const visibleIdx = [];
       (tiles||[]).forEach((t, idx) => {
-        const hay = [t.key, t.url, t.layer, (t.hubs||[]).join(','), String(t.enabled)].join(' ').toLowerCase();
+        const hay = [t.key, t.url, t.layer, hubsOf(t).join(','), String(t.enabled)].join(' ').toLowerCase();
         if (q && !hay.includes(q)) return;
         if (onlyOn && !t.enabled) return;
+        visibleIdx.push(idx);
+      });
+
+      // 2) Групуємо за хабами (кожен запис може бути у декількох групах). Порожні — до групи "— Без хабу —".
+      const groups = new Map();
+      const NO_HUB = '— Без хабу —';
+      visibleIdx.forEach(idx => {
+        const hs = hubsOf(tiles[idx]);
+        if (!hs.length){
+          if (!groups.has(NO_HUB)) groups.set(NO_HUB, []);
+          groups.get(NO_HUB).push(idx);
+        } else {
+          hs.forEach(h => {
+            const key = h || NO_HUB;
+            if (!groups.has(key)) groups.set(key, []);
+            groups.get(key).push(idx);
+          });
+        }
+      });
+
+      // 3) Порядок груп — алфавітний, а "Без хабу" в кінці
+      const order = Array.from(groups.keys()).sort((a,b)=>{
+        if (a===NO_HUB && b!==NO_HUB) return 1;
+        if (b===NO_HUB && a!==NO_HUB) return -1;
+        return a.localeCompare(b, 'uk');
+      });
+
+      // 4) Малюємо групи
+      const makeRow = (idx) => {
+        const t = tiles[idx];
         const tr = document.createElement('tr');
         tr.innerHTML = `
           <td><input type="checkbox" ${t.enabled?'checked':''} data-action="toggle" data-idx="${idx}" /></td>
           <td><input value="${t.key||''}" data-field="key" data-idx="${idx}" class="mono"/></td>
           <td><input value="${t.url||''}" data-field="url" data-idx="${idx}" class="mono" style="width:100%"/></td>
           <td><input value="${t.layer||''}" data-field="layer" data-idx="${idx}" class="mono"/></td>
-          <td><input value="${(t.hubs||[]).join(', ')}" data-field="hubs" data-idx="${idx}" /></td>
+          <td><input value="${hubsOf(t).join(', ')}" data-field="hubs" data-idx="${idx}" /></td>
           <td class="actions">
             <button class="btn" data-action="dup" data-idx="${idx}">Дублювати</button>
             <button class="btn" data-action="del" data-idx="${idx}">Видалити</button>
           </td>`;
-        tbody.appendChild(tr);
+        return tr;
+      };
+
+      order.forEach(hub => {
+        const indices = groups.get(hub)||[];
+        const head = document.createElement('tr');
+        head.className = 'group-row';
+        head.innerHTML = `<td colspan="6">
+          <div class="group-head">
+            <div class="title">Хаб: <b>${hub}</b> <span class="count-pill">${indices.length}</span></div>
+            <div class="group-actions">
+              <button class="btn" data-addhub="${hub}">Додати у цей хаб</button>
+            </div>
+          </div>
+        </td>`;
+        tbody.appendChild(head);
+        indices.forEach(idx => tbody.appendChild(makeRow(idx)));
       });
     }
 
@@ -197,6 +258,13 @@
       if (!btn) return;
       const idx = +btn.dataset.idx;
       const action = btn.dataset.action;
+      if (btn.dataset.addhub){
+        // Додати новий tileset у вказаний хаб (косметичне групування — поле hubs все одно зберігаємо)
+        const hub = btn.dataset.addhub;
+        tiles.push({ key:'new-key', url:'mapbox://owner.id', layer:'source-layer', hubs:[hub], enabled:true });
+        render();
+        return;
+      }
       if (action === 'del'){
         tiles.splice(idx,1);
         render();
