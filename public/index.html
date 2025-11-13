@@ -96,7 +96,7 @@
     position:absolute; z-index:3000; top:calc(var(--nav-real) + 8px); left:8px;
     background:var(--card); border:1px solid var(--line); border-radius:12px;
     box-shadow:0 1px 8px rgba(0,0,0,.12); padding:12px;
-    width:320px; max-width:320px; max-height:90vh; overflow-y:auto; overflow-x:hidden;
+    width:280px; max-width:280px; max-height:90vh; overflow-y:auto; overflow-x:hidden;
   }
   .controls-hidden #controls{ display:none }
 
@@ -120,6 +120,15 @@
   }
   .btn.xs{ padding:8px 12px; font-size:14px }
   .btn.active{background:#e6f4ea;border-color:#22c55e}
+
+  /* Лівий інструмент‑стовпчик: вирівнюємо тексти вліво і додаємо підпис шорткатів праворуч */
+  #panel-create .tools-left .btn{ display:flex; align-items:center; gap:8px; justify-content:flex-start; text-align:left }
+  #panel-create .tools-left .btn .lbl{ flex:1 1 auto; text-align:left }
+  #panel-create .tools-left .btn .kbd{
+    margin-left:auto; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size:12px; color:#374151; background:#f3f4f6; border:1px solid var(--line);
+    border-radius:6px; padding:1px 6px; line-height:1.2;
+  }
 
   .panel-head{display:grid;gap:10px;margin-bottom:8px}
   .segment{display:flex;gap:6px;flex-wrap:wrap}
@@ -606,9 +615,9 @@
       <!-- нове компонування: зліва стовпчик кнопок, справа верхній інлайн-рядок полів -->
       <div class="layout">
         <div class="tools-left">
-          <button id="toggleAdd" class="btn xs">Маршрут</button>
-          <button id="startLineMode" class="btn xs" title="Додавати точки початкової лінійки">Лінійка(поч.)</button>
-          <button id="endLineMode" class="btn xs" title="Додавати точки кінцевої лінійки">Лінійка(кін.)</button>
+          <button id="toggleAdd" class="btn xs"><span class="lbl">Маршрут</span><span class="kbd">Ctrl+M</span></button>
+          <button id="startLineMode" class="btn xs" title="Додавати точки початкової лінійки"><span class="lbl">Лінійка(поч.)</span><span class="kbd">Ctrl+S</span></button>
+          <button id="endLineMode" class="btn xs" title="Додавати точки кінцевої лінійки"><span class="lbl">Лінійка(кін.)</span><span class="kbd">Ctrl+E</span></button>
           <button id="clearRoute" class="btn xs">Очист. марш.</button>
           <button id="clearRulers" class="btn xs" title="Очистити активну лінійку, або обидві якщо режим лінійки вимкнено">Очист. лін.</button>
           <button id="popRulerPoint" class="btn xs" title="Видалити останню точку активної лінійки">← Остання точка (лін.)</button>
@@ -643,7 +652,7 @@
 
     <hr/>
 
-    <small class="muted">У БД зберігаються <b>коди</b> “Від/До” + підписи. Назва маршруту генерується з актуальних назв довідника.</small>
+  
 
     <!-- Стиль карти (перенесено у нижній лівий кут; цей блок приховано) -->
     <details style="display:none">
