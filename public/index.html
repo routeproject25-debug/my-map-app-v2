@@ -235,11 +235,12 @@
 #controls .panel{ display:none; }
 #controls .panel.active{ display:block; }
 
-/* ==== Док у правому верхньому куті для статусу та км ==== */
+/* ==== Док зі статусом і дистанцією (внизу праворуч, над кнопками dock) ==== */
 #statusDock{
   position:fixed;
-  top:calc(var(--nav-real) + 8px);
   right:8px;
+  /* розташовуємо НАД нижнім dock із кнопками; висоту dock віддає CSS-змінна */
+  bottom: calc(8px + var(--panel-dock-h, 0px) + 8px);
   z-index:3500;
   display:flex;
   flex-direction:column;
@@ -274,7 +275,7 @@
 #statusChip.status-chip[data-status="proposal"]{ background:#fef9c3; border-color:#f59e0b; }
 
 @media (max-width:640px){
-  #statusDock{ right:8px; top:calc(var(--nav-real) + 8px); }
+  #statusDock{ right:8px; bottom: calc(8px + var(--panel-dock-h, 0px) + 8px); }
 }
 /* Жирний шрифт тільки для значення км у верхньому чіпі */
 #distanceChip #distanceTop{
@@ -984,6 +985,9 @@ function positionEntryDock(){
 }
 window.addEventListener('resize', positionEntryDock);
 document.addEventListener('DOMContentLoaded', positionEntryDock);
+// також підтримуємо позицію статус-доку при зміні розміру/старті
+window.addEventListener('resize', positionStatusDock);
+document.addEventListener('DOMContentLoaded', positionStatusDock);
 // Після кліку сховати/показати панель — оновимо позицію доку
 setTimeout(() => {
   const toggle = document.getElementById('panelToggle');
@@ -991,17 +995,15 @@ setTimeout(() => {
 }, 0);
 
 // Позиціонування правого статус-доку під верхнім доком, якщо той розгорнутий
+// Нова логіка: притискаємо статус-док донизу, прямо над кнопками панелей (panelDock)
 function positionStatusDock(){
-  const statusDock = document.getElementById('statusDock');
-  const dock = document.getElementById('topEntryDock');
-  if (!statusDock || !dock) return;
-  const collapsed = dock.classList.contains('collapsed');
-  // Висота верхнього доку
-  const rect = dock.getBoundingClientRect();
-  const topBase = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--nav-real')) || 56;
-  // Завжди тримаємо статус нижче фактичної висоти верхнього доку, щоб не перекривав кнопку розгортання
-  const offset = rect.height + 8;
-  statusDock.style.top = `calc(${topBase}px + ${offset}px)`;
+  try{
+    const dock = document.getElementById('panelDock');
+    const h = dock ? Math.round(dock.getBoundingClientRect().height) : 0;
+    document.documentElement.style.setProperty('--panel-dock-h', h + 'px');
+  }catch(_){
+    document.documentElement.style.setProperty('--panel-dock-h', '0px');
+  }
 }
 
 // Ініціалізація кнопки згортання верхнього доку з запам'ятовуванням стану
