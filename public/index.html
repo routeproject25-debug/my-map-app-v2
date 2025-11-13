@@ -1964,7 +1964,7 @@ document.addEventListener('keydown', (e) => {
 
   const key = String(e.key||'').toLowerCase();
   if (e.ctrlKey) {
-    if (key === 'm') { e.preventDefault(); document.getElementById('toggleAdd')?.click(); return; }
+    if (key === '1') { e.preventDefault(); document.getElementById('toggleAdd')?.click(); return; }
     if (key === 's') { e.preventDefault(); document.getElementById('startLineMode')?.click(); return; }
     if (key === 'e') { e.preventDefault(); document.getElementById('endLineMode')?.click(); return; }
   }
