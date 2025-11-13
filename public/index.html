@@ -2373,6 +2373,11 @@ document.getElementById('toggleMarkers').onclick = () => {
   // Нумерація маршруту вже в самих маркерах
   document.getElementById('toggleMarkers').textContent = markersVisible ? '📍 Приховати точки' : '📍 Показати точки';
   try{ localStorage.setItem('ui.markersVisible', JSON.stringify(markersVisible)); }catch(_){ }
+  // При повторному показі — повністю перебудувати маркери, щоб гарантувати синхронізацію індексів/позицій
+  if (markersVisible){
+    try{ rebuildMarkers(); }catch(_){ }
+    try{ rebuildRulerMarkers(); drawRulers(); }catch(_){ }
+  }
 };
 
 // Застосувати збережений стан видимості точок при завантаженні
