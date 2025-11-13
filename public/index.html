@@ -2310,6 +2310,7 @@ function rebuildRulerMarkers(){
   clearRulerMarkers();
   startRuler.forEach((pt, idx) => addRulerMarker('start', pt, idx));
   endRuler.forEach((pt, idx)   => addRulerMarker('end',   pt, idx));
+  try{ updateRulerPointLabels(); }catch(_){ }
 }
 
 let markersVisible = true;
@@ -2644,7 +2645,7 @@ async function updateRoute() {
   updateCounters();
   // Після оновлення маршрутів повертаємо дорожню сітку під них
   try { ensureRoadGridBelowRoutes(); } catch(_) {}
-  try{ updateRoutePointLabels(); }catch(_){ }
+  try{ updateRoutePointLabels(); updateRulerPointLabels(); }catch(_){ }
 }
 
 // Нумерація точок маршруту (1,2,3,...) як текстові підписи
@@ -2673,6 +2674,41 @@ function updateRoutePointLabels(){
   } else {
     map.once('style.load', updateRoutePointLabels);
   }
+  ensureLabelLayersOnTop();
+}
+
+// Нумерація точок лінійок: S1.., S2.. для start та E1.. для end
+function updateRulerPointLabels(){
+  if (!map || !map.getStyle) return;
+  const make = (arr, prefix) => ({ type:'FeatureCollection', features: (arr||[]).map((p,i)=>({
+    type:'Feature', geometry:{ type:'Point', coordinates:p }, properties:{ n: prefix + String(i+1) }
+  })) });
+  const packs = [
+    { src:'ruler-start-labels', lyr:'ruler-start-labels', data: make(startRuler,'S') },
+    { src:'ruler-end-labels',   lyr:'ruler-end-labels',   data: make(endRuler,'E') }
+  ];
+  packs.forEach(({src,lyr,data})=>{
+    if (map.getSource(src)){
+      try{ map.getSource(src).setData(data); }catch(_){ }
+    } else if (map.isStyleLoaded && map.isStyleLoaded()){
+      map.addSource(src, { type:'geojson', data });
+      map.addLayer({
+        id: lyr, type:'symbol', source: src,
+        layout:{ 'text-field':['get','n'], 'text-size':12, 'text-variable-anchor':['top','bottom','left','right'], 'text-radial-offset': 0.9, 'text-allow-overlap': true },
+        paint:{ 'text-color':'#374151', 'text-halo-color':'#fff', 'text-halo-width':1.2 }
+      });
+    } else {
+      map.once('style.load', updateRulerPointLabels);
+    }
+  });
+  ensureLabelLayersOnTop();
+}
+
+// Перемістити всі наші label-шари в самий верх стилю, щоб їх нічого не перекривало
+function ensureLabelLayersOnTop(){
+  try{
+    ['route-point-labels','ruler-start-labels','ruler-end-labels'].forEach(id=>{ if(map.getLayer(id)) map.moveLayer(id); });
+  }catch(_){ }
 }
 
 /* turf */
@@ -5252,6 +5288,14 @@ function clearForm() {
   // ⬇️ додай цю строку
   updateHighlights();
   setApprovalUI(null);
+
+  // Прибрати/очистити нумерацію
+  try{
+    ['route-point-labels','ruler-start-labels','ruler-end-labels'].forEach(id=>{
+      if (map.getLayer(id)) map.removeLayer(id);
+      if (map.getSource(id)) map.removeSource(id);
+    });
+  }catch(_){ }
 
   alert('Форма очищена');
 }
