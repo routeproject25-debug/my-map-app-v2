@@ -615,7 +615,7 @@
       <!-- нове компонування: зліва стовпчик кнопок, справа верхній інлайн-рядок полів -->
       <div class="layout">
         <div class="tools-left">
-          <button id="toggleAdd" class="btn xs"><span class="lbl">Маршрут</span><span class="kbd">Ctrl+M</span></button>
+          <button id="toggleAdd" class="btn xs"><span class="lbl">Маршрут</span><span class="kbd">Ctrl+1</span></button>
           <button id="startLineMode" class="btn xs" title="Додавати точки початкової лінійки"><span class="lbl">Лінійка(поч.)</span><span class="kbd">Ctrl+S</span></button>
           <button id="endLineMode" class="btn xs" title="Додавати точки кінцевої лінійки"><span class="lbl">Лінійка(кін.)</span><span class="kbd">Ctrl+E</span></button>
           <button id="clearRoute" class="btn xs">Очист. марш.</button>
@@ -2629,9 +2629,11 @@ function downloadMapPng(){
   const out = can.toDataURL('image/png');
   const a = document.createElement('a');
   a.href = out;
-  // ім'я файлу: Від → До (очищене для сумісності з файловою системою)
+  // ім'я файлу: Від → До — Тип (очищене для сумісності з файловою системою)
   const safeName = (s)=> (s||'').replace(/[\\\/:*?"<>|]+/g,' ').replace(/\s+/g,' ').trim().slice(0,120) || 'Маршрут';
-  a.download = `${safeName(routeName)}.png`;
+  const routeTypeVal = (document.getElementById('routeType')?.value || '').trim();
+  const fileBase = routeTypeVal ? `${routeName} — ${routeTypeVal}` : routeName;
+  a.download = `${safeName(fileBase)}.png`;
       if (typeof a.download !== 'string') window.open(out, '_blank');
       else a.click();
     };
