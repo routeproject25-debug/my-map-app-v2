@@ -342,7 +342,7 @@
 #panel-create #endLineMode.active::after   { background:#f59e0b; } /* Лінійка(кін.) – помаранчевий */
 
   /* Маркери лінійок (поч./кін.) */
-  .ruler-marker{ width:12px; height:12px; border-radius:50%; border:2px solid #fff; box-shadow:0 1px 4px rgba(0,0,0,.25); }
+  .ruler-marker{ width:20px; height:20px; border-radius:50%; border:2px solid #fff; box-shadow:0 1px 4px rgba(0,0,0,.25); display:flex; align-items:center; justify-content:center; color:#fff; font-weight:700; font-size:12px; line-height:1; }
   .ruler-marker.start{ background:#2563eb; }
   /* Кінцева лінійка: маркер помаранчевий */
   .ruler-marker.end{   background:#f59e0b; }
@@ -1281,7 +1281,6 @@ let points = [], markers = [], startRuler = [], endRuler = [], rulerLines = [], 
 let startRulerMarkers = [], endRulerMarkers = [];
 // HTML‑лейбли для номерів (маршрут і лінійки)
 let routeLabelMarkers = [];
-let startLabelMarkers = [], endLabelMarkers = [];
 let selectedMarkerIndex = null;
 let selectedMarkerType = null; // 'route' | 'ruler-start' | 'ruler-end'
 
@@ -1982,11 +1981,6 @@ document.getElementById('clearRoute').onclick = () => {
   points = []; markers.forEach(m => m.remove()); markers = [];
   routeLabelMarkers.forEach(m => m.remove()); routeLabelMarkers = [];
   clearRouteLayers(); updateRoute();
-  try{
-    const SRC='route-point-labels';
-    if (map.getLayer(SRC)) map.removeLayer(SRC);
-    if (map.getSource(SRC)) map.removeSource(SRC);
-  }catch(_){ }
 };
 
 /* ===== Схожі маршрути (за Від/До) ===== */
@@ -2240,7 +2234,7 @@ function addMarker(lngLat, index = points.length - 1) {
   const lbl = document.createElement('div');
   lbl.className = 'pt-label';
   lbl.textContent = String((index ?? 0) + 1);
-  const mLbl = new mapboxgl.Marker({ element: lbl, offset: [10, -10], anchor: 'left' })
+  const mLbl = new mapboxgl.Marker({ element: lbl, offset: [6, -6], anchor: 'center' })
     .setLngLat(lngLat)
     .addTo(map);
   routeLabelMarkers.push(mLbl);
@@ -2254,7 +2248,6 @@ function rebuildMarkers() {
   points.forEach((pt, idx) => addMarker(pt, idx));
   selectedMarkerIndex = null; insertAfterMode = false; contextMenu.style.display = 'none';
   updateRoute();
-  try{ updateRoutePointLabels(); }catch(_){ }
 }
 
 // ===== Маркери для лінійок (start/end) =====
@@ -2262,6 +2255,7 @@ function addRulerMarker(kind, lngLat, index){
   // kind: 'start' | 'end'
   const el = document.createElement('div');
   el.className = `ruler-marker ${kind}`;
+  el.textContent = String((index ?? 0) + 1);
   if (!markersVisible) el.style.display = 'none';
   const marker = new mapboxgl.Marker({ element: el, draggable: !readOnly })
     .setLngLat(lngLat)
@@ -2322,28 +2316,15 @@ function addRulerMarker(kind, lngLat, index){
     updateRoute(); // перерахунок км + оновлення, якщо є маршрут
   });
   if (kind === 'start') startRulerMarkers.push(marker); else endRulerMarkers.push(marker);
-
-  // HTML‑лейбл для лінійок: S1.. або E1..
-  const lbl = document.createElement('div');
-  lbl.className = 'pt-label ' + (kind==='start' ? 's' : 'e');
-  lbl.textContent = (kind==='start' ? 'S' : 'E') + String((index ?? 0) + 1);
-  const mLbl = new mapboxgl.Marker({ element: lbl, offset: [10, -10], anchor: 'left' })
-    .setLngLat(lngLat)
-    .addTo(map);
-  if (kind === 'start') startLabelMarkers.push(mLbl); else endLabelMarkers.push(mLbl);
-  marker.on('drag', () => { try{ mLbl.setLngLat(marker.getLngLat()); }catch(_){ } });
 }
 function clearRulerMarkers(){
   startRulerMarkers.forEach(m => m.remove()); startRulerMarkers = [];
   endRulerMarkers.forEach(m => m.remove());   endRulerMarkers   = [];
-  startLabelMarkers.forEach(m => m.remove()); startLabelMarkers = [];
-  endLabelMarkers.forEach(m => m.remove());   endLabelMarkers   = [];
 }
 function rebuildRulerMarkers(){
   clearRulerMarkers();
   startRuler.forEach((pt, idx) => addRulerMarker('start', pt, idx));
   endRuler.forEach((pt, idx)   => addRulerMarker('end',   pt, idx));
-  try{ updateRulerPointLabels(); }catch(_){ }
 }
 
 let markersVisible = true;
@@ -2355,8 +2336,6 @@ document.getElementById('toggleMarkers').onclick = () => {
   endRulerMarkers.forEach(m   => m.getElement().style.display = markersVisible ? 'block' : 'none');
   // і HTML‑лейблі номерів
   routeLabelMarkers.forEach(m => { try{ m.getElement().style.display = markersVisible ? 'block' : 'none'; }catch(_){ } });
-  startLabelMarkers.forEach(m => { try{ m.getElement().style.display = markersVisible ? 'block' : 'none'; }catch(_){ } });
-  endLabelMarkers.forEach(m   => { try{ m.getElement().style.display = markersVisible ? 'block' : 'none'; }catch(_){ } });
   document.getElementById('toggleMarkers').textContent = markersVisible ? '📍 Приховати точки' : '📍 Показати точки';
 };
 /* ===== Geozones toggle (all related layers) ===== */
@@ -2682,71 +2661,9 @@ async function updateRoute() {
   updateCounters();
   // Після оновлення маршрутів повертаємо дорожню сітку під них
   try { ensureRoadGridBelowRoutes(); } catch(_) {}
-  try{ updateRoutePointLabels(); updateRulerPointLabels(); }catch(_){ }
+  // canvas-лейбли вимкнені; нумерація через DOM-маркери
 }
-
-// Нумерація точок маршруту (1,2,3,...) як текстові підписи
-function updateRoutePointLabels(){
-  if (!map || !map.getStyle) return;
-  const data = { type:'FeatureCollection', features: (points||[]).map((p,i)=>({
-    type:'Feature', geometry:{ type:'Point', coordinates:p }, properties:{ n: String(i+1) }
-  })) };
-  const SRC='route-point-labels', LYR='route-point-labels';
-  if (map.getSource(SRC)){
-    try{ map.getSource(SRC).setData(data); }catch(_){ }
-  } else if (map.isStyleLoaded && map.isStyleLoaded()){
-    map.addSource(SRC, { type:'geojson', data });
-    map.addLayer({
-      id: LYR, type:'symbol', source:SRC,
-      layout:{
-        'text-field':['get','n'],
-        'text-size':12,
-        // динамічно відсовуємо підпис від точки, щоб він не ховався під DOM-маркером
-        'text-variable-anchor': ['top','bottom','left','right'],
-        'text-radial-offset': 0.9,
-        'text-allow-overlap': true
-      },
-      paint:{ 'text-color':'#111', 'text-halo-color':'#fff', 'text-halo-width':1.2 }
-    });
-  } else {
-    map.once('style.load', updateRoutePointLabels);
-  }
-  ensureLabelLayersOnTop();
-}
-
-// Нумерація точок лінійок: S1.., S2.. для start та E1.. для end
-function updateRulerPointLabels(){
-  if (!map || !map.getStyle) return;
-  const make = (arr, prefix) => ({ type:'FeatureCollection', features: (arr||[]).map((p,i)=>({
-    type:'Feature', geometry:{ type:'Point', coordinates:p }, properties:{ n: prefix + String(i+1) }
-  })) });
-  const packs = [
-    { src:'ruler-start-labels', lyr:'ruler-start-labels', data: make(startRuler,'S') },
-    { src:'ruler-end-labels',   lyr:'ruler-end-labels',   data: make(endRuler,'E') }
-  ];
-  packs.forEach(({src,lyr,data})=>{
-    if (map.getSource(src)){
-      try{ map.getSource(src).setData(data); }catch(_){ }
-    } else if (map.isStyleLoaded && map.isStyleLoaded()){
-      map.addSource(src, { type:'geojson', data });
-      map.addLayer({
-        id: lyr, type:'symbol', source: src,
-        layout:{ 'text-field':['get','n'], 'text-size':12, 'text-variable-anchor':['top','bottom','left','right'], 'text-radial-offset': 0.9, 'text-allow-overlap': true },
-        paint:{ 'text-color':'#374151', 'text-halo-color':'#fff', 'text-halo-width':1.2 }
-      });
-    } else {
-      map.once('style.load', updateRulerPointLabels);
-    }
-  });
-  ensureLabelLayersOnTop();
-}
-
-// Перемістити всі наші label-шари в самий верх стилю, щоб їх нічого не перекривало
-function ensureLabelLayersOnTop(){
-  try{
-    ['route-point-labels','ruler-start-labels','ruler-end-labels'].forEach(id=>{ if(map.getLayer(id)) map.moveLayer(id); });
-  }catch(_){ }
-}
+ 
 
 /* turf */
 const turfScript = document.createElement('script');
@@ -5326,13 +5243,7 @@ function clearForm() {
   updateHighlights();
   setApprovalUI(null);
 
-  // Прибрати/очистити нумерацію
-  try{
-    ['route-point-labels','ruler-start-labels','ruler-end-labels'].forEach(id=>{
-      if (map.getLayer(id)) map.removeLayer(id);
-      if (map.getSource(id)) map.removeSource(id);
-    });
-  }catch(_){ }
+  // Canvas-нумерації більше немає — лишено DOM‑маркери
 
   alert('Форма очищена');
 }
