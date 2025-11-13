@@ -2626,11 +2626,12 @@ function downloadMapPng(){
       }
       ctx.restore();
 
-      const out = can.toDataURL('image/png');
-      const a = document.createElement('a');
-      const ts = new Date().toISOString().replace(/[:.]/g,'-');
-      a.href = out;
-      a.download = `map-${ts}.png`;
+  const out = can.toDataURL('image/png');
+  const a = document.createElement('a');
+  a.href = out;
+  // ім'я файлу: Від → До (очищене для сумісності з файловою системою)
+  const safeName = (s)=> (s||'').replace(/[\\\/:*?"<>|]+/g,' ').replace(/\s+/g,' ').trim().slice(0,120) || 'Маршрут';
+  a.download = `${safeName(routeName)}.png`;
       if (typeof a.download !== 'string') window.open(out, '_blank');
       else a.click();
     };
