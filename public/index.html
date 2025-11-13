@@ -347,6 +347,9 @@
   /* Кінцева лінійка: маркер помаранчевий */
   .ruler-marker.end{   background:#f59e0b; }
 
+  /* Маркери маршруту з цифрою всередині */
+  .route-marker{ width:22px; height:22px; border-radius:50%; border:2px solid #2563eb; background:#fef08a; box-shadow:0 1px 4px rgba(0,0,0,.25); display:flex; align-items:center; justify-content:center; color:#111; font-weight:700; font-size:12px; line-height:1; }
+
   /* Номерки для точок (HTML‑бейджі) */
   .pt-label { position:relative; z-index:3; font-size:12px; line-height:1; color:#111; background:#fff; border:1px solid #cbd5e1; border-radius:999px; padding:2px 5px; box-shadow:0 1px 3px rgba(0,0,0,.15); user-select:none; }
   .pt-label.s { background:#eff6ff; border-color:#93c5fd; }
@@ -1280,7 +1283,7 @@ let points = [], markers = [], startRuler = [], endRuler = [], rulerLines = [], 
 // Маркери лінійок (окремо від маркерів маршруту)
 let startRulerMarkers = [], endRulerMarkers = [];
 // HTML‑лейбли для номерів (маршрут і лінійки)
-let routeLabelMarkers = [];
+// Нумерація маршруту тепер рендериться всередині самої мітки, окремі бейджі не використовуються
 let selectedMarkerIndex = null;
 let selectedMarkerType = null; // 'route' | 'ruler-start' | 'ruler-end'
 
@@ -1979,7 +1982,6 @@ document.getElementById('clearRulers').onclick = () => {
 document.getElementById('clearRoute').onclick = () => {
   if (readOnly) return;
   points = []; markers.forEach(m => m.remove()); markers = [];
-  routeLabelMarkers.forEach(m => m.remove()); routeLabelMarkers = [];
   clearRouteLayers(); updateRoute();
 };
 
@@ -2182,8 +2184,15 @@ map.on('click', (e) => {
 });
 
 function addMarker(lngLat, index = points.length - 1) {
-  const marker = new mapboxgl.Marker({ draggable: !readOnly }).setLngLat(lngLat).addTo(map);
-  const el = marker.getElement();
+  // Створюємо кастомний елемент маркера з цифрою всередині
+  const el = document.createElement('div');
+  el.className = 'route-marker';
+  el.textContent = String((index ?? 0) + 1);
+  if (!markersVisible) el.style.display = 'none';
+
+  const marker = new mapboxgl.Marker({ element: el, draggable: !readOnly })
+    .setLngLat(lngLat)
+    .addTo(map);
   // Контекст-меню: ПКМ + long-press (iOS/iPadOS)
   const openMenuAt = (x, y) => {
     if (readOnly) return;
@@ -2230,21 +2239,11 @@ function addMarker(lngLat, index = points.length - 1) {
   });
   markers.push(marker);
 
-  // HTML‑номер для точки маршруту
-  const lbl = document.createElement('div');
-  lbl.className = 'pt-label';
-  lbl.textContent = String((index ?? 0) + 1);
-  const mLbl = new mapboxgl.Marker({ element: lbl, offset: [6, -6], anchor: 'center' })
-    .setLngLat(lngLat)
-    .addTo(map);
-  routeLabelMarkers.push(mLbl);
-  // Під час перетягування оновлюємо позицію бейджа
-  marker.on('drag', () => { try{ mLbl.setLngLat(marker.getLngLat()); }catch(_){} });
+  // Тепер номер всередині самого маркера; окремий бейдж не потрібен
 }
 
 function rebuildMarkers() {
   markers.forEach(m => m.remove()); markers = [];
-  routeLabelMarkers.forEach(m => m.remove()); routeLabelMarkers = [];
   points.forEach((pt, idx) => addMarker(pt, idx));
   selectedMarkerIndex = null; insertAfterMode = false; contextMenu.style.display = 'none';
   updateRoute();
@@ -2334,8 +2333,7 @@ document.getElementById('toggleMarkers').onclick = () => {
   // також керуємо видимістю маркерів лінійок
   startRulerMarkers.forEach(m => m.getElement().style.display = markersVisible ? 'block' : 'none');
   endRulerMarkers.forEach(m   => m.getElement().style.display = markersVisible ? 'block' : 'none');
-  // і HTML‑лейблі номерів
-  routeLabelMarkers.forEach(m => { try{ m.getElement().style.display = markersVisible ? 'block' : 'none'; }catch(_){ } });
+  // Нумерація маршруту вже в самих маркерах
   document.getElementById('toggleMarkers').textContent = markersVisible ? '📍 Приховати точки' : '📍 Показати точки';
 };
 /* ===== Geozones toggle (all related layers) ===== */
