@@ -1738,6 +1738,8 @@ if (window.__canHideSplash) hideSplash();
 
   // Дорожня сітка після зміни стилю
   try { addRoadGridLayer(); setRoadGridVisibility(roadGridVisible); } catch(_) {}
+  // Текстові підписи доріг (замість кольорових «щитів» без тексту)
+  try { ensureRoadRefLabels(); } catch(_) {}
 });
 
 function setMapStyle(val){
@@ -2555,6 +2557,46 @@ if (__roadBtn){
   updateRoadGridToggleLabel();
   // Застосувати збережений стан після додавання шару
   try{ setRoadGridVisibility(roadGridVisible); }catch(_){ }
+}
+
+// ===== Підписи доріг: прибираємо дефолтні «шити» та додаємо простий текст ref уздовж лінії
+function ensureRoadRefLabels(){
+  if (!map || !map.getStyle) return;
+  const style = map.getStyle();
+  if (!style || !Array.isArray(style.layers)) return;
+  try{
+    style.layers.forEach(l => {
+      if (l && l.type === 'symbol'){
+        const id = String(l.id||'');
+        const icon = l.layout && l.layout['icon-image'];
+        const looksLikeShield = id.includes('shield') || (typeof icon === 'string' && icon.includes('shield'));
+        if (looksLikeShield && map.getLayer(id)){
+          map.setLayoutProperty(id, 'visibility', 'none');
+        }
+      }
+    });
+  }catch(_){ }
+
+  if (!map.getLayer('road-ref-text')){
+    // Спробуємо розмістити перед шаром place-label (щоб не перекривати назви населених пунктів)
+    let beforeId = null;
+    try{
+      const placeLayer = style.layers.find(l => /place-label/.test(String(l.id||'')));
+      if (placeLayer) beforeId = placeLayer.id;
+    }catch(_){ }
+    map.addLayer({
+      id: 'road-ref-text', type: 'symbol', source: 'composite', 'source-layer': 'road',
+      filter: ['has','ref'],
+      layout: {
+        'symbol-placement': 'line',
+        'text-field': ['get','ref'],
+        'text-size': 12,
+        'text-letter-spacing': 0.05,
+        'symbol-spacing': 250
+      },
+      paint: { 'text-color': '#1f2937', 'text-halo-color': '#ffffff', 'text-halo-width': 1.2 }
+    }, beforeId || undefined);
+  }
 }
 
 /* ===== Експорт PNG скріншота карти ===== */
