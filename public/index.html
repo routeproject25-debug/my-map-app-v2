@@ -347,6 +347,11 @@
   /* Кінцева лінійка: маркер помаранчевий */
   .ruler-marker.end{   background:#f59e0b; }
 
+  /* Номерки для точок (HTML‑бейджі) */
+  .pt-label { position:relative; z-index:3; font-size:12px; line-height:1; color:#111; background:#fff; border:1px solid #cbd5e1; border-radius:999px; padding:2px 5px; box-shadow:0 1px 3px rgba(0,0,0,.15); user-select:none; }
+  .pt-label.s { background:#eff6ff; border-color:#93c5fd; }
+  .pt-label.e { background:#fffbeb; border-color:#fcd34d; }
+
   /* ==== НОВЕ КОМПОНУВАННЯ ГОЛОВИ ПАНЕЛІ СТВОРЕННЯ ==== */
   #panel-create .panel-head .layout{
     display:grid;
@@ -1274,6 +1279,9 @@ let insertMode = null;
 let points = [], markers = [], startRuler = [], endRuler = [], rulerLines = [], routeLayers = [];
 // Маркери лінійок (окремо від маркерів маршруту)
 let startRulerMarkers = [], endRulerMarkers = [];
+// HTML‑лейбли для номерів (маршрут і лінійки)
+let routeLabelMarkers = [];
+let startLabelMarkers = [], endLabelMarkers = [];
 let selectedMarkerIndex = null;
 let selectedMarkerType = null; // 'route' | 'ruler-start' | 'ruler-end'
 
@@ -1972,6 +1980,7 @@ document.getElementById('clearRulers').onclick = () => {
 document.getElementById('clearRoute').onclick = () => {
   if (readOnly) return;
   points = []; markers.forEach(m => m.remove()); markers = [];
+  routeLabelMarkers.forEach(m => m.remove()); routeLabelMarkers = [];
   clearRouteLayers(); updateRoute();
   try{
     const SRC='route-point-labels';
@@ -2226,10 +2235,22 @@ function addMarker(lngLat, index = points.length - 1) {
     updateRoute();
   });
   markers.push(marker);
+
+  // HTML‑номер для точки маршруту
+  const lbl = document.createElement('div');
+  lbl.className = 'pt-label';
+  lbl.textContent = String((index ?? 0) + 1);
+  const mLbl = new mapboxgl.Marker({ element: lbl, offset: [10, -10], anchor: 'left' })
+    .setLngLat(lngLat)
+    .addTo(map);
+  routeLabelMarkers.push(mLbl);
+  // Під час перетягування оновлюємо позицію бейджа
+  marker.on('drag', () => { try{ mLbl.setLngLat(marker.getLngLat()); }catch(_){} });
 }
 
 function rebuildMarkers() {
   markers.forEach(m => m.remove()); markers = [];
+  routeLabelMarkers.forEach(m => m.remove()); routeLabelMarkers = [];
   points.forEach((pt, idx) => addMarker(pt, idx));
   selectedMarkerIndex = null; insertAfterMode = false; contextMenu.style.display = 'none';
   updateRoute();
@@ -2301,10 +2322,22 @@ function addRulerMarker(kind, lngLat, index){
     updateRoute(); // перерахунок км + оновлення, якщо є маршрут
   });
   if (kind === 'start') startRulerMarkers.push(marker); else endRulerMarkers.push(marker);
+
+  // HTML‑лейбл для лінійок: S1.. або E1..
+  const lbl = document.createElement('div');
+  lbl.className = 'pt-label ' + (kind==='start' ? 's' : 'e');
+  lbl.textContent = (kind==='start' ? 'S' : 'E') + String((index ?? 0) + 1);
+  const mLbl = new mapboxgl.Marker({ element: lbl, offset: [10, -10], anchor: 'left' })
+    .setLngLat(lngLat)
+    .addTo(map);
+  if (kind === 'start') startLabelMarkers.push(mLbl); else endLabelMarkers.push(mLbl);
+  marker.on('drag', () => { try{ mLbl.setLngLat(marker.getLngLat()); }catch(_){ } });
 }
 function clearRulerMarkers(){
   startRulerMarkers.forEach(m => m.remove()); startRulerMarkers = [];
   endRulerMarkers.forEach(m => m.remove());   endRulerMarkers   = [];
+  startLabelMarkers.forEach(m => m.remove()); startLabelMarkers = [];
+  endLabelMarkers.forEach(m => m.remove());   endLabelMarkers   = [];
 }
 function rebuildRulerMarkers(){
   clearRulerMarkers();
@@ -2320,6 +2353,10 @@ document.getElementById('toggleMarkers').onclick = () => {
   // також керуємо видимістю маркерів лінійок
   startRulerMarkers.forEach(m => m.getElement().style.display = markersVisible ? 'block' : 'none');
   endRulerMarkers.forEach(m   => m.getElement().style.display = markersVisible ? 'block' : 'none');
+  // і HTML‑лейблі номерів
+  routeLabelMarkers.forEach(m => { try{ m.getElement().style.display = markersVisible ? 'block' : 'none'; }catch(_){ } });
+  startLabelMarkers.forEach(m => { try{ m.getElement().style.display = markersVisible ? 'block' : 'none'; }catch(_){ } });
+  endLabelMarkers.forEach(m   => { try{ m.getElement().style.display = markersVisible ? 'block' : 'none'; }catch(_){ } });
   document.getElementById('toggleMarkers').textContent = markersVisible ? '📍 Приховати точки' : '📍 Показати точки';
 };
 /* ===== Geozones toggle (all related layers) ===== */
