@@ -766,6 +766,7 @@
 </div>
 
 <div id="contextMenu">
+  <div id="insertBefore">➕Вставити перед</div>
   <div id="insertAfter">➕Вставити після</div>
   <div id="deletePoint">❌Видалити точку</div>
 </div>
@@ -1267,11 +1268,14 @@ function applyUkrainianLabels(){
 }
 
 let addMode = false, startLineMode = false, endLineMode = false;
-let insertAfterMode = false;
+let insertAfterMode = false; // legacy (підтримка старої гілки)
+// Новий універсальний режим вставки: { type:'route'|'ruler-start'|'ruler-end', index:number, where:'before'|'after' }
+let insertMode = null;
 let points = [], markers = [], startRuler = [], endRuler = [], rulerLines = [], routeLayers = [];
 // Маркери лінійок (окремо від маркерів маршруту)
 let startRulerMarkers = [], endRulerMarkers = [];
 let selectedMarkerIndex = null;
+let selectedMarkerType = null; // 'route' | 'ruler-start' | 'ruler-end'
 
 // ====== Proposal overlay state ======
 let PROPOSAL_VISIBLE = false;
@@ -1347,21 +1351,42 @@ const contextMenu = document.getElementById('contextMenu');
 const insertAfterBtn = document.getElementById('insertAfter');
 const deletePointBtn = document.getElementById('deletePoint');
 
+const insertBeforeBtn = document.getElementById('insertBefore');
 insertAfterBtn.onclick = (e) => {
   e.preventDefault(); e.stopPropagation();
   if (readOnly) { contextMenu.style.display='none'; return; }
-  if (selectedMarkerIndex !== null) insertAfterMode = true;
+  if (selectedMarkerIndex !== null) {
+    insertMode = { type: selectedMarkerType || 'route', index: selectedMarkerIndex, where: 'after' };
+    insertAfterMode = false; // вимикаємо старий режим, щоб не дублювати
+  }
+  contextMenu.style.display = 'none';
+};
+insertBeforeBtn.onclick = (e) => {
+  e.preventDefault(); e.stopPropagation();
+  if (readOnly) { contextMenu.style.display='none'; return; }
+  if (selectedMarkerIndex !== null) {
+    insertMode = { type: selectedMarkerType || 'route', index: selectedMarkerIndex, where: 'before' };
+    insertAfterMode = false;
+  }
   contextMenu.style.display = 'none';
 };
 deletePointBtn.onclick = (e) => {
   e.preventDefault(); e.stopPropagation();
   if (readOnly) { contextMenu.style.display='none'; return; }
   if (selectedMarkerIndex !== null) {
-    points.splice(selectedMarkerIndex, 1);
-    rebuildMarkers();
+    if ((selectedMarkerType||'route') === 'route') {
+      points.splice(selectedMarkerIndex, 1);
+      rebuildMarkers();
+    } else if (selectedMarkerType === 'ruler-start') {
+      startRuler.splice(selectedMarkerIndex, 1);
+      rebuildRulerMarkers(); drawRulers(); updateRoute();
+    } else if (selectedMarkerType === 'ruler-end') {
+      endRuler.splice(selectedMarkerIndex, 1);
+      rebuildRulerMarkers(); drawRulers(); updateRoute();
+    }
   }
   contextMenu.style.display = 'none';
-  selectedMarkerIndex = null;
+  selectedMarkerIndex = null; selectedMarkerType = null; insertMode = null;
 };
 document.addEventListener('click', () => { contextMenu.style.display = 'none'; });
 
@@ -1948,6 +1973,11 @@ document.getElementById('clearRoute').onclick = () => {
   if (readOnly) return;
   points = []; markers.forEach(m => m.remove()); markers = [];
   clearRouteLayers(); updateRoute();
+  try{
+    const SRC='route-point-labels';
+    if (map.getLayer(SRC)) map.removeLayer(SRC);
+    if (map.getSource(SRC)) map.removeSource(SRC);
+  }catch(_){ }
 };
 
 /* ===== Схожі маршрути (за Від/До) ===== */
@@ -2122,6 +2152,23 @@ map.on('click', (e) => {
   contextMenu.style.display = 'none';
   if (readOnly) return;
 
+  // Новий універсальний режим вставки
+  if (insertMode && selectedMarkerIndex !== null){
+    const where = (insertMode.where === 'before') ? 0 : 1;
+    if (insertMode.type === 'route'){
+      points.splice(selectedMarkerIndex + where, 0, lngLat);
+      rebuildMarkers();
+    } else if (insertMode.type === 'ruler-start'){
+      startRuler.splice(selectedMarkerIndex + where, 0, lngLat);
+      rebuildRulerMarkers(); drawRulers(); updateRoute();
+    } else if (insertMode.type === 'ruler-end'){
+      endRuler.splice(selectedMarkerIndex + where, 0, lngLat);
+      rebuildRulerMarkers(); drawRulers(); updateRoute();
+    }
+    insertMode = null; selectedMarkerIndex = null; selectedMarkerType = null;
+    return;
+  }
+  // Старий режим «вставити після» (сумісність)
   if (insertAfterMode && selectedMarkerIndex !== null) {
     points.splice(selectedMarkerIndex + 1, 0, lngLat);
     insertAfterMode = false; rebuildMarkers(); return;
@@ -2133,14 +2180,45 @@ map.on('click', (e) => {
 
 function addMarker(lngLat, index = points.length - 1) {
   const marker = new mapboxgl.Marker({ draggable: !readOnly }).setLngLat(lngLat).addTo(map);
-  marker.getElement().addEventListener('contextmenu', (e) => {
-    e.preventDefault(); e.stopPropagation();
+  const el = marker.getElement();
+  // Контекст-меню: ПКМ + long-press (iOS/iPadOS)
+  const openMenuAt = (x, y) => {
     if (readOnly) return;
-    selectedMarkerIndex = index;
-    contextMenu.style.left = e.pageX + 'px';
-    contextMenu.style.top  = e.pageY + 'px';
+    selectedMarkerIndex = index; selectedMarkerType = 'route';
+    contextMenu.style.left = x + 'px';
+    contextMenu.style.top  = y + 'px';
     contextMenu.style.display = 'block';
+  };
+  el.addEventListener('contextmenu', (e) => {
+    e.preventDefault(); e.stopPropagation();
+    openMenuAt(e.pageX, e.pageY);
   });
+  // Long-press для сенсорних пристроїв
+  (function attachLongPress(node){
+    let t = null, startX=0, startY=0, moved=false;
+    const TH=12, DELAY=550;
+    const clear = ()=>{ if(t){ clearTimeout(t); t=null; } moved=false; };
+    const onDown = (e)=>{
+      const touch = e.touches && e.touches[0];
+      startX = (touch? touch.pageX : e.pageX) || 0;
+      startY = (touch? touch.pageY : e.pageY) || 0;
+      moved = false;
+      clear();
+      t = setTimeout(()=>{ openMenuAt(startX, startY); }, DELAY);
+    };
+    const onMove = (e)=>{
+      const touch = e.touches && e.touches[0];
+      const x = (touch? touch.pageX : e.pageX) || 0;
+      const y = (touch? touch.pageY : e.pageY) || 0;
+      if (Math.abs(x-startX) > TH || Math.abs(y-startY) > TH){ moved=true; clear(); }
+    };
+    const onUpCancel = ()=> clear();
+    node.addEventListener('touchstart', onDown, { passive:true });
+    node.addEventListener('touchmove', onMove, { passive:true });
+    node.addEventListener('touchend', onUpCancel);
+    node.addEventListener('touchcancel', onUpCancel);
+    node.addEventListener('pointerdown', (e)=>{ if(e.pointerType==='touch') return; });
+  })(el);
   marker.on('dragend', () => {
     if (readOnly) return;
     const ll = marker.getLngLat();
@@ -2155,6 +2233,7 @@ function rebuildMarkers() {
   points.forEach((pt, idx) => addMarker(pt, idx));
   selectedMarkerIndex = null; insertAfterMode = false; contextMenu.style.display = 'none';
   updateRoute();
+  try{ updateRoutePointLabels(); }catch(_){ }
 }
 
 // ===== Маркери для лінійок (start/end) =====
@@ -2166,6 +2245,35 @@ function addRulerMarker(kind, lngLat, index){
   const marker = new mapboxgl.Marker({ element: el, draggable: !readOnly })
     .setLngLat(lngLat)
     .addTo(map);
+  // Контекстне меню для лінійок: long-press / ПКМ
+  const openMenuAt = (x, y) => {
+    if (readOnly) return;
+    selectedMarkerIndex = index;
+    selectedMarkerType = (kind === 'start') ? 'ruler-start' : 'ruler-end';
+    contextMenu.style.left = x + 'px';
+    contextMenu.style.top  = y + 'px';
+    contextMenu.style.display = 'block';
+  };
+  el.addEventListener('contextmenu', (e) => {
+    e.preventDefault(); e.stopPropagation();
+    openMenuAt(e.pageX, e.pageY);
+  });
+  (function attachLongPress(node){
+    let t = null, startX=0, startY=0; const TH=12, DELAY=550;
+    const clear=()=>{ if(t){ clearTimeout(t); t=null; } };
+    node.addEventListener('touchstart', (e)=>{
+      const touch=e.touches&&e.touches[0];
+      startX=(touch?touch.pageX:e.pageX)||0; startY=(touch?touch.pageY:e.pageY)||0;
+      clear(); t=setTimeout(()=>openMenuAt(startX,startY), DELAY);
+    }, { passive:true });
+    node.addEventListener('touchmove', (e)=>{
+      const touch=e.touches&&e.touches[0];
+      const x=(touch?touch.pageX:e.pageX)||0; const y=(touch?touch.pageY:e.pageY)||0;
+      if (Math.abs(x-startX)>TH || Math.abs(y-startY)>TH) clear();
+    }, { passive:true });
+    node.addEventListener('touchend', clear);
+    node.addEventListener('touchcancel', clear);
+  })(el);
   marker.on('drag', () => {
     if (readOnly) return;
     const ll = marker.getLngLat();
@@ -2536,6 +2644,28 @@ async function updateRoute() {
   updateCounters();
   // Після оновлення маршрутів повертаємо дорожню сітку під них
   try { ensureRoadGridBelowRoutes(); } catch(_) {}
+  try{ updateRoutePointLabels(); }catch(_){ }
+}
+
+// Нумерація точок маршруту (1,2,3,...) як текстові підписи
+function updateRoutePointLabels(){
+  if (!map || !map.getStyle) return;
+  const data = { type:'FeatureCollection', features: (points||[]).map((p,i)=>({
+    type:'Feature', geometry:{ type:'Point', coordinates:p }, properties:{ n: String(i+1) }
+  })) };
+  const SRC='route-point-labels', LYR='route-point-labels';
+  if (map.getSource(SRC)){
+    try{ map.getSource(SRC).setData(data); }catch(_){ }
+  } else if (map.isStyleLoaded && map.isStyleLoaded()){
+    map.addSource(SRC, { type:'geojson', data });
+    map.addLayer({
+      id: LYR, type:'symbol', source:SRC,
+      layout:{ 'text-field':['get','n'], 'text-size':12, 'text-offset':[0, -1], 'text-allow-overlap': true, 'text-anchor':'bottom' },
+      paint:{ 'text-color':'#111', 'text-halo-color':'#fff', 'text-halo-width':1.2 }
+    });
+  } else {
+    map.once('style.load', updateRoutePointLabels);
+  }
 }
 
 /* turf */
