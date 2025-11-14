@@ -149,6 +149,7 @@ function humanizeError(e){
     case "auth/too-many-requests": return "Забагато спроб. Спробуй пізніше.";
     case "auth/operation-not-allowed": return "Google Sign-In не дозволено в консолі Firebase.";
     case "auth/unauthorized-domain": return "Домен не додано до «Authorized domains» у Firebase.";
+    case "auth/network-request-failed": return "Немає мережевого з'єднання або його блокує браузер/мережа.";
     default: return e?.message || "Сталася помилка.";
   }
 }
@@ -225,6 +226,7 @@ $("googleSignIn").onclick = async () => {
       ? '✅ Акаунт створено/оновлено. ⏳ Очікує підтвердження адміністратором.'
       : 'Готово, перевіряю доступ…');
   } catch (e) {
+    console.error('[GoogleSignIn] Помилка входу через Google (popup):', { code: e?.code, message: e?.message, full: e });
     if (e.code === 'auth/popup-blocked' || e.code === 'auth/operation-not-supported-in-this-environment') {
       try { await auth.signInWithRedirect(provider); return; }
       catch (e2) { showMsg(humanizeError(e2), true); return; }
@@ -232,14 +234,14 @@ $("googleSignIn").onclick = async () => {
     if (e.code === 'auth/popup-closed-by-user')      showMsg('Вікно входу закрито. Спробуй ще раз.', true);
     else if (e.code === 'auth/account-exists-with-different-credential')
       showMsg('Акаунт уже існує з іншим методом входу. Увійди відповідним способом.', true);
-    else showMsg(humanizeError(e), true);
+    else showMsg(humanizeError(e) + (e?.code ? ` (код: ${e.code})` : ''), true);
   }
 };
 
 // Повернення після redirect
 auth.getRedirectResult()
   .then(async (res) => { if (res && res.user){ await ensureUserAndRole(res.user); showMsg('Готово, перевіряю доступ…'); } })
-  .catch(e => showMsg(humanizeError(e), true));
+  .catch(e => { console.error('[GoogleSignIn] Помилка redirect:', { code: e?.code, message: e?.message, full: e }); showMsg(humanizeError(e) + (e?.code ? ` (код: ${e.code})` : ''), true); });
 
 /* ==== Live-guard ролі + редірект ==== */
 let unsubscribeRole = null;
@@ -330,6 +332,21 @@ $("pass").addEventListener("keydown",  e => { if (e.key === "Enter") doLogin(); 
 /* ==== Глобальні помилки → в UI ==== */
 window.addEventListener('error', (e) => { showMsg('Помилка скрипта: ' + (e.message || ''), true); });
 window.addEventListener('unhandledrejection', (e) => { showMsg('Помилка: ' + (e.reason?.message || e.reason || ''), true); });
+
+// Діагностика середовища (за запитом ?debug=1)
+try{
+  if (new URLSearchParams(location.search).get('debug') === '1'){
+    console.info('[Login Debug] origin:', location.origin);
+    console.info('[Login Debug] host:', location.hostname);
+    console.info('[Login Debug] protocol:', location.protocol);
+    console.info('[Login Debug] firebase.authDomain:', CFG?.authDomain);
+    console.info('[Login Debug] userAgent:', navigator.userAgent);
+    // Невелика перевірка online
+    window.addEventListener('online',  () => console.info('[Login Debug] online')); 
+    window.addEventListener('offline', () => console.warn('[Login Debug] offline'));
+    if (!navigator.onLine){ console.warn('[Login Debug] offline at load'); }
+  }
+}catch(_){}
 </script>
 </body>
 </html>
