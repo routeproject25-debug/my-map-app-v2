@@ -108,6 +108,7 @@
       <button id="fabKeepAwake" title="Не гасити екран">💡</button>
       <button id="btnEtaMode" title="Режим ETA: план">⏱</button>
       <button id="btnTraffic" title="Світлофори: викл">🚦</button>
+      <button id="btnCameras" title="Камери швидкості: викл">📷</button>
     </div>
     <button id="fabToggle" title="Дії">⋮</button>
   </div>
@@ -260,6 +261,7 @@
   const $turnDist  = $turnBadge ? $turnBadge.querySelector('#turnDist') : null;
   const $btnEtaMode = document.getElementById('btnEtaMode');
   const $btnTraffic = document.getElementById('btnTraffic');
+  const $btnCameras = document.getElementById('btnCameras');
 
   // ініціалізація перетягування бейджа швидкості
   const SPEED_POS_KEY = 'NAV_SPEED_BADGE_POS';
@@ -1024,6 +1026,89 @@
   if ($btnEtaMode) $btnEtaMode.addEventListener('click', toggleEtaMode);
   if ($btnTraffic) $btnTraffic.addEventListener('click', toggleTraffic);
 
+  // ===== Камери перевищення швидкості (GeoJSON + автооновлення) =====
+  const CAMS_URL = new URLSearchParams(location.search).get('cams') || '/data/speedcams.geojson';
+  const CAMS_REFRESH_MS = 10 * 60 * 1000; // 10 хв
+  const SHOW_CAMERAS_KEY = 'NAV_SHOW_CAMERAS';
+  let camerasVisible = (localStorage.getItem(SHOW_CAMERAS_KEY) === '1');
+  let camsTimer = null;
+
+  const CAMS_SRC_ID = 'speedcams';
+  const CAMS_LAYERS = {
+    clusters: 'speedcams-clusters',
+    clusterCount: 'speedcams-cluster-count',
+    points: 'speedcams-unclustered'
+  };
+
+  function updateCamerasToggleLabel(){
+    if (!$btnCameras) return;
+    $btnCameras.style.opacity = camerasVisible ? '1' : '0.6';
+    $btnCameras.title = `Камери швидкості: ${camerasVisible ? 'вкл' : 'викл'}`;
+  }
+
+  function setCamerasVisibility(v){
+    camerasVisible = !!v;
+    try{ localStorage.setItem(SHOW_CAMERAS_KEY, camerasVisible ? '1' : '0'); }catch(_){ }
+    Object.values(CAMS_LAYERS).forEach(id => {
+      try{ if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', camerasVisible ? 'visible' : 'none'); }catch(_){ }
+    });
+    updateCamerasToggleLabel();
+  }
+
+  function ensureSpeedCamSourceAndLayers(){
+    try{
+      if (!map.getSource(CAMS_SRC_ID)){
+        map.addSource(CAMS_SRC_ID, {
+          type: 'geojson', data: { type:'FeatureCollection', features:[] },
+          cluster: true, clusterRadius: 40, clusterMaxZoom: 14
+        });
+      }
+      if (!map.getLayer(CAMS_LAYERS.clusters)){
+        map.addLayer({ id: CAMS_LAYERS.clusters, type:'circle', source: CAMS_SRC_ID, filter:['has','point_count'],
+          paint:{
+            'circle-color':[ 'step', ['get','point_count'], '#93c5fd', 10,'#60a5fa', 25,'#3b82f6', 50,'#2563eb' ],
+            'circle-radius':[ 'step', ['get','point_count'], 14, 10,18, 25,22, 50,26 ],
+            'circle-stroke-color':'#fff','circle-stroke-width':1.2
+          }
+        });
+      }
+      if (!map.getLayer(CAMS_LAYERS.clusterCount)){
+        map.addLayer({ id: CAMS_LAYERS.clusterCount, type:'symbol', source: CAMS_SRC_ID, filter:['has','point_count'],
+          layout:{ 'text-field':['to-string',['get','point_count']], 'text-size':12 },
+          paint:{ 'text-color':'#111','text-halo-color':'#fff','text-halo-width':1.2 }
+        });
+      }
+      if (!map.getLayer(CAMS_LAYERS.points)){
+        map.addLayer({ id: CAMS_LAYERS.points, type:'symbol', source: CAMS_SRC_ID, filter:['!', ['has','point_count']],
+          layout:{
+            'symbol-placement':'point',
+            'text-field':[ 'case', ['has','limit'], ['concat','📷 ', ['to-string',['get','limit']]], '📷' ],
+            'text-size':[ 'interpolate', ['linear'], ['zoom'], 10,12, 16,16 ],
+            'text-offset':[0,0], 'text-allow-overlap': true
+          },
+          paint:{ 'text-color':'#111827','text-halo-color':'#ffffff','text-halo-width':2.2 }
+        });
+      }
+      setCamerasVisibility(camerasVisible);
+    }catch(e){ console.warn('cams layer error', e?.message||e); }
+  }
+
+  async function loadSpeedCams(){
+    try{
+      const url = CAMS_URL + (CAMS_URL.includes('?') ? '&' : '?') + `_=${Date.now()}`;
+      const res = await fetch(url, { cache:'no-store' });
+      if (!res.ok) throw new Error(`cams ${res.status}`);
+      const data = await res.json();
+      if (map.getSource(CAMS_SRC_ID)) map.getSource(CAMS_SRC_ID).setData(data);
+    }catch(e){ console.warn('Speed cams fetch failed:', e?.message||e); }
+    finally{ if (camsTimer) clearTimeout(camsTimer); camsTimer = setTimeout(loadSpeedCams, CAMS_REFRESH_MS); }
+  }
+
+  if ($btnCameras){
+    $btnCameras.addEventListener('click', () => { setCamerasVisibility(!camerasVisible); });
+    updateCamerasToggleLabel();
+  }
+
   async function requestWakeLock(){
     try {
       if ('wakeLock' in navigator && navigator.wakeLock?.request){
@@ -1126,7 +1211,12 @@
     }catch(e){ await navigator.clipboard.writeText(url); showToast('Посилання скопійовано'); }
   }
 
-  map.on('style.load', applyUkrainianLabels);
+  map.on('style.load', () => {
+    applyUkrainianLabels();
+    // Після перезавантаження стилю гарантуємо наявність шарів камер і застосовуємо видимість
+    ensureSpeedCamSourceAndLayers();
+    setCamerasVisibility(camerasVisible);
+  });
 
   map.on('load', async ()=>{
     try{
@@ -1146,6 +1236,10 @@
       addRouteToMap();
       addManualToMap();
       rebuildSnapFeatures();
+
+      // Камери: ініціалізація та перше завантаження
+      ensureSpeedCamSourceAndLayers();
+      loadSpeedCams();
 
       if (AUTO_START) startNav();
     }catch(e){ console.error(e); alert(e.message || e); }
