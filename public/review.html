@@ -91,6 +91,35 @@
     .ctx-menu button:hover{ background:#f3f4f6; }
     /* Візуальна підказка режиму вставки: курсор-хрестик */
     .pending-insert #map{ cursor: crosshair; }
+
+    /* === Стиль-док (нижній лівий кут): перемикач стилю + пошук місця === */
+    .style-dock{
+      position:fixed;
+      left:8px; bottom:8px; z-index:3500;
+      display:flex; align-items:center; gap:6px;
+      background:var(--card); border:1px solid var(--line);
+      border-radius:12px; padding:6px 8px;
+      box-shadow:0 2px 12px rgba(0,0,0,.12);
+    }
+    .style-dock select{
+      border:1px solid var(--line); border-radius:10px;
+      padding:6px 8px; font-size:13px; background:#fff; color:#111;
+    }
+    .style-dock input[type="text"]{
+      border:1px solid var(--line); border-radius:10px;
+      padding:6px 8px; font-size:13px; background:#fff; color:#111;
+      width:180px;
+    }
+    .style-dock .mapbox-brand{
+      font-size:11px; color:#6b7280; border-left:1px dashed var(--line);
+      padding-left:8px;
+    }
+    @media(max-width:1024px){
+      .style-dock{ padding:4px 6px; gap:4px; }
+      .style-dock select{ padding:4px 6px; font-size:12px; }
+      .style-dock input[type="text"]{ padding:4px 6px; font-size:12px; width:130px; }
+      .style-dock .mapbox-brand{ display:none; }
+    }
   </style>
 
   <!-- === AUTH GUARD у <head>: ініт Firebase, перевірка ролі, показ DOM === -->
@@ -188,6 +217,19 @@
 
     <div id="map"></div>
 
+    <!-- Перемикач стилю карти + пошук населеного пункту (як на головній) -->
+    <div id="styleDock" class="style-dock" title="Стиль карти">
+      <select id="mapStyleDock">
+        <option value="mapbox://styles/mapbox/streets-v12">Streets</option>
+        <option value="mapbox://styles/mapbox/satellite-v9">Satellite</option>
+        <option value="mapbox://styles/mapbox/satellite-streets-v12">Satellite Streets</option>
+        <option value="mapbox://styles/mapbox/outdoors-v12">Outdoors</option>
+      </select>
+      <input id="placeSearch" type="text" list="placeList" placeholder="Пошук…" autocomplete="off" />
+      <datalist id="placeList"></datalist>
+      <div class="mapbox-brand">mapbox</div>
+    </div>
+
     <div class="pad">
       <div class="row">
         <div>
@@ -279,6 +321,105 @@
     }catch(_){ }
   }
   map.on('style.load', applyUkrainianLabels);
+  // Початкове значення стилю для синхронізації
+  let currentStyle = 'mapbox://styles/mapbox/streets-v12';
+
+  // ==== Перемикач стилю карти (як на головній) ====
+  function setMapStyle(val){
+    try{
+      if (!val || val === currentStyle) return;
+      currentStyle = val;
+      map.setStyle(currentStyle);
+    }catch(_){ }
+  }
+  (function initStyleDock(){
+    try{
+      const sel = document.getElementById('mapStyleDock');
+      if (!sel) return;
+      sel.value = currentStyle;
+      sel.addEventListener('change', function(){ setMapStyle(this.value); });
+    }catch(_){ }
+  })();
+
+  // ==== Пошук населеного пункту через Mapbox Geocoding (як на головній) ====
+  let __placeSearchTimer = null;
+  let __placeResults = [];
+  async function suggestPlaces(q){
+    try{
+      const token = mapboxgl.accessToken || '';
+      if (!token) return [];
+      const url = new URL('https://api.mapbox.com/geocoding/v5/mapbox.places/' + encodeURIComponent(q) + '.json');
+      url.searchParams.set('access_token', token);
+      url.searchParams.set('autocomplete', 'true');
+      url.searchParams.set('language', 'uk');
+      url.searchParams.set('limit', '7');
+      url.searchParams.set('types', 'place,locality,neighborhood');
+      url.searchParams.set('country', 'ua');
+      try{
+        const c = map.getCenter();
+        url.searchParams.set('proximity', c.lng + ',' + c.lat);
+      }catch(_){ }
+      const res = await fetch(url.toString());
+      const data = await res.json();
+      const feats = Array.isArray(data?.features) ? data.features : [];
+      return feats.map(f => ({ id:f.id, name:f.text_uk || f.text || '', full:f.place_name_uk || f.place_name || '', center:f.center }));
+    }catch(_){ return []; }
+  }
+  function fillPlaceDatalist(rows){
+    const list = document.getElementById('placeList');
+    if (!list) return;
+    list.innerHTML = '';
+    rows.forEach(r => {
+      const opt = document.createElement('option');
+      opt.value = r.full || r.name;
+      list.appendChild(opt);
+    });
+  }
+  function flyToPlaceFromInput(){
+    const input = document.getElementById('placeSearch');
+    const q = (input?.value || '').trim();
+    if (!q) return;
+    let target = __placeResults.find(r => (r.full || r.name) === q);
+    const closePlaceSuggestions = () => {
+      try{ if (input) input.blur(); fillPlaceDatalist([]); }catch(_){ }
+    };
+    const use = async () => {
+      if (target && Array.isArray(target.center)){
+        try{ map.flyTo({ center: target.center, zoom: Math.max(map.getZoom()||0, 11), essential:true }); }catch(_){ }
+        closePlaceSuggestions();
+        return true;
+      }
+      return false;
+    };
+    use().then(async ok => {
+      if (ok) return;
+      const rows = await suggestPlaces(q);
+      __placeResults = rows;
+      if (rows.length && Array.isArray(rows[0].center)){
+        try{ map.flyTo({ center: rows[0].center, zoom: Math.max(map.getZoom()||0, 11), essential:true }); }catch(_){ }
+        closePlaceSuggestions();
+      }
+    });
+  }
+  (function initPlaceSearch(){
+    const placeInput = document.getElementById('placeSearch');
+    if (!placeInput) return;
+    placeInput.addEventListener('input', () => {
+      const q = placeInput.value.trim();
+      if (__placeSearchTimer) clearTimeout(__placeSearchTimer);
+      if (q.length < 2){ fillPlaceDatalist([]); __placeResults = []; return; }
+      __placeSearchTimer = setTimeout(async () => {
+        const rows = await suggestPlaces(q);
+        __placeResults = rows;
+        fillPlaceDatalist(rows);
+      }, 450);
+    });
+    placeInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); flyToPlaceFromInput(); }
+      if (e.key === 'Escape') { fillPlaceDatalist([]); placeInput.blur(); }
+    });
+    placeInput.addEventListener('change', flyToPlaceFromInput);
+  })();
   
   // =============== PROPOSAL (Mapbox Draw) ===============
   let draw = null;
@@ -372,6 +513,8 @@
     addLayer({ id:'proposal-start', type:'line', source:'proposal-start-src', paint:{ 'line-color':'#2563eb','line-width':3,'line-dasharray':[1,2] } }, beforeId);
     addLayer({ id:'proposal-end',   type:'line', source:'proposal-end-src',   paint:{ 'line-color':'#f59e0b','line-width':3,'line-dasharray':[1,2] } }, beforeId);
   }
+  // Після перемикання стилю карти відновлюємо шари пропозиції
+  try{ map.on('style.load', () => { try{ ensureProposalLayers(); }catch(_){ } }); }catch(_){ }
   function setProposalSources(routeCoords, startCoords, endCoords){
     ensureProposalLayers();
     try{
