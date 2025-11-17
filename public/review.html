@@ -32,8 +32,8 @@
 
     header{
       position:sticky; top:0; z-index:10;
-      display:flex; align-items:center; gap:8px;
-      padding:10px 12px; background:#0ea5e9; color:#fff
+      display:flex; align-items:center; gap:6px;
+      padding:6px 8px; background:#0ea5e9; color:#fff
     }
     header a{ color:#fff; text-decoration:none }
 
@@ -91,6 +91,10 @@
     .ctx-menu button:hover{ background:#f3f4f6; }
     /* Візуальна підказка режиму вставки: курсор-хрестик */
     .pending-insert #map{ cursor: crosshair; }
+
+    /* Компактність і один рядок для верхніх груп кнопок */
+    #secButtons, #proposalTools{ flex-wrap:nowrap; gap:6px; overflow-x:auto; -webkit-overflow-scrolling:touch }
+    #secButtons .btn, #proposalTools .btn{ padding:6px 10px; font-size:13px; white-space:nowrap }
 
     /* === Стиль‑док (нижній лівий кут): селект стилю + пошук з підказками === */
     .style-dock{
