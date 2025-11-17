@@ -514,7 +514,32 @@
     addLayer({ id:'proposal-end',   type:'line', source:'proposal-end-src',   paint:{ 'line-color':'#f59e0b','line-width':3,'line-dasharray':[1,2] } }, beforeId);
   }
   // Після перемикання стилю карти відновлюємо шари пропозиції
-  try{ map.on('style.load', () => { try{ ensureProposalLayers(); }catch(_){ } }); }catch(_){ }
+  try{
+    map.on('style.load', async () => {
+      try{ applyUkrainianLabels(); }catch(_){ }
+      // Пропозиція
+      try{ ensureProposalLayers(); }catch(_){ }
+      try{
+        if (LAST_ROUTE_DOC && LAST_ROUTE_DOC.proposal){
+          loadProposalToDraw(LAST_ROUTE_DOC.proposal);
+        } else {
+          setProposalSources([],[],[]);
+        }
+      }catch(_){ }
+      // Основний маршрут + лінійки + ручні сегменти
+      try{
+        if (Array.isArray(CURRENT_ROUTE_POINTS) && CURRENT_ROUTE_POINTS.length>=2){
+          await drawSnappedRoute(CURRENT_ROUTE_POINTS);
+          setSEMarkers(CURRENT_ROUTE_POINTS);
+        }
+      }catch(_){ }
+      try{ drawRulersFromArrays(CURRENT_START_RULER, CURRENT_END_RULER); }catch(_){ }
+      try{ if (LAST_ROUTE_DOC) drawManualSegments(LAST_ROUTE_DOC); }catch(_){ }
+      // Дорожня сітка та геозони
+      try{ addRoadGridLayer(); setRoadGridVisibility(roadGridVisible); }catch(_){ }
+      try{ await loadTilesetsConfigOnce(); addTilesets(); ensureHighlightLayers(); updateHighlightsForRoute(LAST_ROUTE_DOC||{}); updateGeozonesToggleLabel(); setGeozonesVisibility(__geozonesVisible); }catch(_){ }
+    });
+  }catch(_){ }
   function setProposalSources(routeCoords, startCoords, endCoords){
     ensureProposalLayers();
     try{
@@ -797,6 +822,8 @@
   let CURRENT_ROUTE_POINTS = [];
   let CURRENT_START_RULER = [];
   let CURRENT_END_RULER   = [];
+  // останній завантажений документ маршруту — для відновлення шарів після зміни стилю
+  let LAST_ROUTE_DOC = null;
   function clearRouteLayers(){
     routeLayers.forEach(id=>{
       try{ if(map.getLayer(id)) map.removeLayer(id); }catch{}
@@ -874,6 +901,25 @@
       map.addLayer({ id:'ruler-end', type:'line', source:'ruler-end-src',
         paint:{ 'line-color':'#22c55e','line-width':3,'line-dasharray':[1,2]}});
     }
+  }
+  // dashed rulers із вже нормалізованих масивів координат (для style.load)
+  function drawRulersFromArrays(rs, re){
+    ['ruler-start','ruler-end','ruler-start-src','ruler-end-src'].forEach(id=>{
+      try{ if(map.getLayer(id)) map.removeLayer(id); }catch{}
+      try{ if(map.getSource(id)) map.removeSource(id); }catch{}
+    });
+    try{
+      if (Array.isArray(rs) && rs.length>=2){
+        map.addSource('ruler-start-src',{type:'geojson', data:{ type:'Feature', geometry:{ type:'LineString', coordinates: rs } }});
+        map.addLayer({ id:'ruler-start', type:'line', source:'ruler-start-src',
+          paint:{ 'line-color':'#0ea5e9','line-width':3,'line-dasharray':[1,2]}});
+      }
+      if (Array.isArray(re) && re.length>=2){
+        map.addSource('ruler-end-src',{type:'geojson', data:{ type:'Feature', geometry:{ type:'LineString', coordinates: re } }});
+        map.addLayer({ id:'ruler-end', type:'line', source:'ruler-end-src',
+          paint:{ 'line-color':'#22c55e','line-width':3,'line-dasharray':[1,2]}});
+      }
+    }catch(_){ }
   }
   /* ===== Дорожня сітка як на головній ===== */
   let roadGridVisible = true;
@@ -1071,6 +1117,7 @@ function drawManualSegments(d){
       normalizePoints(d.geometry) ||
       fromObjPoints(d.points||[]) || [];
     CURRENT_ROUTE_POINTS = Array.isArray(pts) ? pts.slice() : [];
+    LAST_ROUTE_DOC = d; // збережемо для відновлення після style.load
   const routeMeters = await drawSnappedRoute(pts);
     setSEMarkers(pts);
     drawRulers(d);
