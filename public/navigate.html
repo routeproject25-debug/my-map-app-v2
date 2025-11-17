@@ -202,7 +202,7 @@
   // 1D alpha-beta фільтр по координаті вздовж маршруту (в кілометрах)
   const TRACK_ALPHA = 0.25;     // наскільки довіряємо вимірюванню
   const TRACK_BETA  = 0.05;     // наскільки коригуємо швидкість
-  const MAX_KPS     = 0.05;     // макс. швидкість, км/с (~180 км/год)
+  const MAX_KPS     = 0.07;     // макс. швидкість, км/с (~252 км/год)
 
   function b64decodeUtf8(b64){
     const bin = atob(b64); const bytes = new Uint8Array(bin.length);
@@ -370,7 +370,8 @@
   let lastSpeedPos = null;
   let speedMps = 0;
   const SPEED_ALPHA = 0.35; // швидше підлаштування швидкості
-  const MAX_SPEED_MPS = 90/3.6;
+  // Дозволяємо показувати >90 км/год, але відсікаємо явні викиди
+  const MAX_SPEED_MPS = 220/3.6; // ~220 км/год
 
   let snapFeatures = [];
   let markerHeading = null; // згладжений курс для візуалізації стрілки
@@ -825,6 +826,9 @@
     if (snap && snap.dist <= SNAP_MAX_METERS){
       onLine = snap.coord; snappedKind = snap.which;
     }
+    // Обчислюємо timestamp одразу, щоб використовувати в усіх гілках нижче
+    const ts = (typeof pos.timestamp === 'number' ? pos.timestamp : Date.now());
+
     // Згладжування вздовж маршруту (без «зрізання кутів»)
     // Якщо прилипаємо до основного маршруту — згладжуємо не координати, а положення вздовж лінії (кілометри)
     if (routeGeoJSON && snappedKind === 'route'){
@@ -853,7 +857,6 @@
     const gpsHeading = Number.isFinite(pos.coords.heading) ? pos.coords.heading : null;
     const headingInstant = gpsHeading != null ? gpsHeading : (lastUserPos ? computeHeading(lastUserPos, filteredPos) : null);
     // Вирахуємо швидкість/рух
-    const ts = (typeof pos.timestamp === 'number' ? pos.timestamp : Date.now());
     // Оцінка швидкості: використовуємо GPS speed, якщо доступно; інакше — різницю позицій
     if (Number.isFinite(pos.coords.speed)){
       const gpsV = Math.max(0, Math.min(MAX_SPEED_MPS, pos.coords.speed));
