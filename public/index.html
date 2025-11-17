@@ -761,6 +761,7 @@
 <div id="statusDock">
   <div id="statusChip" class="status-chip" data-status="draft">📝 Статус: Чернетка</div>
   <div id="distanceChip" class="status-chip">📏 Відстань, км: <span id="distanceTop">0</span></div>
+  <div class="status-chip">Стан на дату: <input id="asOfDateMain" type="date" style="margin-left:6px;padding:2px 6px;border:1px solid #e5e7eb;border-radius:6px;font-size:12px" /></div>
 </div>
 
 <!-- Перемикач панелей (праворуч внизу) -->
@@ -5036,6 +5037,29 @@ document.getElementById('clearLogistsCache').onclick = () => {
 let __routeLiveUnsub = null;
 let __routeLiveId = null;
 let __routeLivePrev = null; // { status, hasProposal }
+
+/* ===== Версії маршруту: перегляд станом на дату ===== */
+function todayYMD(){ const d=new Date(); const p=n=>String(n).padStart(2,'0'); return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}`; }
+async function getVersionAsOfMain(rid, asOfYMD){
+  try{
+    const snap = await db.collection('routes').doc(rid).collection('versions')
+      .where('effectiveFrom','<=', asOfYMD).orderBy('effectiveFrom','desc').limit(1).get();
+    if (!snap.empty){ const doc=snap.docs[0]; return Object.assign({ id:doc.id }, doc.data()||{}); }
+  }catch(e){ console.warn('versions(asOf) query', e?.message||e); }
+  return null;
+}
+// ініціалізуємо поле в статус-доку і читаємо ?asOf= з URL
+(function initAsOfMain(){
+  try{
+    const qs = new URLSearchParams(location.search);
+    window.__AS_OF_MAIN = (qs.get('asOf') || '').slice(0,10) || todayYMD();
+    const el = document.getElementById('asOfDateMain');
+    if (el){ el.value = window.__AS_OF_MAIN; el.addEventListener('change', ()=>{
+      window.__AS_OF_MAIN = el.value || todayYMD();
+      if (__routeLiveId) { loadRouteById(__routeLiveId); }
+    }); }
+  }catch(_){ }
+})();
 // ===== Notifications state =====
 let __notifs = [];
 let __notifRecent = new Set(); // dedupe short-term (kind+id+status)
@@ -5473,6 +5497,14 @@ async function loadRouteById(rid) {
 
     document.getElementById('logistInput').value =
       data.logisticName || (data.logisticId ? getLogistNameById(data.logisticId) : '');
+
+    // Якщо задано перегляд на дату — підтягнемо версію
+    try{
+      if (window.__AS_OF_MAIN){
+        const ver = await getVersionAsOfMain(rid, window.__AS_OF_MAIN);
+        if (ver){ data.points = ver.points; data.startRuler = ver.startRuler; data.endRuler = ver.endRuler; }
+      }
+    }catch(_){ }
 
     points     = fromObjPoints(data.points || []);
     startRuler = fromObjPoints(data.startRuler || []);
