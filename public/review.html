@@ -96,6 +96,12 @@
     #secButtons, #proposalTools{ flex-wrap:nowrap; gap:6px; overflow-x:auto; -webkit-overflow-scrolling:touch }
     #secButtons .btn, #proposalTools .btn{ padding:6px 10px; font-size:13px; white-space:nowrap }
 
+    /* Верхня панель картки: заголовок ліворуч, кнопки праворуч */
+    .topbar{ display:flex; align-items:flex-start; justify-content:space-between; gap:8px; }
+    .topbar-left{ min-width:220px }
+    .topbar-right{ display:flex; align-items:center; gap:8px; flex-wrap:nowrap; overflow-x:auto; -webkit-overflow-scrolling:touch }
+    .topbar-right .btnRow{ margin:0 !important }
+
     /* === Стиль‑док (нижній лівий кут): селект стилю + пошук з підказками === */
     .style-dock{
       position:fixed; left:8px; bottom:calc(env(safe-area-inset-bottom) + 78px); z-index:3500; /* піднято ще на пару пікселів */
@@ -186,29 +192,34 @@
 <div id="reviewWrap">
   <div class="review-card">
     <div class="pad">
-      <div class="title">Погодження маршруту</div>
-      <div id="statusLine" class="muted">Завантаження…</div>
+      <div class="topbar">
+        <div class="topbar-left">
+          <div class="title">Погодження маршруту</div>
+          <div id="statusLine" class="muted">Завантаження…</div>
+        </div>
+        <div class="topbar-right">
+          <div class="btnRow" id="secButtons" style="display:none;">
+            <button id="approveBtn" class="btn good">✅ Погодити</button>
+            <button id="rejectBtn"  class="btn bad">❌ Відхилити</button>
+            <a id="openEditor" class="btn" target="_blank">🗺 Відкрити в редакторі</a>
+          </div>
 
-      <div class="btnRow" id="secButtons" style="margin-top:8px; display:none;">
-        <button id="approveBtn" class="btn good">✅ Погодити</button>
-        <button id="rejectBtn"  class="btn bad">❌ Відхилити</button>
-        <a id="openEditor" class="btn" target="_blank">🗺 Відкрити в редакторі</a>
+          <!-- Security proposal tools -->
+          <div class="btnRow" id="proposalTools" style="display:none;">
+            <button id="propEditToggle" class="btn warn">✏️ Режим пропозиції</button>
+            <button id="propFromCurrent" class="btn warn" title="Скопіювати поточний маршрут у пропозицію">📄 Накласти маршрут</button>
+            <button id="propModeRoute" class="btn warn">Лінія маршруту</button>
+            <button id="propModeStart" class="btn warn">Лінійка (поч.)</button>
+            <button id="propModeEnd" class="btn warn">Лінійка (кін.)</button>
+            <button id="toggleRoadGridReview" class="btn">🛣 Показати сітку доріг</button>
+            <button id="toggleGeozonesReview" class="btn">🗺 Приховати геозони</button>
+            <button id="propSave" class="btn good">💾 Зберегти пропозицію</button>
+            <button id="propClear" class="btn">🗑 Очистити пропозицію</button>
+          </div>
+        </div>
       </div>
 
-      <!-- Security proposal tools -->
-      <div class="btnRow" id="proposalTools" style="margin-top:6px; display:none;">
-        <button id="propEditToggle" class="btn warn">✏️ Режим пропозиції</button>
-        <button id="propFromCurrent" class="btn warn" title="Скопіювати поточний маршрут у пропозицію">📄 Накласти маршрут</button>
-        <button id="propModeRoute" class="btn warn">Лінія маршруту</button>
-        <button id="propModeStart" class="btn warn">Лінійка (поч.)</button>
-        <button id="propModeEnd" class="btn warn">Лінійка (кін.)</button>
-        <button id="toggleRoadGridReview" class="btn">🛣 Показати сітку доріг</button>
-        <button id="toggleGeozonesReview" class="btn">🗺 Приховати геозони</button>
-        <button id="propSave" class="btn good">💾 Зберегти пропозицію</button>
-        <button id="propClear" class="btn">🗑 Очистити пропозицію</button>
-      </div>
-
-      <div id="rejectWrap" style="display:none; margin-top:10px;">
+      <div id="rejectWrap" style="display:none; margin-top:8px;">
         <label>Причина відхилення (обов’язково)</label>
         <textarea id="rejectComment" placeholder="Опишіть, що потрібно виправити"></textarea>
         <div class="btnRow" style="margin-top:6px;">
