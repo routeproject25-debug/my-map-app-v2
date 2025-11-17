@@ -202,8 +202,6 @@
             <button id="approveBtn" class="btn good">✅ Погодити</button>
             <button id="rejectBtn"  class="btn bad">❌ Відхилити</button>
             <a id="openEditor" class="btn" target="_blank">🗺 Відкрити в редакторі</a>
-            <label for="effectiveFrom" class="muted" style="margin-left:8px">Початок дії</label>
-            <input id="effectiveFrom" type="date" class="btn" style="padding:6px 8px;font-size:13px" />
           </div>
 
           <!-- Security proposal tools -->
@@ -253,15 +251,10 @@
           <div class="chip" id="chipDistanceTotal">Повний маршрут: —</div>
           <div class="chip proposal" id="chipProposal">Пропозиція: —</div>
           <div class="chip" id="chipRevision">Подача № —</div>
-          <div class="chip" id="chipVersion">Версія: —</div>
         </div>
         <div style="text-align:right">
           <div class="muted">Маршрут: <b id="routeName">—</b></div>
           <div class="muted">Від: <b id="fromLabel">—</b> → До: <b id="toLabel">—</b></div>
-          <div class="muted" style="margin-top:6px;">
-            Перегляд на дату:
-            <input id="asOfDate" type="date" style="padding:4px 6px;border:1px solid var(--line);border-radius:8px;font-size:12px" />
-          </div>
         </div>
       </div>
       <div id="decisionInfo" class="muted" style="margin-top:8px;"></div>
@@ -274,11 +267,6 @@
   // === Firebase (вже ініт у head-guard) ===
   const db   = firebase.firestore();
   const auth = firebase.auth();
-  function todayYMD(){ const d=new Date(); const p=n=>String(n).padStart(2,'0'); return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}`; }
-  // asOf з URL або сьогодні
-  const qs  = new URLSearchParams(location.search);
-  const rid = qs.get('rid');
-  let AS_OF_DATE = (qs.get('asOf') || '').slice(0,10) || todayYMD();
   async function getNormalizedRole(){
   if (window.__userRole) return String(window.__userRole).trim().toLowerCase();
   try{
@@ -322,8 +310,9 @@
     return null;
   }
 
-  // ініт інпутів дат
-  (function initDates(){ try{ const asEl=document.getElementById('asOfDate'); if(asEl){ asEl.value=AS_OF_DATE; asEl.addEventListener('change',()=>{ AS_OF_DATE=asEl.value||todayYMD(); loadRouteAndRender(); }); } const eff=document.getElementById('effectiveFrom'); if(eff){ eff.value=todayYMD(); } }catch(_){ } })();
+  // === Query params ===
+  const qs  = new URLSearchParams(location.search);
+  const rid = qs.get('rid');
 
   // === Mapbox init ===
   mapboxgl.accessToken = (window.APP_CONFIG && window.APP_CONFIG.mapboxToken) || '';
@@ -1010,34 +999,6 @@
     }
     return m;
   }
-
-  async function getVersionAsOf(routeId, asOfYMD){
-    try{
-      const snap = await db.collection('routes').doc(routeId).collection('versions')
-        .where('effectiveFrom','<=', asOfYMD).orderBy('effectiveFrom','desc').limit(1).get();
-      if (!snap.empty){ const doc=snap.docs[0]; return Object.assign({ id:doc.id }, doc.data()||{}); }
-    }catch(e){ console.warn('versions query', e?.message||e); }
-    return null;
-  }
-
-  async function createVersionFromCurrent(effectiveFromYMD, sourceTag){
-    try{
-      const points = (CURRENT_ROUTE_POINTS||[]).map(([lng,lat])=>({lng,lat}));
-      const startRuler = (CURRENT_START_RULER||[]).map(([lng,lat])=>({lng,lat}));
-      const endRuler   = (CURRENT_END_RULER  ||[]).map(([lng,lat])=>({lng,lat}));
-      const km = (pathLengthMeters(CURRENT_ROUTE_POINTS||[]) + pathLengthMeters(CURRENT_START_RULER||[]) + pathLengthMeters(CURRENT_END_RULER||[]))/1000;
-      const user = auth.currentUser;
-      const baseRef = db.collection('routes').doc(rid);
-      const vid = `v_${effectiveFromYMD}_${Date.now()}`;
-      await baseRef.collection('versions').doc(vid).set({
-        effectiveFrom: effectiveFromYMD,
-        points, startRuler, endRuler,
-        distance_km: Number.isFinite(km)?Number(km.toFixed(3)):null,
-        createdAt:new Date().toISOString(), createdByUid:user?.uid||null, createdByEmail:user?.email||null, source: sourceTag||'approve'
-      });
-      await baseRef.set({ versionsIndex: firebase.firestore.FieldValue.arrayUnion({ id:vid, effectiveFrom: effectiveFromYMD, distance_km: Number.isFinite(km)?Number(km.toFixed(3)):null, createdAt:new Date().toISOString() }), updatedAt:new Date().toISOString() }, { merge:true });
-    }catch(e){ console.warn('createVersionFromCurrent', e?.message||e); }
-  }
 // ---- нормалізація «домальованих» сегментів з різних форматів ----
 function normalizeSegments(source){
   const segments = [];
@@ -1139,14 +1100,6 @@ function drawManualSegments(d){
     catch { snap = await db.collection('routes').doc(rid).get(); }
      if (!snap.exists){ document.getElementById('statusLine').textContent = 'Маршрут не знайдено.'; return; }
      const d = snap.data() || {};
-    // Підміна на версію станом на дату
-    let ver=null; try{ ver = await getVersionAsOf(rid, AS_OF_DATE); }catch(_){ }
-    if (ver){
-      d.points = ver.points; d.startRuler = ver.startRuler; d.endRuler = ver.endRuler;
-      try{ const chip=document.getElementById('chipVersion'); if(chip) chip.textContent = 'Версія: діє з ' + (ver.effectiveFrom||'—'); }catch(_){ }
-    } else {
-      try{ const chip=document.getElementById('chipVersion'); if(chip) chip.textContent = 'Версія: —'; }catch(_){ }
-    }
     window.__lastStatus = (d.approval?.status)||'';
 
     document.getElementById('routeName').textContent = d.name || rid;
@@ -1327,15 +1280,6 @@ function drawManualSegments(d){
       return false;
     };
     await tryReload(4);
-
-    // Після запису — якщо погоджено, створимо версію з обраною датою
-    try{
-      if (kind === 'approved'){
-        const effEl = document.getElementById('effectiveFrom');
-        const eff = (effEl?.value||'').slice(0,10) || todayYMD();
-        await createVersionFromCurrent(eff, 'approve');
-      }
-    }catch(e){ console.warn('version save after approve', e?.message||e); }
 
     alert(kind === 'approved' ? 'Погоджено ✅' : 'Відхилено ❌');
     document.getElementById('rejectWrap').style.display = 'none';

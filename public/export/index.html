@@ -486,14 +486,6 @@
           </div>
         </div>
 
-        <!-- NEW: Перегляд станом на дату -->
-        <div class="row cols-2" style="margin-top:8px;">
-          <div>
-            <label>Стан на дату</label>
-            <input id="asOfDate" type="date">
-          </div>
-        </div>
-
         <div class="row cols-4" style="margin-top:12px;">
           <div>
             <label>Виробничий підрозділ (у Від або До)</label>
@@ -691,7 +683,6 @@ const MAP_URL = '/index.html';
 const NAVIGATE_PAGE = '/navigate.html';
 const DEFAULT_PROFILE = 'driving';
 const REVIEW_PAGE = '/review.html';
-let AS_OF_DATE = null; // YYYY-MM-DD
 
 /* === Inline Map (lazy Mapbox) === */
 let _mapPanelOpen = false;
@@ -1458,7 +1449,6 @@ function unitByCode(code){ return (dirByCode[code]?.unit)||''; }
 function dayStartISO(d){ const x=new Date(d); x.setHours(0,0,0,0); return x.toISOString(); }
 function dayEndISO(d){ const x=new Date(d); x.setHours(23,59,59,999); return x.toISOString(); }
 function formatDate(dt){ if (!dt) return ''; const d=new Date(dt); if (isNaN(d)) return ''; const pad=n=>String(n).padStart(2,'0'); return `${pad(d.getDate())}.${pad(d.getMonth()+1)}.${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`; }
-function todayYMD(){ const d=new Date(); const p=n=>String(n).padStart(2,'0'); return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}`; }
 function normalizeForJson(val){
   if (val === undefined || val === null) return null;
 
@@ -1601,18 +1591,6 @@ function downloadBlob(blob, filename){
   a.download = filename;
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 5000);
-}
-
-/* ---------- As-Of Date (versions) ---------- */
-function initAsOfExport(){
-  try{
-    const q = new URLSearchParams(location.search);
-    const fromURL = (q.get('asOf')||'').trim();
-    const el = document.getElementById('asOfDate');
-    const val = fromURL || todayYMD();
-    if (el) el.value = val;
-    AS_OF_DATE = val;
-  }catch(_){ AS_OF_DATE = todayYMD(); }
 }
 
 // Безпечні і короткі імена файлів
@@ -1964,19 +1942,6 @@ function parseSnap(snap){
       return i>0 ? s.slice(0, i).trim() : s;
     };
 
-    // Відстань станом на дату з versionsIndex, якщо присутній
-    const viewDistance = (function(){
-      try{
-        const idx = Array.isArray(d.versionsIndex) ? d.versionsIndex : [];
-        if (AS_OF_DATE && idx.length){
-          const pick = idx.filter(v => (v.effectiveFrom||'') <= AS_OF_DATE)
-                          .sort((a,b)=> a.effectiveFrom<b.effectiveFrom?1:-1)[0];
-          if (pick && typeof pick.distance_km === 'number') return pick.distance_km;
-        }
-      }catch(_){ }
-      return (typeof d.distance_km==='number')? d.distance_km : NaN;
-    })();
-
     rows.push({
       id: doc.id,
       routeKey: d.routeKey || '',
@@ -1991,7 +1956,7 @@ function parseSnap(snap){
   fromUnit: (d.fromUnit || d.unitFrom || d.fromUnitName || d.unitFromName || unitByCode(d.fromCode) || ''),
   toUnit:   (d.toUnit   || d.unitTo   || d.toUnitName   || d.unitToName   || unitByCode(d.toCode)   || ''),
       viaNames: viaArr.join(' • '),
-      distance_km: viewDistance,
+      distance_km: (typeof d.distance_km==='number')? d.distance_km : NaN,
       type: d.routeType||'',
       purpose: (d.purpose || d.routePurpose || ''),
       logisticName: d.logisticName || '',
@@ -2708,7 +2673,6 @@ function reRender(){
 btnPreview.addEventListener('click', async ()=>{
   try{
     setBusy(true);
-    try{ const el=document.getElementById('asOfDate'); const today=()=>{const d=new Date();const p=n=>String(n).padStart(2,'0');return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}`}; AS_OF_DATE = (el?.value||'').trim() || today(); }catch(_){ }
     await loadFirstPage(true);   // ← було false
     reRender();
   }catch(e){ handleFirestoreError(e); }
@@ -2745,7 +2709,6 @@ btnAll.addEventListener('click', async ()=>{
 btnExport.addEventListener('click', async ()=>{
   try{
     setBusy(true);
-    try{ const el=document.getElementById('asOfDate'); const today=()=>{const d=new Date();const p=n=>String(n).padStart(2,'0');return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}`}; AS_OF_DATE = (el?.value||'').trim() || today(); }catch(_){ }
     if (!allRows.length){ await loadFirstPage(false); }
     if (_hasMore){
       const agree = confirm(`Завантажити ВСІ сторінки перед експортом? Зараз у пам'яті ${allRows.length}+ рядків.`);
@@ -3295,8 +3258,6 @@ btnAutosize.addEventListener('click', autosizeColumns);
   fitTableToViewport();      // ← додали
   bindXSync();            // ← додали
   fillHubsList();
-  // ініціалізація «Стан на дату» з URL або сьогодні
-  initAsOfExport();
   // Restore map height if saved
   try{ const h = parseInt(localStorage.getItem(MAP_H_KEY)); if (h && h > 0) setMapHeight(h); }catch(_){ }
 })();
