@@ -4069,7 +4069,20 @@ async function saveToDB() {
         const effectiveDate = (document.getElementById('effectiveFromDate')?.value || '').trim() || todayISO();
         if (mode === 'overwrite'){
           try{
-            await createNewVersion(docId, {...payload, ...indexFields, routeKey: routeKeySaved}, effectiveDate);
+            const newVer = await createNewVersion(docId, {...payload, ...indexFields, routeKey: routeKeySaved}, effectiveDate);
+            // Після створення версії оновлюємо основний документ з новими даними і effectiveFrom
+            if (newVer) {
+              const finalUpdate = {
+                ...payload,
+                ...indexFields,
+                routeKey: routeKeySaved,
+                effectiveFrom: effectiveDate
+              };
+              // Зберегти approval якщо було
+              if (savedApproval) finalUpdate.approval = savedApproval;
+              
+              await db.collection('routes').doc(docId).update(finalUpdate);
+            }
           }catch(verErr){
             console.warn('Version creation failed:', verErr);
           }
