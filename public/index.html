@@ -673,6 +673,8 @@
     <div id="dbCreate" class="section">
       <div><strong>База (Firestore)</strong></div>
       <input id="routeName" type="text" placeholder="Назва маршруту (згенерується автоматично, можна змінити)" />
+      <label for="effectiveFromDate" style="font-size:13px; margin-top:8px; display:block;">Дата початку дії маршруту:</label>
+      <input id="effectiveFromDate" type="date" style="padding:6px 8px; border:1px solid #e5e7eb; border-radius:8px; width:100%;" />
       <div class="btn-row" style="margin-top:6px;">
         <button id="saveToDB" class="btn">💾 Зберегти в БД</button>
         <button id="clearForm" class="btn">🧹 Очистити форму</button>
@@ -3759,6 +3761,107 @@ async function reserveKeyTx(tx, prefix, docId, meta){
   throw new Error('Не вдалося згенерувати унікальний код маршруту (спробуйте ще раз).');
 }
 
+/* ===== Версіонування маршрутів ===== */
+function todayISO(){ const d=new Date(); const p=n=>String(n).padStart(2,'0'); return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}`; }
+
+// Створення нової версії маршруту при редагуванні
+async function createNewVersion(routeId, newData, effectiveFrom){
+  try{
+    const routeRef = db.collection('routes').doc(routeId);
+    const routeSnap = await routeRef.get();
+    if (!routeSnap.exists) return null;
+    
+    const currentData = routeSnap.data();
+    const currentVersion = currentData.currentVersion || 0;
+    const newVersion = currentVersion + 1;
+    
+    // Архівуємо поточну версію
+    if (currentVersion > 0){
+      const versionRef = routeRef.collection('versions').doc(String(currentVersion));
+      const archiveData = {
+        ...currentData,
+        versionNum: currentVersion,
+        routeKey: `${currentData.routeKey}_${currentVersion}`,
+        effectiveTo: effectiveFrom,
+        archived: true,
+        archivedAt: new Date().toISOString()
+      };
+      await versionRef.set(archiveData);
+    }
+    
+    // Зберігаємо нову версію
+    const newVersionRef = routeRef.collection('versions').doc(String(newVersion));
+    await newVersionRef.set({
+      ...newData,
+      versionNum: newVersion,
+      effectiveFrom: effectiveFrom,
+      effectiveTo: null,
+      archived: false
+    });
+    
+    // Оновлюємо індекс версій у корені
+    const versionsIndex = currentData.versions || [];
+    versionsIndex.push({
+      versionNum: newVersion,
+      effectiveFrom: effectiveFrom,
+      effectiveTo: null,
+      archived: false,
+      distance_km: newData.distance_km
+    });
+    
+    // Оновлюємо попередній запис в індексі
+    if (currentVersion > 0){
+      const prevIdx = versionsIndex.findIndex(v => v.versionNum === currentVersion);
+      if (prevIdx >= 0) versionsIndex[prevIdx].effectiveTo = effectiveFrom;
+    }
+    
+    await routeRef.update({
+      currentVersion: newVersion,
+      versions: versionsIndex,
+      effectiveFrom: effectiveFrom
+    });
+    
+    return newVersion;
+  }catch(e){
+    console.error('createNewVersion error:', e);
+    return null;
+  }
+}
+
+// Отримання активної версії на конкретну дату
+async function getActiveVersionOnDate(routeId, dateISO){
+  try{
+    const routeRef = db.collection('routes').doc(routeId);
+    const routeSnap = await routeRef.get();
+    if (!routeSnap.exists) return null;
+    
+    const versionsIndex = routeSnap.data().versions || [];
+    const activeVersion = versionsIndex
+      .filter(v => v.effectiveFrom <= dateISO && (!v.effectiveTo || v.effectiveTo > dateISO))
+      .sort((a,b) => b.versionNum - a.versionNum)[0];
+    
+    if (!activeVersion) return routeSnap.data(); // Fallback на поточний документ
+    
+    const versionSnap = await routeRef.collection('versions').doc(String(activeVersion.versionNum)).get();
+    return versionSnap.exists ? versionSnap.data() : routeSnap.data();
+  }catch(e){
+    console.error('getActiveVersionOnDate error:', e);
+    return null;
+  }
+}
+
+// Отримання всіх версій маршруту
+async function getAllVersions(routeId){
+  try{
+    const routeRef = db.collection('routes').doc(routeId);
+    const versionsSnap = await routeRef.collection('versions').orderBy('versionNum', 'desc').get();
+    return versionsSnap.docs.map(doc => ({id: doc.id, ...doc.data()}));
+  }catch(e){
+    console.error('getAllVersions error:', e);
+    return [];
+  }
+}
+
 /* ===== Firestore: save/list/load/delete ===== */
 async function saveToDB() {
   try {
@@ -3924,6 +4027,44 @@ async function saveToDB() {
           tx.set(routeRef, updateObj, { merge: true });
           routeKeySaved = routeKey;
         });
+
+        // Версіонування: якщо це оновлення існуючого маршруту
+        const effectiveDate = (document.getElementById('effectiveFromDate')?.value || '').trim() || todayISO();
+        if (mode === 'overwrite'){
+          try{
+            await createNewVersion(docId, {...payload, ...indexFields, routeKey: routeKeySaved}, effectiveDate);
+          }catch(verErr){
+            console.warn('Version creation failed:', verErr);
+          }
+        } else if (mode === 'new'){
+          // Для нового маршруту встановлюємо початкову версію
+          try{
+            await db.collection('routes').doc(docId).set({
+              currentVersion: 1,
+              versions: [{
+                versionNum: 1,
+                effectiveFrom: effectiveDate,
+                effectiveTo: null,
+                archived: false,
+                distance_km: payload.distance_km
+              }],
+              effectiveFrom: effectiveDate
+            }, { merge: true });
+            
+            // Зберігаємо версію 1 у підколекцію
+            await db.collection('routes').doc(docId).collection('versions').doc('1').set({
+              ...payload,
+              ...indexFields,
+              routeKey: routeKeySaved,
+              versionNum: 1,
+              effectiveFrom: effectiveDate,
+              effectiveTo: null,
+              archived: false
+            });
+          }catch(verErr){
+            console.warn('Initial version creation failed:', verErr);
+          }
+        }
 
         alert(`✅ Збережено в БД: ${payload.name}\nКод маршруту: ${routeKeySaved}`);
         try{
