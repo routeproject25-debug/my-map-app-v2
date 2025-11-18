@@ -588,7 +588,10 @@
       bearing: (bearingDeg!=null && !Number.isNaN(bearingDeg)) ? bearingDeg : map.getBearing(),
       pitch: NAV_PITCH_DEG, offset: [0, NAV_OFFSET_PX]
     };
-    if (map.getZoom() < 13) opts.zoom = 13;
+    // Не змінюємо зум тут — користувач може керувати через кнопки +/-
+
+      // Разово виставляємо мінімальний зум при старті навігації
+      if (map.getZoom() < NAV_MIN_ZOOM) map.jumpTo({ zoom: NAV_MIN_ZOOM });
     map.easeTo(opts);
   }
 
