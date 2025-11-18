@@ -3820,12 +3820,19 @@ async function createNewVersion(routeId, newData, effectiveFrom){
     
     // Зберігаємо нову версію
     const newVersionRef = routeRef.collection('versions').doc(String(newVersion));
+    const user = auth?.currentUser;
     await newVersionRef.set({
       ...newData,
       versionNum: newVersion,
       effectiveFrom: effectiveFrom,
       effectiveTo: null,
-      archived: false
+      archived: false,
+      createdAt: new Date().toISOString(),
+      creator: user ? {
+        uid: user.uid,
+        email: user.email,
+        displayName: user.displayName || user.email
+      } : null
     });
     
     // Оновлюємо індекс версій у корені
@@ -4069,6 +4076,7 @@ async function saveToDB() {
         } else if (mode === 'new'){
           // Для нового маршруту встановлюємо початкову версію
           try{
+            const user = auth?.currentUser;
             await db.collection('routes').doc(docId).set({
               currentVersion: 1,
               versions: [{
@@ -4089,7 +4097,13 @@ async function saveToDB() {
               versionNum: 1,
               effectiveFrom: effectiveDate,
               effectiveTo: null,
-              archived: false
+              archived: false,
+              createdAt: new Date().toISOString(),
+              creator: user ? {
+                uid: user.uid,
+                email: user.email,
+                displayName: user.displayName || user.email
+              } : null
             });
           }catch(verErr){
             console.warn('Initial version creation failed:', verErr);
@@ -4657,10 +4671,21 @@ async function loadFromDB() {
     document.getElementById('routeName').value = formatRouteTitle(data);
 	setApprovalUI(data.approval);
     
-    // Заповнити поле дати початку дії (effectiveFrom з поточної версії)
+    // Заповнити поле дати початку дії з поточної версії
     const effFromInput = document.getElementById('effectiveFromDate');
     if (effFromInput) {
-      effFromInput.value = data.effectiveFrom || todayISO();
+      // Спробувати отримати дату з поточної версії
+      const currentVer = data.currentVersion || 1;
+      try {
+        const verSnap = await docRef.collection('versions').doc(String(currentVer)).get();
+        if (verSnap.exists) {
+          effFromInput.value = verSnap.data().effectiveFrom || data.effectiveFrom || todayISO();
+        } else {
+          effFromInput.value = data.effectiveFrom || todayISO();
+        }
+      } catch(_) {
+        effFromInput.value = data.effectiveFrom || todayISO();
+      }
     }
 
     document.getElementById('logistInput').value =
