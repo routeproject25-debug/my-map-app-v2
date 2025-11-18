@@ -398,12 +398,32 @@
     list.innerHTML = '';
     rows.forEach(r => { const opt = document.createElement('option'); opt.value = r.full || r.name; list.appendChild(opt); });
   }
+  function parseCoordinates(str){
+    // Підтримка форматів: "49.23, 28.47" або "49.23 28.47" або "49.23;28.47"
+    const cleaned = str.replace(/[^0-9.,-\s]/g, '').trim();
+    const parts = cleaned.split(/[,;\s]+/).map(p => parseFloat(p)).filter(n => !isNaN(n));
+    if (parts.length === 2){
+      const [a, b] = parts;
+      // Перевіряємо діапазони: lat -90..90, lng -180..180
+      if (Math.abs(a) <= 90 && Math.abs(b) <= 180) return [b, a]; // lng, lat
+      if (Math.abs(b) <= 90 && Math.abs(a) <= 180) return [a, b]; // lng, lat
+    }
+    return null;
+  }
   function flyToPlaceFromInput(){
     const input = document.getElementById('placeSearch');
     const q = (input?.value || '').trim();
     if (!q) return;
-    let target = __placeResults.find(r => (r.full || r.name) === q);
     const close = () => { try{ if (input) input.blur(); fillPlaceDatalist([]); }catch(_){ } };
+    // Спочатку перевіряємо, чи це координати
+    const coords = parseCoordinates(q);
+    if (coords){
+      try{ map.flyTo({ center: coords, zoom: 14, essential:true }); }catch(_){ }
+      close();
+      return;
+    }
+    // Інакше шукаємо як місце
+    let target = __placeResults.find(r => (r.full || r.name) === q);
     const use = async () => {
       if (target && Array.isArray(target.center)){
         try{ map.flyTo({ center: target.center, zoom: Math.max(map.getZoom()||0, 11), essential:true }); }catch(_){ }
