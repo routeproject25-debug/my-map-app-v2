@@ -4071,9 +4071,11 @@ async function saveToDB() {
           try{
             const newVer = await createNewVersion(docId, {...payload, ...indexFields, routeKey: routeKeySaved}, effectiveDate);
             // Після створення версії оновлюємо основний документ з новими даними і effectiveFrom
+            // НЕ перезаписуємо versions і currentVersion - вони вже оновлені в createNewVersion
             if (newVer) {
+              const {versions, currentVersion, ...payloadWithoutVersions} = payload;
               const finalUpdate = {
-                ...payload,
+                ...payloadWithoutVersions,
                 ...indexFields,
                 routeKey: routeKeySaved,
                 effectiveFrom: effectiveDate
