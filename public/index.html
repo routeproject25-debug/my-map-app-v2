@@ -292,21 +292,6 @@
   font-variant-numeric: tabular-nums; /* опційно: рівні ширини цифр */
 }
 
-/* Модальне вікно історії версій */
-.modal-overlay{ position:fixed; inset:0; background:rgba(0,0,0,0.5); z-index:9999; display:none; align-items:center; justify-content:center; }
-.modal-overlay.show{ display:flex; }
-.modal-content{ background:#fff; border-radius:12px; max-width:800px; width:90%; max-height:80vh; overflow:auto; padding:20px; }
-.modal-header{ display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; }
-.modal-title{ font-size:20px; font-weight:700; }
-.modal-close{ cursor:pointer; font-size:24px; background:none; border:none; padding:0; width:32px; height:32px; }
-.version-list{ display:flex; flex-direction:column; gap:12px; }
-.version-item{ border:1px solid #e5e7eb; border-radius:8px; padding:12px; background:#f9fafb; }
-.version-item.active{ background:#dbeafe; border-color:#3b82f6; }
-.version-header{ display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; }
-.version-info{ font-size:13px; color:#6b7280; }
-.version-actions{ display:flex; gap:6px; }
-.version-actions .btn{ padding:4px 10px; font-size:12px; }
-
 /* Док-перемикач панелей (праворуч внизу) */
 #panelDock{
   position:fixed;
@@ -688,12 +673,9 @@
     <div id="dbCreate" class="section">
       <div><strong>База (Firestore)</strong></div>
       <input id="routeName" type="text" placeholder="Назва маршруту (згенерується автоматично, можна змінити)" />
-      <label for="effectiveFromDate" style="font-size:13px; margin-top:8px; display:block;">Дата початку дії маршруту:</label>
-      <input id="effectiveFromDate" type="date" style="padding:6px 8px; border:1px solid #e5e7eb; border-radius:8px; width:100%;" />
       <div class="btn-row" style="margin-top:6px;">
         <button id="saveToDB" class="btn">💾 Зберегти в БД</button>
         <button id="clearForm" class="btn">🧹 Очистити форму</button>
-        <button id="btnShowVersionsEditor" class="btn" style="display:none;">📜 Історія версій</button>
       </div>
     </div>
   </div>
@@ -3777,131 +3759,6 @@ async function reserveKeyTx(tx, prefix, docId, meta){
   throw new Error('Не вдалося згенерувати унікальний код маршруту (спробуйте ще раз).');
 }
 
-/* ===== Версіонування маршрутів ===== */
-function todayISO(){ const d=new Date(); const p=n=>String(n).padStart(2,'0'); return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}`; }
-
-// Функція для віднімання одного дня від дати (YYYY-MM-DD)
-function subtractOneDay(dateISO){
-  const d = new Date(dateISO + 'T00:00:00');
-  d.setDate(d.getDate() - 1);
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${y}-${m}-${day}`;
-}
-
-// Створення нової версії маршруту при редагуванні
-async function createNewVersion(routeId, newData, effectiveFrom){
-  try{
-    const routeRef = db.collection('routes').doc(routeId);
-    const routeSnap = await routeRef.get();
-    if (!routeSnap.exists) return null;
-    
-    const currentData = routeSnap.data();
-    const currentVersion = currentData.currentVersion || 0;
-    const newVersion = currentVersion + 1;
-    
-    // Попередня версія дійсна ДО (новий effectiveFrom - 1 день)
-    const previousEffectiveTo = subtractOneDay(effectiveFrom);
-    
-    // Архівуємо поточну версію
-    if (currentVersion > 0){
-      const versionRef = routeRef.collection('versions').doc(String(currentVersion));
-      const archiveData = {
-        ...currentData,
-        versionNum: currentVersion,
-        routeKey: `${currentData.routeKey}_${currentVersion}`,
-        effectiveTo: previousEffectiveTo,
-        archived: true,
-        archivedAt: new Date().toISOString()
-      };
-      await versionRef.set(archiveData);
-    }
-    
-    // Зберігаємо нову версію
-    const newVersionRef = routeRef.collection('versions').doc(String(newVersion));
-    const user = auth?.currentUser;
-    await newVersionRef.set({
-      ...newData,
-      versionNum: newVersion,
-      effectiveFrom: effectiveFrom,
-      effectiveTo: null,
-      archived: false,
-      createdAt: new Date().toISOString(),
-      creator: user ? {
-        uid: user.uid,
-        email: user.email,
-        displayName: user.displayName || user.email
-      } : null
-    });
-    
-    // Оновлюємо індекс версій у корені
-    const versionsIndex = currentData.versions || [];
-    versionsIndex.push({
-      versionNum: newVersion,
-      effectiveFrom: effectiveFrom,
-      effectiveTo: null,
-      archived: false,
-      distance_km: newData.distance_km
-    });
-    
-    // Оновлюємо попередній запис в індексі (effectiveTo = новий effectiveFrom - 1 день)
-    if (currentVersion > 0){
-      const prevIdx = versionsIndex.findIndex(v => v.versionNum === currentVersion);
-      if (prevIdx >= 0) versionsIndex[prevIdx].effectiveTo = previousEffectiveTo;
-    }
-    
-    await routeRef.update({
-      currentVersion: newVersion,
-      versions: versionsIndex,
-      effectiveFrom: effectiveFrom
-    });
-    
-    return newVersion;
-  }catch(e){
-    console.error('createNewVersion error:', e);
-    return null;
-  }
-}
-
-// Отримання активної версії на конкретну дату
-async function getActiveVersionOnDate(routeId, dateISO){
-  try{
-    const routeRef = db.collection('routes').doc(routeId);
-    const routeSnap = await routeRef.get();
-    if (!routeSnap.exists) return null;
-    
-    const versionsIndex = routeSnap.data().versions || [];
-    // effectiveFrom <= dateISO <= effectiveTo (включно обидві межі)
-    const activeVersion = versionsIndex
-      .filter(v => v.effectiveFrom <= dateISO && (!v.effectiveTo || dateISO <= v.effectiveTo))
-      .sort((a,b) => b.versionNum - a.versionNum)[0];
-    
-    if (!activeVersion) return routeSnap.data(); // Fallback на поточний документ
-    
-    const versionSnap = await routeRef.collection('versions').doc(String(activeVersion.versionNum)).get();
-    return versionSnap.exists ? versionSnap.data() : routeSnap.data();
-  }catch(e){
-    console.error('getActiveVersionOnDate error:', e);
-    return null;
-  }
-}
-
-// Отримання всіх версій маршруту
-async function getAllVersions(routeId){
-  try{
-    const routeRef = db.collection('routes').doc(routeId);
-    const versionsSnap = await routeRef.collection('versions').orderBy('versionNum', 'desc').get();
-    return versionsSnap.docs.map(doc => ({id: doc.id, ...doc.data()}));
-  }catch(e){
-    console.error('getAllVersions error:', e);
-    return [];
-  }
-}
-
-// Глобальна змінна для відстеження завантаженого маршруту
-let loadedRouteId = null;
-
 /* ===== Firestore: save/list/load/delete ===== */
 async function saveToDB() {
   try {
@@ -3993,31 +3850,16 @@ async function saveToDB() {
         existing = await findExistingRouteByName(fLowerFB, tLowerFB, routeType);
       }
     }
-    
-    // Якщо маршрут був завантажений через loadFromDB - автоматично overwrite
-    if (loadedRouteId && !existing) {
-      try {
-        const loadedDoc = await db.collection('routes').doc(loadedRouteId).get();
-        if (loadedDoc.exists) existing = loadedDoc;
-      } catch(_) {}
-    }
-    
     const baseId = sanitizeId(finalName);
     let docId = baseId;
     let mode = 'new'; // 'new' | 'overwrite' | 'copy'
 
     if (existing) {
-      // Якщо це завантажений маршрут - автоматично overwrite без питань
-      if (loadedRouteId && existing.id === loadedRouteId) {
-        docId = existing.id;
-        mode = 'overwrite';
-      } else {
-        const existingName = existing.data()?.name || existing.id;
-        const choice = await askDuplicateAction(existingName);
-        if (choice === 'cancel'){ alert('❎ Збереження скасовано'); return; }
-        if (choice === 'overwrite'){ docId = existing.id; mode = 'overwrite'; }
-        if (choice === 'copy'){ docId = `${baseId}__${Date.now()}`; payload.name = `${payload.name} (копія)`; mode = 'copy'; }
-      }
+      const existingName = existing.data()?.name || existing.id;
+      const choice = await askDuplicateAction(existingName);
+      if (choice === 'cancel'){ alert('❎ Збереження скасовано'); return; }
+      if (choice === 'overwrite'){ docId = existing.id; mode = 'overwrite'; }
+      if (choice === 'copy'){ docId = `${baseId}__${Date.now()}`; payload.name = `${payload.name} (копія)`; mode = 'copy'; }
     }
 
     const prefix = firstLetter(from.name) + firstLetter(to.name);
@@ -4082,66 +3924,6 @@ async function saveToDB() {
           tx.set(routeRef, updateObj, { merge: true });
           routeKeySaved = routeKey;
         });
-
-        // Версіонування: якщо це оновлення існуючого маршруту
-        const effectiveDate = (document.getElementById('effectiveFromDate')?.value || '').trim() || todayISO();
-        if (mode === 'overwrite'){
-          try{
-            const newVer = await createNewVersion(docId, {...payload, ...indexFields, routeKey: routeKeySaved}, effectiveDate);
-            // Після створення версії оновлюємо основний документ з новими даними і effectiveFrom
-            // НЕ перезаписуємо versions і currentVersion - вони вже оновлені в createNewVersion
-            if (newVer) {
-              const {versions, currentVersion, ...payloadWithoutVersions} = payload;
-              const finalUpdate = {
-                ...payloadWithoutVersions,
-                ...indexFields,
-                routeKey: routeKeySaved,
-                effectiveFrom: effectiveDate
-              };
-              // Зберегти approval якщо було
-              if (savedApproval) finalUpdate.approval = savedApproval;
-              
-              await db.collection('routes').doc(docId).update(finalUpdate);
-            }
-          }catch(verErr){
-            console.warn('Version creation failed:', verErr);
-          }
-        } else if (mode === 'new'){
-          // Для нового маршруту встановлюємо початкову версію
-          try{
-            const user = auth?.currentUser;
-            await db.collection('routes').doc(docId).set({
-              currentVersion: 1,
-              versions: [{
-                versionNum: 1,
-                effectiveFrom: effectiveDate,
-                effectiveTo: null,
-                archived: false,
-                distance_km: payload.distance_km
-              }],
-              effectiveFrom: effectiveDate
-            }, { merge: true });
-            
-            // Зберігаємо версію 1 у підколекцію
-            await db.collection('routes').doc(docId).collection('versions').doc('1').set({
-              ...payload,
-              ...indexFields,
-              routeKey: routeKeySaved,
-              versionNum: 1,
-              effectiveFrom: effectiveDate,
-              effectiveTo: null,
-              archived: false,
-              createdAt: new Date().toISOString(),
-              creator: user ? {
-                uid: user.uid,
-                email: user.email,
-                displayName: user.displayName || user.email
-              } : null
-            });
-          }catch(verErr){
-            console.warn('Initial version creation failed:', verErr);
-          }
-        }
 
         alert(`✅ Збережено в БД: ${payload.name}\nКод маршруту: ${routeKeySaved}`);
         try{
@@ -4703,23 +4485,6 @@ async function loadFromDB() {
 	document.getElementById('hubSelect').value = data.hub || '';
     document.getElementById('routeName').value = formatRouteTitle(data);
 	setApprovalUI(data.approval);
-    
-    // Заповнити поле дати початку дії з поточної версії
-    const effFromInput = document.getElementById('effectiveFromDate');
-    if (effFromInput) {
-      // Спробувати отримати дату з поточної версії
-      const currentVer = data.currentVersion || 1;
-      try {
-        const verSnap = await docRef.collection('versions').doc(String(currentVer)).get();
-        if (verSnap.exists) {
-          effFromInput.value = verSnap.data().effectiveFrom || data.effectiveFrom || todayISO();
-        } else {
-          effFromInput.value = data.effectiveFrom || todayISO();
-        }
-      } catch(_) {
-        effFromInput.value = data.effectiveFrom || todayISO();
-      }
-    }
 
     document.getElementById('logistInput').value =
       data.logisticName || (data.logisticId ? getLogistNameById(data.logisticId) : '');
@@ -4727,10 +4492,6 @@ async function loadFromDB() {
     points = fromObjPoints(data.points || []);
     startRuler = fromObjPoints(data.startRuler || []);
     endRuler = fromObjPoints(data.endRuler || []);
-    
-    // Зберегти ID завантаженого маршруту для автоматичного overwrite при збереженні
-    loadedRouteId = id;
-    
     // гарантуємо відповідності назва ↔ код у локальному кеші
 registerDirEntry(data.fromCode, data.fromLabel || document.getElementById('fromName').value);
 registerDirEntry(data.toCode,   data.toLabel   || document.getElementById('toName').value);
@@ -4743,11 +4504,6 @@ registerDirEntry(data.toCode,   data.toLabel   || document.getElementById('toNam
   try { updateProposalUIForData(data); } catch(_){ }
   // 🔴 Live-підписка на зміни маршруту (статус/пропозиція)
   try { subscribeToRouteLive(id); } catch(_){ }
-    
-    // Показати кнопку історії версій
-    const btnVersions = document.getElementById('btnShowVersionsEditor');
-    if (btnVersions) btnVersions.style.display = '';
-    
     alert('Маршрут завантажено з БД: ' + id + (data.routeKey ? `\nКод: ${data.routeKey}` : ''));
   } catch (err) {
     console.error('❌ Помилка завантаження з БД:', err);
@@ -5773,10 +5529,6 @@ function clearForm() {
   document.getElementById('routeName').value = '';
   document.getElementById('logistInput').value = '';
   setKmUI(0);
-  
-  // Скинути ID завантаженого маршруту
-  loadedRouteId = null;
-  
   // Скидаємо дані
   points = []; startRuler = []; endRuler = [];
   // Прибираємо ВСІ маркери (маршруту і лінійок)
@@ -5798,10 +5550,6 @@ function clearForm() {
   // ⬇️ додай цю строку
   updateHighlights();
   setApprovalUI(null);
-  
-  // Сховати кнопку історії версій при очищенні форми
-  const btnVersions = document.getElementById('btnShowVersionsEditor');
-  if (btnVersions) btnVersions.style.display = 'none';
 
   // Canvas-нумерації більше немає — лишено DOM‑маркери
 
@@ -6213,93 +5961,6 @@ async function backfillRoutes(){
   console.log('Backfill done:', done);
 }
 
-// === Функції історії версій для index.html ===
-let currentRouteIdForVersions = null;
-
-async function showVersionHistoryEditor() {
-  const sel = document.getElementById('remoteRoutes');
-  const rid = sel?.value;
-  if (!rid) { alert('Спочатку завантажте маршрут для редагування'); return; }
-  currentRouteIdForVersions = rid;
-  
-  const modal = document.getElementById('versionModalEditor');
-  const container = document.getElementById('versionListContainerEditor');
-  container.innerHTML = '<p style="text-align:center;color:#6b7280;">⏳ Завантаження...</p>';
-  modal.classList.add('show');
-  
-  try {
-    const versions = await getAllVersions(rid);
-    if (!versions || versions.length === 0) {
-      container.innerHTML = '<p style="text-align:center;color:#6b7280;">Немає історії версій</p>';
-      return;
-    }
-    
-    const mainDoc = await db.collection('routes').doc(rid).get();
-    const currentVersion = mainDoc.data()?.currentVersion || 1;
-    
-    container.innerHTML = versions.map(v => {
-      const isActive = v.versionNum === currentVersion;
-      const effFrom = v.effectiveFrom || '-';
-      const effTo = v.effectiveTo || 'теперішній час';
-      const distance = v.distance_km ? v.distance_km.toFixed(2) : '-';
-      const creator = v.creator?.displayName || v.creator?.email || '-';
-      
-      return `
-        <div class="version-item ${isActive ? 'active' : ''}">
-          <div class="version-header">
-            <div>
-              <strong>Версія ${v.versionNum}</strong> 
-              ${isActive ? '<span style="color:#3b82f6;font-size:11px;">● ПОТОЧНА</span>' : ''}
-            </div>
-          </div>
-          <div class="version-info">
-            <div><strong>Ключ:</strong> ${v.routeKey || '-'}</div>
-            <div><strong>Дійсний:</strong> ${effFrom} → ${effTo}</div>
-            <div><strong>Відстань:</strong> ${distance} км</div>
-            <div><strong>Автор:</strong> ${creator}</div>
-          </div>
-        </div>
-      `;
-    }).join('');
-  } catch (err) {
-    console.error('Помилка завантаження версій:', err);
-    container.innerHTML = '<p style="text-align:center;color:red;">❌ Помилка завантаження</p>';
-  }
-}
-
-function closeVersionModalEditor() {
-  document.getElementById('versionModalEditor').classList.remove('show');
-}
-
-// Прив'язка кнопки
-document.addEventListener('DOMContentLoaded', () => {
-  const btnShow = document.getElementById('btnShowVersionsEditor');
-  if (btnShow) btnShow.onclick = showVersionHistoryEditor;
-  
-  // Закриття модалки по кліку за межами або ESC
-  document.addEventListener('click', e => {
-    const modal = document.getElementById('versionModalEditor');
-    if (e.target === modal) closeVersionModalEditor();
-  });
-  document.addEventListener('keydown', e => {
-    if (e.key === 'Escape') closeVersionModalEditor();
-  });
-});
-
 </script>
-
-<!-- Модальне вікно історії версій -->
-<div id="versionModalEditor" class="modal-overlay">
-  <div class="modal-content">
-    <div class="modal-header">
-      <div class="modal-title">📜 Історія версій маршруту</div>
-      <button class="modal-close" onclick="closeVersionModalEditor()">×</button>
-    </div>
-    <div id="versionListContainerEditor" class="version-list">
-      <!-- Versions will be loaded here -->
-    </div>
-  </div>
-</div>
-
 </body>
 </html>

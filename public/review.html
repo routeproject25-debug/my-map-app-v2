@@ -129,21 +129,6 @@
       .style-dock input[type="text"]{ padding:4px 6px; font-size:12px; width:130px; }
       .style-dock .mapbox-brand{ display:none; }
     }
-
-    /* Модальне вікно історії версій */
-    .modal-overlay{ position:fixed; inset:0; background:rgba(0,0,0,0.5); z-index:9999; display:none; align-items:center; justify-content:center; }
-    .modal-overlay.show{ display:flex; }
-    .modal-content{ background:#fff; border-radius:12px; max-width:800px; width:90%; max-height:80vh; overflow:auto; padding:20px; }
-    .modal-header{ display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; }
-    .modal-title{ font-size:20px; font-weight:700; }
-    .modal-close{ cursor:pointer; font-size:24px; background:none; border:none; padding:0; width:32px; height:32px; }
-    .version-list{ display:flex; flex-direction:column; gap:12px; }
-    .version-item{ border:1px solid var(--line); border-radius:8px; padding:12px; background:#f9fafb; }
-    .version-item.active{ background:#dbeafe; border-color:#3b82f6; }
-    .version-header{ display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; }
-    .version-info{ font-size:13px; color:var(--muted); }
-    .version-actions{ display:flex; gap:6px; }
-    .version-actions .btn{ padding:4px 10px; font-size:12px; }
   </style>
 
   <!-- === AUTH GUARD у <head>: ініт Firebase, перевірка ролі, показ DOM === -->
@@ -217,7 +202,6 @@
             <button id="approveBtn" class="btn good">✅ Погодити</button>
             <button id="rejectBtn"  class="btn bad">❌ Відхилити</button>
             <a id="openEditor" class="btn" target="_blank">🗺 Відкрити в редакторі</a>
-            <button id="btnVersionHistory" class="btn">📜 Історія версій</button>
           </div>
 
           <!-- Security proposal tools -->
@@ -1459,7 +1443,6 @@ function drawManualSegments(d){
       document.getElementById('rejectWrap').style.display = 'block';
       document.getElementById('rejectComment').focus();
     };
-    document.getElementById('btnVersionHistory').onclick = showVersionHistory;
     document.getElementById('sendReject').onclick = ()=>{
       const txt = (document.getElementById('rejectComment').value||'').trim();
       if (!txt){ alert('Вкажіть причину відхилення.'); return; }
@@ -1684,144 +1667,7 @@ function drawManualSegments(d){
     const b = document.getElementById('toggleGeozonesReview');
     if (b) b.textContent = __geozonesVisible ? '🗺 Приховати геозони' : '🗺 Показати геозони';
   }
-
-  // === Функції історії версій ===
-  let currentRouteIdForVersions = null;
-
-  async function showVersionHistory() {
-    const rid = new URLSearchParams(location.search).get('id');
-    if (!rid) { alert('Не вказано ID маршруту'); return; }
-    currentRouteIdForVersions = rid;
-    
-    const modal = document.getElementById('versionModal');
-    const container = document.getElementById('versionListContainer');
-    container.innerHTML = '<p style="text-align:center;color:var(--muted);">⏳ Завантаження...</p>';
-    modal.classList.add('show');
-    
-    try {
-      const versions = await getAllVersions(rid);
-      if (!versions || versions.length === 0) {
-        container.innerHTML = '<p style="text-align:center;color:var(--muted);">Немає історії версій</p>';
-        return;
-      }
-      
-      const mainDoc = await firebase.firestore().collection('routes').doc(rid).get();
-      const currentVersion = mainDoc.data()?.currentVersion || 1;
-      
-      container.innerHTML = versions.map(v => {
-        const isActive = v.versionNum === currentVersion;
-        const effFrom = v.effectiveFrom || '-';
-        const effTo = v.effectiveTo || 'теперішній час';
-        const distance = v.distance_km ? v.distance_km.toFixed(2) : '-';
-        const creator = v.creator?.displayName || v.creator?.email || '-';
-        
-        return `
-          <div class="version-item ${isActive ? 'active' : ''}">
-            <div class="version-header">
-              <div>
-                <strong>Версія ${v.versionNum}</strong> 
-                ${isActive ? '<span style="color:#3b82f6;font-size:11px;">● ПОТОЧНА</span>' : ''}
-              </div>
-              <div class="version-actions">
-                <button class="btn" onclick="viewVersion('${rid}', ${v.versionNum})">👁 Переглянути</button>
-              </div>
-            </div>
-            <div class="version-info">
-              <div><strong>Ключ:</strong> ${v.routeKey || '-'}</div>
-              <div><strong>Дійсний:</strong> ${effFrom} → ${effTo}</div>
-              <div><strong>Відстань:</strong> ${distance} км</div>
-              <div><strong>Автор:</strong> ${creator}</div>
-            </div>
-          </div>
-        `;
-      }).join('');
-    } catch (err) {
-      console.error('Помилка завантаження версій:', err);
-      container.innerHTML = '<p style="text-align:center;color:red;">❌ Помилка завантаження</p>';
-    }
-  }
-
-  async function getAllVersions(routeId) {
-    const snap = await firebase.firestore()
-      .collection('routes').doc(routeId)
-      .collection('versions')
-      .orderBy('versionNum', 'desc')
-      .get();
-    return snap.docs.map(d => ({ id: d.id, ...d.data() }));
-  }
-
-  async function viewVersion(routeId, versionNum) {
-    try {
-      const doc = await firebase.firestore()
-        .collection('routes').doc(routeId)
-        .collection('versions').doc(String(versionNum))
-        .get();
-      
-      if (!doc.exists) { alert('Версію не знайдено'); return; }
-      
-      const data = doc.data();
-      closeVersionModal();
-      
-      // Очистити попередні маршрути
-      if (map.getSource('route')) map.removeLayer('route').removeSource('route');
-      if (map.getSource('route-casing')) map.removeLayer('route-casing').removeSource('route-casing');
-      
-      // Відобразити версію маршруту
-      if (data.geometry?.coordinates?.length) {
-        map.addSource('route', { type: 'geojson', data: data.geometry });
-        map.addLayer({
-          id: 'route-casing',
-          type: 'line',
-          source: 'route',
-          paint: { 'line-color': '#666', 'line-width': 8 }
-        });
-        map.addLayer({
-          id: 'route',
-          type: 'line',
-          source: 'route',
-          paint: { 'line-color': '#3b82f6', 'line-width': 5 }
-        });
-        
-        const bbox = turf.bbox(data.geometry);
-        map.fitBounds(bbox, { padding: 40 });
-      }
-      
-      // Оновити інформацію
-      document.getElementById('secTitle').textContent = `${data.routeKey || ''} (версія ${versionNum})`;
-      showInfo(`Переглядається версія ${versionNum} (${data.effectiveFrom || '-'})`);
-    } catch (err) {
-      console.error('Помилка відображення версії:', err);
-      alert('Помилка завантаження версії');
-    }
-  }
-
-  function closeVersionModal() {
-    document.getElementById('versionModal').classList.remove('show');
-  }
-
-  // Закриття модалки по кліку за межами або ESC
-  document.addEventListener('click', e => {
-    const modal = document.getElementById('versionModal');
-    if (e.target === modal) closeVersionModal();
-  });
-  document.addEventListener('keydown', e => {
-    if (e.key === 'Escape') closeVersionModal();
-  });
 </script>
-
-<!-- Модальне вікно історії версій -->
-<div id="versionModal" class="modal-overlay">
-  <div class="modal-content">
-    <div class="modal-header">
-      <div class="modal-title">📜 Історія версій маршруту</div>
-      <button class="modal-close" onclick="closeVersionModal()">×</button>
-    </div>
-    <div id="versionListContainer" class="version-list">
-      <!-- Versions will be loaded here -->
-    </div>
-  </div>
-</div>
-
 <script>
   window.addEventListener('error', ()=>{ document.documentElement.style.visibility='visible'; });
   window.addEventListener('unhandledrejection', ()=>{ document.documentElement.style.visibility='visible'; });
