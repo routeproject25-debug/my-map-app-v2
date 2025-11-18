@@ -486,6 +486,17 @@
           </div>
         </div>
 
+        <div class="row cols-2" style="margin-top:12px;">
+          <div>
+            <label>📅 Дата снімку версій (для експорту)</label>
+            <input id="versionAsOfDate" type="date" title="Якщо вказано — буде експортовано версії, активні на цю дату">
+            <div class="muted" style="margin-top:4px;">Якщо порожньо — експорт поточних версій. Якщо вказана дата — експорт версій, активних на той момент.</div>
+          </div>
+          <div style="grid-column: span 1;">
+            <!-- Пусте місце для балансу або додаткові фільтри -->
+          </div>
+        </div>
+
         <div class="row cols-4" style="margin-top:12px;">
           <div>
             <label>Виробничий підрозділ (у Від або До)</label>
@@ -1920,6 +1931,61 @@ function buildBaseQuery(){
   return q;
 }
 
+// === Функції для роботи з версіями ===
+function todayISO() {
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, '0');
+  const d = String(now.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+async function getActiveVersionOnDate(routeId, dateISO) {
+  try {
+    const mainDoc = await db.collection('routes').doc(routeId).get();
+    if (!mainDoc.exists) return null;
+    const mainData = mainDoc.data();
+    const versions = mainData.versions || [];
+    
+    // Знайти версію, активну на дату
+    const targetVersion = versions.find(v => {
+      const effFrom = v.effectiveFrom || '';
+      const effTo = v.effectiveTo || null;
+      return effFrom <= dateISO && (!effTo || dateISO < effTo);
+    });
+    
+    if (!targetVersion) {
+      // Фолбек: якщо немає версій або не знайдено — повернути поточні дані
+      return mainData;
+    }
+    
+    // Завантажити дані версії з підколекції
+    const versionDoc = await db.collection('routes').doc(routeId)
+      .collection('versions').doc(String(targetVersion.versionNum)).get();
+    
+    return versionDoc.exists ? versionDoc.data() : mainData;
+  } catch (err) {
+    console.error('getActiveVersionOnDate error:', err);
+    return null;
+  }
+}
+
+async function enrichRowsWithVersions(rows, dateISO) {
+  if (!dateISO) return rows; // Якщо дата не вказана — без змін
+  
+  const promises = rows.map(async row => {
+    const versionData = await getActiveVersionOnDate(row.id, dateISO);
+    if (versionData && typeof versionData.distance_km === 'number') {
+      row.distance_km = versionData.distance_km;
+      row.routeKey = versionData.routeKey || row.routeKey;
+      // Можна додати інші поля з версії за потреби
+    }
+    return row;
+  });
+  
+  return Promise.all(promises);
+}
+
 function parseSnap(snap){
   const rows=[];
   snap.forEach(doc=>{
@@ -2582,7 +2648,7 @@ function renderTable(rows){
 }
 
 /* ---------- Експорт у Excel ---------- */
-function exportToExcel(rows){
+function exportToExcel(rows, versionDate=null){
   const keys = COLS_ORDER.filter(k => visibleCols.has(k) && !EXCEL_EXCLUDE.has(k));
   if (!keys.length){ alert('Оберіть хоча б одну колонку для експорту.'); return; }
   const header = keys.map(k => COL_LABEL[k]);
@@ -2619,7 +2685,11 @@ function exportToExcel(rows){
 
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Маршрути');
-  XLSX.writeFile(wb, 'routes_export.xlsx');
+  
+  const filename = versionDate 
+    ? `routes_export_${versionDate}.xlsx` 
+    : 'routes_export.xlsx';
+  XLSX.writeFile(wb, filename);
 }
 
 /* ---------- UI допоміжне ---------- */
@@ -2721,7 +2791,15 @@ btnExport.addEventListener('click', async ()=>{
     let rows = applyTopFilters(allRows);
     rows = applyTableFilters(rows);
     rows = sortRows(rows);
-    exportToExcel(rows);
+    
+    // Якщо вказана дата снімку — завантажити версії
+    const versionDate = document.getElementById('versionAsOfDate')?.value || null;
+    if (versionDate) {
+      console.log(`⏳ Завантаження версій на дату ${versionDate}...`);
+      rows = await enrichRowsWithVersions(rows, versionDate);
+    }
+    
+    exportToExcel(rows, versionDate);
   }catch(e){ handleFirestoreError(e); }
   finally{ setBusy(false); }
 });
