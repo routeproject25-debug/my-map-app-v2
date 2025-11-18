@@ -1947,11 +1947,11 @@ async function getActiveVersionOnDate(routeId, dateISO) {
     const mainData = mainDoc.data();
     const versions = mainData.versions || [];
     
-    // Знайти версію, активну на дату
+    // Знайти версію, активну на дату (включно обидві межі)
     const targetVersion = versions.find(v => {
       const effFrom = v.effectiveFrom || '';
       const effTo = v.effectiveTo || null;
-      return effFrom <= dateISO && (!effTo || dateISO < effTo);
+      return effFrom <= dateISO && (!effTo || dateISO <= effTo);
     });
     
     if (!targetVersion) {
