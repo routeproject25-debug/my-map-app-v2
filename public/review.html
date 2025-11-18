@@ -104,7 +104,7 @@
 
     /* === Стиль‑док (нижній лівий кут): селект стилю + пошук з підказками === */
     .style-dock{
-      position:fixed; left:8px; bottom:calc(env(safe-area-inset-bottom) + 78px); z-index:3500; /* піднято ще на пару пікселів */
+      position:fixed; left:8px; bottom:calc(env(safe-area-inset-bottom) + 86px); z-index:3500; /* піднято ще на пару пікселів */
       display:flex; align-items:center; gap:6px;
       background:var(--card); border:1px solid var(--line);
       border-radius:12px; padding:6px 8px;
@@ -556,7 +556,7 @@
       try{ drawRulersFromArrays(CURRENT_START_RULER, CURRENT_END_RULER); }catch(_){ }
       try{ if (LAST_ROUTE_DOC) drawManualSegments(LAST_ROUTE_DOC); }catch(_){ }
       // Дорожня сітка та геозони
-      try{ addRoadGridLayer(); setRoadGridVisibility(roadGridVisible); }catch(_){ }
+      try{ addRoadGridLayer(); setRoadGridVisibility(roadGridVisible); addRoadLabelLayer(); }catch(_){ }
       try{ await loadTilesetsConfigOnce(); addTilesets(); ensureHighlightLayers(); updateHighlightsForRoute(LAST_ROUTE_DOC||{}); updateGeozonesToggleLabel(); setGeozonesVisibility(__geozonesVisible); }catch(_){ }
     });
   }catch(_){ }
@@ -973,6 +973,37 @@
       updateRoadGridToggleLabel();
     }catch(e){ console.warn('road grid error', e); }
   }
+
+  const ROAD_LABEL_LAYER_ID = 'road-labels';
+  function addRoadLabelLayer(){
+    try{
+      if (!map.getSource(ROAD_SRC_ID)){
+        map.addSource(ROAD_SRC_ID, { type:'vector', url:'mapbox://mapbox.mapbox-streets-v8' });
+      }
+      const textField = ['coalesce', ['get','name:uk'], ['get','name_uk'], ['get','name'], ['get','ref']];
+      if (!map.getLayer(ROAD_LABEL_LAYER_ID)){
+        map.addLayer({
+          id: ROAD_LABEL_LAYER_ID,
+          type: 'symbol',
+          source: ROAD_SRC_ID,
+          'source-layer': 'road',
+          filter: ['in', ['get','class'], ['literal', ['motorway','trunk','primary','secondary','tertiary']]],
+          layout: {
+            'symbol-placement': 'line',
+            'symbol-spacing': 400,
+            'text-field': textField,
+            'text-size': ['interpolate',['linear'],['zoom'], 8,10, 14,13, 18,18],
+            'text-font': ['DIN Pro Medium','Arial Unicode MS Regular']
+          },
+          paint: {
+            'text-color': '#1f2937',
+            'text-halo-color': 'rgba(255,255,255,0.85)',
+            'text-halo-width': 1.5
+          }
+        });
+      }
+    }catch(e){ console.warn('road label error', e); }
+  }
   function setRoadGridVisibility(v){
     roadGridVisible = !!v;
     try{ if (map.getLayer(ROAD_LAYER_ID)) map.setLayoutProperty(ROAD_LAYER_ID, 'visibility', roadGridVisible ? 'visible' : 'none'); }catch(_){ }
@@ -1165,7 +1196,7 @@ function drawManualSegments(d){
     }catch(_){ }
 
     // Після завантаження — додати дорожню сітку
-    addRoadGridLayer(); setRoadGridVisibility(true);
+    addRoadGridLayer(); setRoadGridVisibility(true); addRoadLabelLayer();
 
     // === Геозони FROM/TO (якщо tilesets налаштовані) ===
     try{ await loadTilesetsConfigOnce(); addTilesets(); ensureHighlightLayers(); updateHighlightsForRoute(d); setGeozonesVisibility(true); }catch(_){ }
