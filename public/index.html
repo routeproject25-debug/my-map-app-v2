@@ -3899,6 +3899,9 @@ async function getAllVersions(routeId){
   }
 }
 
+// Глобальна змінна для відстеження завантаженого маршруту
+let loadedRouteId = null;
+
 /* ===== Firestore: save/list/load/delete ===== */
 async function saveToDB() {
   try {
@@ -3990,16 +3993,31 @@ async function saveToDB() {
         existing = await findExistingRouteByName(fLowerFB, tLowerFB, routeType);
       }
     }
+    
+    // Якщо маршрут був завантажений через loadFromDB - автоматично overwrite
+    if (loadedRouteId && !existing) {
+      try {
+        const loadedDoc = await db.collection('routes').doc(loadedRouteId).get();
+        if (loadedDoc.exists) existing = loadedDoc;
+      } catch(_) {}
+    }
+    
     const baseId = sanitizeId(finalName);
     let docId = baseId;
     let mode = 'new'; // 'new' | 'overwrite' | 'copy'
 
     if (existing) {
-      const existingName = existing.data()?.name || existing.id;
-      const choice = await askDuplicateAction(existingName);
-      if (choice === 'cancel'){ alert('❎ Збереження скасовано'); return; }
-      if (choice === 'overwrite'){ docId = existing.id; mode = 'overwrite'; }
-      if (choice === 'copy'){ docId = `${baseId}__${Date.now()}`; payload.name = `${payload.name} (копія)`; mode = 'copy'; }
+      // Якщо це завантажений маршрут - автоматично overwrite без питань
+      if (loadedRouteId && existing.id === loadedRouteId) {
+        docId = existing.id;
+        mode = 'overwrite';
+      } else {
+        const existingName = existing.data()?.name || existing.id;
+        const choice = await askDuplicateAction(existingName);
+        if (choice === 'cancel'){ alert('❎ Збереження скасовано'); return; }
+        if (choice === 'overwrite'){ docId = existing.id; mode = 'overwrite'; }
+        if (choice === 'copy'){ docId = `${baseId}__${Date.now()}`; payload.name = `${payload.name} (копія)`; mode = 'copy'; }
+      }
     }
 
     const prefix = firstLetter(from.name) + firstLetter(to.name);
@@ -4709,6 +4727,10 @@ async function loadFromDB() {
     points = fromObjPoints(data.points || []);
     startRuler = fromObjPoints(data.startRuler || []);
     endRuler = fromObjPoints(data.endRuler || []);
+    
+    // Зберегти ID завантаженого маршруту для автоматичного overwrite при збереженні
+    loadedRouteId = id;
+    
     // гарантуємо відповідності назва ↔ код у локальному кеші
 registerDirEntry(data.fromCode, data.fromLabel || document.getElementById('fromName').value);
 registerDirEntry(data.toCode,   data.toLabel   || document.getElementById('toName').value);
@@ -5751,6 +5773,10 @@ function clearForm() {
   document.getElementById('routeName').value = '';
   document.getElementById('logistInput').value = '';
   setKmUI(0);
+  
+  // Скинути ID завантаженого маршруту
+  loadedRouteId = null;
+  
   // Скидаємо дані
   points = []; startRuler = []; endRuler = [];
   // Прибираємо ВСІ маркери (маршруту і лінійок)
