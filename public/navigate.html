@@ -1,3 +1,7 @@
+// --- Історія швидкостей для ETA ---
+let speedHistory = [];
+  // Записуємо швидкість для ETA
+  if (Number.isFinite(pos.coords.speed) && pos.coords.speed > 2) speedHistory.push(pos.coords.speed);
 <!DOCTYPE html>
 <html lang="uk">
 <head>
@@ -949,8 +953,16 @@
       const next = getNextStepByLocation(userLocKm);
       if (next){
         // ETA за планом і за поточною швидкістю
+        // --- Середня швидкість для ETA ---
+        function getAverageSpeed() {
+          const valid = speedHistory.filter(s => s > 2);
+          if (valid.length >= 2) return valid.reduce((a,b)=>a+b,0)/valid.length;
+          // Якщо немає даних — дефолт
+          return (map.getZoom() >= 13) ? 45/3.6 : 75/3.6; // м/с
+        }
+        const avgSpeed = getAverageSpeed();
         const etaPlanSec = (totalDistance > 0) ? ((remainRoute / totalDistance) * totalDuration) : totalDuration;
-        const etaSpeedSec = (isMoving && speedMps > 0.5) ? (remainRoute / Math.max(speedMps, 0.1)) : etaPlanSec;
+        const etaSpeedSec = (isMoving && avgSpeed > 2) ? (remainRoute / Math.max(avgSpeed, 0.1)) : etaPlanSec;
         // Додаткові затримки (світлофори/маневри), якщо увімкнено
         let penalty = 0;
         if (trafficLights) penalty = computeTrafficLightPenalty(userLocKm, remainRoute);
