@@ -1,3 +1,44 @@
+  // === Додавання підписів назв доріг ===
+  function addRoadLabelsLayer() {
+    try {
+      if (!map.getSource('road-label-src')) {
+        map.addSource('road-label-src', { type: 'vector', url: 'mapbox://mapbox.mapbox-streets-v8' });
+      }
+      if (!map.getLayer('road-labels')) {
+        map.addLayer({
+          id: 'road-labels',
+          type: 'symbol',
+          source: 'road-label-src',
+          'source-layer': 'road',
+          layout: {
+            'text-field': [
+              'coalesce',
+              ['get', 'ref'],
+              ['get', 'name'],
+              ['get', 'Назва'],
+              ['get', 'name:uk'],
+              ['get', 'name_uk']
+            ],
+            'text-font': ['DIN Offc Pro Medium', 'Arial Unicode MS Bold'],
+            'text-size': [
+              'interpolate', ['linear'], ['zoom'],
+              10, 10,
+              14, 16
+            ],
+            'symbol-placement': 'line',
+            'text-letter-spacing': 0.05
+          },
+          paint: {
+            'text-color': '#1d4ed8',
+            'text-halo-color': '#fff',
+            'text-halo-width': 1.2
+          },
+          minzoom: 10
+        }, 'road-grid'); // Підписи над сіткою доріг
+      }
+    } catch (e) { console.warn('road labels error', e); }
+  }
+
 <!DOCTYPE html>
 <html lang="uk">
 <head>
@@ -334,7 +375,10 @@
       });
     }catch(_){ }
   }
-  map.on('style.load', applyUkrainianLabels);
+  map.on('style.load', function(){
+    applyUkrainianLabels();
+    addRoadLabelsLayer();
+  });
   // Початковий стиль та список стилів (циклічне перемикання)
   const STYLE_KEY = 'REVIEW_STYLE';
   const STYLES = [
