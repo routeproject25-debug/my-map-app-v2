@@ -3810,9 +3810,21 @@ async function saveToDB() {
 
     const user = auth?.currentUser || null;
 
-    // Отримати createdAt з поля або з існуючого маршруту, або поточний час
-    let createdAtValue = null;
+    // Оновити поле createdAt до поточного часу перед збереженням, ТІЛЬКИ якщо не змінено вручну
+    // (щоб уникнути застарілої дати, якщо сторінка була довго відкрита)
     const createdAtInput = document.getElementById('routeCreatedAt');
+    if (createdAtInput && !__createdAtManuallyEdited) {
+      const now = new Date();
+      const year = now.getFullYear();
+      const month = String(now.getMonth() + 1).padStart(2, '0');
+      const day = String(now.getDate()).padStart(2, '0');
+      const hours = String(now.getHours()).padStart(2, '0');
+      const minutes = String(now.getMinutes()).padStart(2, '0');
+      createdAtInput.value = `${year}-${month}-${day}T${hours}:${minutes}`;
+    }
+
+    // Отримати createdAt з оновленого поля або з існуючого маршруту
+    let createdAtValue = null;
     if (createdAtInput && createdAtInput.value) {
       // Конвертуємо datetime-local в ISO string
       try {
@@ -5595,6 +5607,8 @@ function clearForm() {
     const hours = String(now.getHours()).padStart(2, '0');
     const minutes = String(now.getMinutes()).padStart(2, '0');
     createdAtInput.value = `${year}-${month}-${day}T${hours}:${minutes}`;
+    // Скинути прапорець ручного редагування
+    __createdAtManuallyEdited = false;
   }
   
   setKmUI(0);
@@ -5951,6 +5965,9 @@ roleUnsub = db.collection('users').doc(user.uid)
 });
 
 /* ===== Start ===== */
+// Глобальна змінна для відстеження ручної зміни дати створення
+let __createdAtManuallyEdited = false;
+
 window.addEventListener('load', async () => {
   if (!db) return;
   
@@ -5964,6 +5981,16 @@ window.addEventListener('load', async () => {
     const hours = String(now.getHours()).padStart(2, '0');
     const minutes = String(now.getMinutes()).padStart(2, '0');
     createdAtInput.value = `${year}-${month}-${day}T${hours}:${minutes}`;
+  }
+  
+  // Відстежувати ручні зміни поля дати створення
+  if (createdAtInput) {
+    createdAtInput.addEventListener('input', () => {
+      __createdAtManuallyEdited = true;
+    });
+    createdAtInput.addEventListener('change', () => {
+      __createdAtManuallyEdited = true;
+    });
   }
   
   if (!DIR_LOADED_ONCE) {      // тільки кеш, без повного fetch
