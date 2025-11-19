@@ -584,8 +584,10 @@
     <th class="sortable" data-sort="purpose"       data-colkey="purpose">Призначення <span class="s">↕</span></th>
     <th class="sortable" data-sort="logisticName"  data-colkey="logist">Логіст <span class="s">↕</span></th>
     <th class="sortable" data-sort="statusLabel"   data-colkey="status">Статус погодження <span class="s">↕</span></th>
+    <th class="sortable" data-sort="createdAtRaw"  data-colkey="created">Дата Створення <span class="s">↕</span></th>
+    <th class="sortable" data-sort="updatedAtRaw"  data-colkey="changed">Дата Зміни <span class="s">↕</span></th>
+    <th class="sortable" data-sort="decisionAtRaw" data-colkey="decided">Дата Погодження <span class="s">↕</span></th>
     <th class="sortable" data-sort="rejectComment" data-colkey="comment">Причина відхилення <span class="s">↕</span></th>
-    <th class="sortable" data-sort="updatedAtRaw"  data-colkey="updated">Оновлено <span class="s">↕</span></th>
     <th class="sortable" data-sort="routeKey"      data-colkey="routeKey">Код маршруту <span class="s">↕</span></th>
     <th class="sortable" data-sort="id"            data-colkey="id">ID <span class="s">↕</span></th>
     <th data-colkey="map">Карта</th>
@@ -628,13 +630,25 @@
         <option>Очікує</option>
       </select>
     </th>
-  <th><input id="f_comment" type="text" placeholder="коментар…" list="fCommentsList"></th>
     <th>
       <div class="range">
-        <input id="f_dateFrom" type="date">
-        <input id="f_dateTo" type="date">
+        <input id="f_createdFrom" type="date" placeholder="від">
+        <input id="f_createdTo" type="date" placeholder="до">
       </div>
     </th>
+    <th>
+      <div class="range">
+        <input id="f_changedFrom" type="date" placeholder="від">
+        <input id="f_changedTo" type="date" placeholder="до">
+      </div>
+    </th>
+    <th>
+      <div class="range">
+        <input id="f_decidedFrom" type="date" placeholder="від">
+        <input id="f_decidedTo" type="date" placeholder="до">
+      </div>
+    </th>
+  <th><input id="f_comment" type="text" placeholder="коментар…" list="fCommentsList"></th>
   <th><input id="f_routeKey" type="text" placeholder="пошук…" list="fRouteKeysList"></th>
   <th><input id="f_id" type="text" placeholder="пошук…" list="fIdsList"></th>
     <th></th>  <!-- для "Карта" -->
@@ -1964,8 +1978,12 @@ function parseSnap(snap){
       logisticName: d.logisticName || '',
       logisticId: d.logisticId || '',
       statusRaw: statusValue, statusLabel, rejectComment,
+      createdAtRaw: d.createdAt || null,
+      createdAt: formatDate(d.createdAt),
       updatedAtRaw: d.updatedAt || null,
 	  updatedAt: formatDate(d.updatedAt),
+      decisionAtRaw: (d.approval?.decisionAt || null),
+      decisionAt: formatDate(d.approval?.decisionAt),
 	  raw: d,
       isActive: (d.isActive === false) ? false : true,
       hasProposal: !!d.proposal
@@ -2090,8 +2108,12 @@ function getTableFilterState(){
     logist:    document.getElementById('f_logist').value.trim(),
     status:    statusArr,
     comment:   document.getElementById('f_comment').value.trim(),
-    df:        document.getElementById('f_dateFrom').value,
-    dt:        document.getElementById('f_dateTo').value,
+    createdFrom: document.getElementById('f_createdFrom')?.value || '',
+    createdTo:   document.getElementById('f_createdTo')?.value || '',
+    changedFrom: document.getElementById('f_changedFrom')?.value || '',
+    changedTo:   document.getElementById('f_changedTo')?.value || '',
+    decidedFrom: document.getElementById('f_decidedFrom')?.value || '',
+    decidedTo:   document.getElementById('f_decidedTo')?.value || '',
     routeKey:  document.getElementById('f_routeKey').value.trim(),
     id:        document.getElementById('f_id').value.trim(),
   };
@@ -2118,8 +2140,13 @@ function matchTextNeedles(hay, needles){
 
 function applyTableFilters(rows, fOverride){
   const f = fOverride || getTableFilterState();
-  const df = f.df ? new Date(dayStartISO(f.df)) : null;
-  const dt = f.dt ? new Date(dayEndISO(f.dt))   : null;
+  // Фільтри дат для трьох колонок
+  const createdFrom = f.createdFrom ? new Date(dayStartISO(f.createdFrom)) : null;
+  const createdTo   = f.createdTo   ? new Date(dayEndISO(f.createdTo))     : null;
+  const changedFrom = f.changedFrom ? new Date(dayStartISO(f.changedFrom)) : null;
+  const changedTo   = f.changedTo   ? new Date(dayEndISO(f.changedTo))     : null;
+  const decidedFrom = f.decidedFrom ? new Date(dayStartISO(f.decidedFrom)) : null;
+  const decidedTo   = f.decidedTo   ? new Date(dayEndISO(f.decidedTo))     : null;
 
   // Підготовка множинних значень із текстових полів
   const hubNeedles      = splitMulti(f.hub);
@@ -2165,10 +2192,25 @@ function applyTableFilters(rows, fOverride){
     }
   if (commentNeedles.length && !matchTextNeedles(r.rejectComment, commentNeedles)) return false;
 
-    if ((df || dt) && r.updatedAtRaw){
+    // Фільтр по даті створення
+    if ((createdFrom || createdTo) && r.createdAtRaw){
+      const d = new Date(r.createdAtRaw);
+      if (createdFrom && d < createdFrom) return false;
+      if (createdTo && d > createdTo) return false;
+    }
+
+    // Фільтр по даті зміни
+    if ((changedFrom || changedTo) && r.updatedAtRaw){
       const d = new Date(r.updatedAtRaw);
-      if (df && d < df) return false;
-      if (dt && d > dt) return false;
+      if (changedFrom && d < changedFrom) return false;
+      if (changedTo && d > changedTo) return false;
+    }
+
+    // Фільтр по даті погодження
+    if ((decidedFrom || decidedTo) && r.decisionAtRaw){
+      const d = new Date(r.decisionAtRaw);
+      if (decidedFrom && d < decidedFrom) return false;
+      if (decidedTo && d > decidedTo) return false;
     }
 
   if (keyNeedles.length && !matchTextNeedles(r.routeKey, keyNeedles)) return false;
@@ -2372,13 +2414,14 @@ async function exportJsonFromRows(rows){
 const VCOL_KEY = 'export.visibleColumns.v1'; // ключ для localStorage  ← ДОДАТИ
 const COLS_ORDER = [
   'hub','unit','fromCode','toCode','fromName','toName','via','distance','type','purpose',
-  'logist','status','comment','updated','routeKey','id','map','review','navigator','json',
+  'logist','status','created','changed','decided','comment','routeKey','id','map','review','navigator','json',
   'delete' // ⬅ додано
 ];
 const COL_LABEL = {
   hub:'ХАБ', fromCode:'Код Від', toCode:'Код До', fromName:'Від', unit:'Підрозділ', toName:'До',
   via:'Проміжні пункти', distance:'Відстань, км', type:'Тип', purpose:'Призначення', logist:'Логіст',
-  status:'Статус погодження', comment:'Причина відхилення', updated:'Оновлено',
+  status:'Статус погодження', created:'Дата Створення', changed:'Дата Зміни', decided:'Дата Погодження',
+  comment:'Причина відхилення',
   routeKey:'Код маршруту', id:'ID', map:'Карта', navigator:'Навігатор', json:'JSON',
   review:'Погодження', delete:'Видалити' // ⬅ додано
 };
@@ -2386,7 +2429,7 @@ const COL_INDEX = Object.fromEntries(COLS_ORDER.map((k,i)=>[k,i+1]));
 
 // Можеш забрати 'delete' із дефолтних, якщо не треба показувати одразу
 const DEFAULT_VISIBLE = new Set([
-  'hub','fromName','unit','toName','via','distance','type','purpose','status','map','review','delete'
+  'hub','fromName','unit','toName','via','distance','type','purpose','status','created','changed','decided','map','review','delete'
 ]);
 
 const EXCEL_EXCLUDE = new Set(['map','navigator','json','review','delete']); // ⬅ додано
@@ -2395,7 +2438,7 @@ const EXCEL_EXCLUDE = new Set(['map','navigator','json','review','delete']); // 
 const COL_WEIGHTS = {
   via: 2.2, comment: 2.0, fromName: 1.3, unit: 1.1, toName: 1.3,
   hub: 1, fromCode: 1, toCode: 1, distance: 1, type: 1, purpose: 1,
-  logist: 1, status: 1, updated: 1, routeKey: 1, id: 1,
+  logist: 1, status: 1, created: 1.2, changed: 1.2, decided: 1.2, routeKey: 1, id: 1,
   map: 1, navigator: 1, json: 1, review: 1, delete: 1
 };
 
@@ -2403,7 +2446,7 @@ const COL_WEIGHTS = {
 const COL_MIN_PX = {
   via: 280, comment: 240, fromName: 160, unit: 140, toName: 160,
   hub: 110, fromCode: 110, toCode: 110, distance: 120, type: 120,
-  logist: 140, status: 140, updated: 160, routeKey: 160, id: 160,
+  logist: 140, status: 140, created: 160, changed: 160, decided: 160, routeKey: 160, id: 160,
   map: 120, navigator: 120, json: 120, review: 120, delete: 120
 };
 
@@ -2546,8 +2589,10 @@ function renderTable(rows){
     <td>${r.purpose || ''}</td>
     <td>${r.logisticName || ''}</td>
   <td>${r.statusLabel || ''}${r.isActive ? ' 🟩' : ' 🟥'}</td>
+    <td>${r.createdAt || ''}</td>
+    <td>${r.updatedAt || ''}</td>
+    <td>${r.decisionAt || ''}</td>
     <td class="cell-comment">${r.rejectComment ? r.rejectComment : ''}${r.hasProposal ? ` <span class="proposal-flag" title="Є пропозиція змін">Є пропозиція</span>` : ''}</td>
-    <td>${r.updatedAt}</td>
     <td class="cell-key" title="${r.routeKey || ''}">
       ${r.routeKey || ''}
       ${r.routeKey ? `<button class="copy-btn copy-key" data-val="${r.routeKey}" title="Скопіювати код">📋</button>` : ''}
@@ -2603,8 +2648,10 @@ function exportToExcel(rows, versionDate=null){
       case 'purpose':    return r.purpose || '';
       case 'logist':     return r.logisticName || '';
       case 'status':     return r.statusLabel || '';
+      case 'created':    return r.createdAt || '';
+      case 'changed':    return r.updatedAt || '';
+      case 'decided':    return r.decisionAt || '';
       case 'comment':    return r.rejectComment || '';
-      case 'updated':    return r.updatedAt || '';
       case 'routeKey':   return r.routeKey || '';
       case 'id':         return r.id || '';
       case 'map': {
@@ -2835,8 +2882,10 @@ function getFilterElementsByKey(key){
     case 'type':      return { type:'multi', el: document.getElementById('f_type') };
     case 'logist':    return { type:'text', el: document.getElementById('f_logist') };
     case 'status':    return { type:'multi', el: document.getElementById('f_status') };
+    case 'created':   return { type:'date', from: document.getElementById('f_createdFrom'), to: document.getElementById('f_createdTo') };
+    case 'changed':   return { type:'date', from: document.getElementById('f_changedFrom'), to: document.getElementById('f_changedTo') };
+    case 'decided':   return { type:'date', from: document.getElementById('f_decidedFrom'), to: document.getElementById('f_decidedTo') };
     case 'comment':   return { type:'text', el: document.getElementById('f_comment') };
-    case 'updated':   return { type:'date', from: document.getElementById('f_dateFrom'), to: document.getElementById('f_dateTo') };
     case 'routeKey':  return { type:'text', el: document.getElementById('f_routeKey') };
     case 'id':        return { type:'text', el: document.getElementById('f_id') };
     default:          return null;
@@ -2860,7 +2909,9 @@ function rowsForExcelDropdown(colKey){
     case 'logist': f2.logist=''; break;
     case 'status': f2.status=[]; break;
     case 'comment': f2.comment=''; break;
-    case 'updated': f2.df=''; f2.dt=''; break;
+    case 'created': f2.createdFrom=''; f2.createdTo=''; break;
+    case 'changed': f2.changedFrom=''; f2.changedTo=''; break;
+    case 'decided': f2.decidedFrom=''; f2.decidedTo=''; break;
     case 'routeKey': f2.routeKey=''; break;
     case 'id': f2.id=''; break;
   }};
