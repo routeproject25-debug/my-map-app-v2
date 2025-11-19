@@ -4540,6 +4540,8 @@ async function loadFromDB() {
         const hours = String(dt.getHours()).padStart(2, '0');
         const minutes = String(dt.getMinutes()).padStart(2, '0');
         createdAtInput.value = `${year}-${month}-${day}T${hours}:${minutes}`;
+        // Встановити прапорець, що дата була "вручну" встановлена (з БД)
+        __createdAtManuallyEdited = true;
       } catch(_) {
         // Якщо помилка парсингу, залишаємо порожнім
       }
@@ -4553,6 +4555,7 @@ async function loadFromDB() {
         const hours = String(fallback.getHours()).padStart(2, '0');
         const minutes = String(fallback.getMinutes()).padStart(2, '0');
         createdAtInput.value = `${year}-${month}-${day}T${hours}:${minutes}`;
+        __createdAtManuallyEdited = true;
       } catch(_) {}
     }
 
@@ -5560,6 +5563,36 @@ async function loadRouteById(rid) {
 
     document.getElementById('logistInput').value =
       data.logisticName || (data.logisticId ? getLogistNameById(data.logisticId) : '');
+
+    // Завантажити createdAt, якщо є
+    const createdAtInput = document.getElementById('routeCreatedAt');
+    if (createdAtInput && data.createdAt) {
+      try {
+        const dt = new Date(data.createdAt);
+        const year = dt.getFullYear();
+        const month = String(dt.getMonth() + 1).padStart(2, '0');
+        const day = String(dt.getDate()).padStart(2, '0');
+        const hours = String(dt.getHours()).padStart(2, '0');
+        const minutes = String(dt.getMinutes()).padStart(2, '0');
+        createdAtInput.value = `${year}-${month}-${day}T${hours}:${minutes}`;
+        // Встановити прапорець, що дата була "вручну" встановлена (з БД)
+        __createdAtManuallyEdited = true;
+      } catch(_) {
+        // Якщо помилка парсингу, залишаємо порожнім
+      }
+    } else if (createdAtInput && !data.createdAt) {
+      // Якщо немає createdAt в документі, встановимо updatedAt або поточний час
+      try {
+        const fallback = data.updatedAt ? new Date(data.updatedAt) : new Date();
+        const year = fallback.getFullYear();
+        const month = String(fallback.getMonth() + 1).padStart(2, '0');
+        const day = String(fallback.getDate()).padStart(2, '0');
+        const hours = String(fallback.getHours()).padStart(2, '0');
+        const minutes = String(fallback.getMinutes()).padStart(2, '0');
+        createdAtInput.value = `${year}-${month}-${day}T${hours}:${minutes}`;
+        __createdAtManuallyEdited = true;
+      } catch(_) {}
+    }
 
     points     = fromObjPoints(data.points || []);
     startRuler = fromObjPoints(data.startRuler || []);
