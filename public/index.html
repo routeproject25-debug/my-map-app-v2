@@ -601,11 +601,15 @@
       <label for="logistInput">Логіст (хто створює)</label>
       <input id="logistInput" type="text" placeholder="Почни вводити прізвище..." list="logistsList" autocomplete="off">
     </div>
+    <div class="field w240">
+      <label for="routeCreatedAt">Дата та час створення</label>
+      <input id="routeCreatedAt" type="datetime-local" title="Дата/час створення маршруту (можна змінити вручну)">
+    </div>
   </div>
   <datalist id="directoryList"></datalist>
   <datalist id="logistsList"></datalist>
   <div id="logistsMsg"></div>
-  <small class="muted">Список логістів береться з колекції <b>logists</b> (активні).</small>
+  <small class="muted">Список логістів береться з колекції <b>logists</b> (активні). Дата створення автоматично встановлюється при створенні нового маршруту.</small>
 </div>
 
 <div id="controls">
@@ -3806,6 +3810,18 @@ async function saveToDB() {
 
     const user = auth?.currentUser || null;
 
+    // Отримати createdAt з поля або з існуючого маршруту, або поточний час
+    let createdAtValue = null;
+    const createdAtInput = document.getElementById('routeCreatedAt');
+    if (createdAtInput && createdAtInput.value) {
+      // Конвертуємо datetime-local в ISO string
+      try {
+        createdAtValue = new Date(createdAtInput.value).toISOString();
+      } catch(_) {
+        createdAtValue = new Date().toISOString();
+      }
+    }
+
     const payload = {
   name: finalName,
   fromCode, toCode, routeType, purpose, intermediateText,
@@ -3823,6 +3839,18 @@ async function saveToDB() {
   updatedAt: new Date().toISOString(),
   hub: hub || null
 };
+
+    // Встановлюємо createdAt: якщо є значення з поля - використовуємо його,
+    // інакше для overwrite беремо з існуючого документа, для нових - поточний час
+    if (createdAtValue) {
+      payload.createdAt = createdAtValue;
+    } else if (existing && existing.data()?.createdAt) {
+      // Зберігаємо існуюче значення при overwrite
+      payload.createdAt = existing.data().createdAt;
+    } else if (!existing || mode === 'new' || mode === 'copy') {
+      // Для нових маршрутів або копій встановлюємо поточний час
+      payload.createdAt = new Date().toISOString();
+    }
     // Поле активності (для soft-delete). Якщо існуючий (overwrite) був неактивним — зберігаємо неактивність.
     try { if (existing) { payload.isActive = (existing.data()?.isActive === false ? false : true); } else { payload.isActive = true; } } catch(_){ payload.isActive = true; }
 
@@ -4488,6 +4516,33 @@ async function loadFromDB() {
 
     document.getElementById('logistInput').value =
       data.logisticName || (data.logisticId ? getLogistNameById(data.logisticId) : '');
+
+    // Завантажити createdAt, якщо є
+    const createdAtInput = document.getElementById('routeCreatedAt');
+    if (createdAtInput && data.createdAt) {
+      try {
+        const dt = new Date(data.createdAt);
+        const year = dt.getFullYear();
+        const month = String(dt.getMonth() + 1).padStart(2, '0');
+        const day = String(dt.getDate()).padStart(2, '0');
+        const hours = String(dt.getHours()).padStart(2, '0');
+        const minutes = String(dt.getMinutes()).padStart(2, '0');
+        createdAtInput.value = `${year}-${month}-${day}T${hours}:${minutes}`;
+      } catch(_) {
+        // Якщо помилка парсингу, залишаємо порожнім
+      }
+    } else if (createdAtInput && !data.createdAt) {
+      // Якщо немає createdAt в документі, встановимо updatedAt або поточний час
+      try {
+        const fallback = data.updatedAt ? new Date(data.updatedAt) : new Date();
+        const year = fallback.getFullYear();
+        const month = String(fallback.getMonth() + 1).padStart(2, '0');
+        const day = String(fallback.getDate()).padStart(2, '0');
+        const hours = String(fallback.getHours()).padStart(2, '0');
+        const minutes = String(fallback.getMinutes()).padStart(2, '0');
+        createdAtInput.value = `${year}-${month}-${day}T${hours}:${minutes}`;
+      } catch(_) {}
+    }
 
     points = fromObjPoints(data.points || []);
     startRuler = fromObjPoints(data.startRuler || []);
@@ -5528,6 +5583,20 @@ function clearForm() {
   document.getElementById('hubSelect').value = '';
   document.getElementById('routeName').value = '';
   document.getElementById('logistInput').value = '';
+  
+  // Встановити поточну дату/час для нового маршруту
+  const createdAtInput = document.getElementById('routeCreatedAt');
+  if (createdAtInput) {
+    const now = new Date();
+    // Форматуємо для datetime-local (YYYY-MM-DDTHH:mm)
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const day = String(now.getDate()).padStart(2, '0');
+    const hours = String(now.getHours()).padStart(2, '0');
+    const minutes = String(now.getMinutes()).padStart(2, '0');
+    createdAtInput.value = `${year}-${month}-${day}T${hours}:${minutes}`;
+  }
+  
   setKmUI(0);
   // Скидаємо дані
   points = []; startRuler = []; endRuler = [];
@@ -5884,6 +5953,19 @@ roleUnsub = db.collection('users').doc(user.uid)
 /* ===== Start ===== */
 window.addEventListener('load', async () => {
   if (!db) return;
+  
+  // Ініціалізувати поле createdAt поточною датою/часом для нових маршрутів
+  const createdAtInput = document.getElementById('routeCreatedAt');
+  if (createdAtInput && !createdAtInput.value) {
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const day = String(now.getDate()).padStart(2, '0');
+    const hours = String(now.getHours()).padStart(2, '0');
+    const minutes = String(now.getMinutes()).padStart(2, '0');
+    createdAtInput.value = `${year}-${month}-${day}T${hours}:${minutes}`;
+  }
+  
   if (!DIR_LOADED_ONCE) {      // тільки кеш, без повного fetch
     await loadDirectory(false);
     DIR_LOADED_ONCE = true;
