@@ -177,7 +177,7 @@
   const NAV_PITCH_DEG  = 60;
   const NAV_OFFSET_PX  = 180;
   const NAV_MIN_ZOOM   = 15;
-  const CAMERA_DURATION = 400; // трохи довше — плавніше
+  const CAMERA_DURATION = 300; // швидка анімація для плавного відгуку
   const MARKER_ROT_OFFSET = -90; // компенсуємо орієнтацію SVG, щоб стрілка вказувала по курсу
 
   // === GPS smoothing & snap ===
@@ -435,7 +435,7 @@
         paint:{ 'line-width':6, 'line-color':'#1d4ed8' } });
     }
     const bbox = turf.bbox(routeGeoJSON);
-    map.fitBounds(bbox, { padding:{top:80, right:20, bottom:20, left:20} });
+    map.fitBounds(bbox, { padding:{top:80, right:20, bottom:20, left:20}, duration: 500 });
     /* видалено підтримку камер швидкості */
   }
 
