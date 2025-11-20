@@ -252,6 +252,28 @@
 #xScroller::-webkit-scrollbar { height: 12px; }   /* товстіший скрол у WebKit */
 #xScroller > div { height: 1px; }                 /* «доріжка» для ширини */
 
+/* Нижній липкий скролбар */
+#bottomScroller{
+  position: sticky;
+  bottom: 0;
+  z-index: 20;
+  height: 20px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  margin-top: 8px;
+  box-shadow: 0 -2px 8px rgba(0,0,0,.08);
+}
+#bottomScroller::-webkit-scrollbar { height: 14px; }
+#bottomScroller > div { height: 1px; }
+/* Коли карта відкрита, нижній скрол над картою */
+body.map-open #bottomScroller{
+  bottom: var(--map-h);
+  z-index: 102;
+}
+
   </style>
   
   <!-- Proposal flag styling in table comment column -->
@@ -274,11 +296,11 @@
   <style>
   /* Bottom resizable map panel */
   :root{ --map-h: 50vh; }
-  .map-panel{position:fixed;left:0;right:0;bottom:0;height:var(--map-h);background:#eef2f7;border-top:1px solid #e5e7eb;z-index:100;transform:translateY(100%);transition:transform .25s ease;display:none}
-  .map-panel.open{transform:translateY(0);display:block}
+  .map-panel{position:fixed;left:0;right:0;bottom:0;height:var(--map-h);background:#eef2f7;border-top:1px solid #e5e7eb;z-index:100;transform:translateY(100%);transition:transform .25s ease;display:none;opacity:1}
+  .map-panel.open{transform:translateY(0);display:block;opacity:1}
   body.map-open{padding-bottom:var(--map-h)}
   /* Підняти table-wrap та xScroller над картою */
-  body.map-open .table-wrap{position:relative;z-index:101}
+  body.map-open .table-wrap{position:relative;z-index:101;background:#fff}
   body.map-open #xScroller{z-index:102}
   #routeMap{width:100%;height:100%}
   .map-panel .map-resize{position:absolute;left:0;right:0;top:0;height:10px;cursor:ns-resize;z-index:2;background:linear-gradient(to bottom, rgba(0,0,0,.06), rgba(0,0,0,0));}
@@ -677,6 +699,9 @@
         <datalist id="fRouteKeysList"></datalist>
         <datalist id="fIdsList"></datalist>
       </div>
+      
+      <!-- Нижній липкий скролбар -->
+      <div id="bottomScroller"><div></div></div>
     </div>
   </div>
 
@@ -1531,8 +1556,9 @@ function buildKmlForRoute(raw, title){
   return out.join('');
 }
 
-/* ===== Верхній липкий скрол: синхронізація з .table-wrap ===== */
+/* ===== Верхній і нижній липкий скрол: синхронізація з .table-wrap ===== */
 let _xScroller = null, _xInner = null, _xBound = false, _xRO = null;
+let _bottomScroller = null, _bottomInner = null;
 
 function ensureXScroller(){
   _xScroller = document.getElementById('xScroller');
@@ -1546,6 +1572,12 @@ function ensureXScroller(){
   } else {
     _xInner = _xScroller.firstElementChild;
   }
+  
+  // Також ініціалізувати нижній скролбар
+  _bottomScroller = document.getElementById('bottomScroller');
+  if (_bottomScroller) {
+    _bottomInner = _bottomScroller.firstElementChild;
+  }
 }
 
 function syncXWidth(){
@@ -1553,8 +1585,15 @@ function syncXWidth(){
   const table = document.getElementById('resTable');
   const wrap  = document.querySelector('.table-wrap');
   if (!_xScroller || !_xInner || !table || !wrap) return;
-  _xInner.style.width = table.scrollWidth + 'px';
+  const w = table.scrollWidth + 'px';
+  _xInner.style.width = w;
   _xScroller.scrollLeft = wrap.scrollLeft;
+  
+  // Синхронізувати нижній скролбар
+  if (_bottomScroller && _bottomInner) {
+    _bottomInner.style.width = w;
+    _bottomScroller.scrollLeft = wrap.scrollLeft;
+  }
 }
 
 function bindXSync(){
@@ -1563,17 +1602,32 @@ function bindXSync(){
   if (!wrap || !_xScroller || _xBound) return;
 
   let lock = false;
+  
+  // Таблиця → верхній і нижній скролбари
   wrap.addEventListener('scroll', () => {
     if (lock) return; lock = true;
     _xScroller.scrollLeft = wrap.scrollLeft;
+    if (_bottomScroller) _bottomScroller.scrollLeft = wrap.scrollLeft;
     lock = false;
   }, { passive:true });
 
+  // Верхній скролбар → таблиця і нижній
   _xScroller.addEventListener('scroll', () => {
     if (lock) return; lock = true;
     wrap.scrollLeft = _xScroller.scrollLeft;
+    if (_bottomScroller) _bottomScroller.scrollLeft = _xScroller.scrollLeft;
     lock = false;
   }, { passive:true });
+  
+  // Нижній скролбар → таблиця і верхній
+  if (_bottomScroller) {
+    _bottomScroller.addEventListener('scroll', () => {
+      if (lock) return; lock = true;
+      wrap.scrollLeft = _bottomScroller.scrollLeft;
+      _xScroller.scrollLeft = _bottomScroller.scrollLeft;
+      lock = false;
+    }, { passive:true });
+  }
 
   // стежимо за зміною ширини таблиці
   try {
