@@ -782,18 +782,48 @@
 
   let followHard = true;
   let autoCenter = true;
+  
+  // Тимчасове відключення при свайпі, але автоповернення через 10 сек
+  let autoCenterTimeoutId = null;
+  
   function setFollowUI(){
     const $recenter = document.getElementById('btnRecenter');
-    if (followHard){ $recenter.textContent = '🔒'; $recenter.title = 'Стеження: увімкнено. Натисни, щоб дозволити вільний перегляд карти'; }
-    else { $recenter.textContent = '📍'; $recenter.title = 'Стеження: вимкнено. Натисни, щоб знову увімкнути'; }
+    if (followHard){ 
+      $recenter.textContent = '🔒'; 
+      $recenter.title = 'Стеження: увімкнено. Натисни, щоб дозволити вільний перегляд карти';
+      $recenter.style.background = '#10b981'; // green
+      $recenter.style.color = 'white';
+    }
+    else { 
+      $recenter.textContent = '📍'; 
+      $recenter.title = 'Стеження: вимкнено. Натисни, щоб знову увімкнути';
+      $recenter.style.background = '#ef4444'; // red
+      $recenter.style.color = 'white';
+    }
   }
   setFollowUI();
-  map.on('dragstart',   ()=> { if (!followHard) autoCenter = false; });
-  map.on('rotatestart', ()=> { if (!followHard) autoCenter = false; });
-  map.on('pitchstart',  ()=> { if (!followHard) autoCenter = false; });
+  
+  // При ручному керуванні картою — тимчасово вимикаємо стеження
+  function onUserMapInteraction(){
+    if (!followHard) {
+      autoCenter = false;
+      // Скидаємо таймер автоповернення
+      if (autoCenterTimeoutId) clearTimeout(autoCenterTimeoutId);
+    } else {
+      // Якщо followHard увімкнено — просто ігноруємо випадкові торкання
+      // Карта буде автоматично повертатись до слідкування за GPS
+    }
+  }
+  
+  map.on('dragstart',   onUserMapInteraction);
+  map.on('rotatestart', onUserMapInteraction);
+  map.on('pitchstart',  onUserMapInteraction);
+  
   document.getElementById('btnRecenter').onclick = ()=>{
     followHard = !followHard; autoCenter = followHard; setFollowUI();
     if (followHard && lastUserPos) updateCamera(lastUserPos, (lastStableHeading ?? filteredHeading));
+    // Скидаємо таймер при ручному вимкненні
+    if (autoCenterTimeoutId) clearTimeout(autoCenterTimeoutId);
   };
 
   function getNextStepByLocation(userLocKm){
