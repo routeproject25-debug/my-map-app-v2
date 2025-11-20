@@ -372,6 +372,10 @@
   const SPEED_ALPHA = 0.35; // швидше підлаштування швидкості
   // Дозволяємо показувати >90 км/год, але відсікаємо явні викиди
   const MAX_SPEED_MPS = 220/3.6; // ~220 км/год
+  
+  // Історія швидкості для розрахунку середнього значення (для ETA)
+  let speedHistory = [];
+  const SPEED_HISTORY_MAX = 60; // зберігаємо останні 60 вимірів (~1 хвилина при оновленні раз на секунду)
 
   let snapFeatures = [];
   let markerHeading = null; // згладжений курс для візуалізації стрілки
@@ -900,6 +904,12 @@
       const inst = Math.min(dM/dt, MAX_SPEED_MPS);
       speedMps = (1 - SPEED_ALPHA)*speedMps + SPEED_ALPHA*inst;
     }
+    // Додаємо поточну швидкість в історію для розрахунку середнього ETA
+    if (speedMps > 0.5) { // додаємо тільки коли рухаємося
+      speedHistory.push(speedMps);
+      if (speedHistory.length > SPEED_HISTORY_MAX) speedHistory.shift();
+    }
+    
     // Оновлення плаваючого бейджа швидкості (км/год)
     if ($speedBadge){
       const v = Math.round(Math.max(0, speedMps) * 3.6);
