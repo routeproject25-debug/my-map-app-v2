@@ -1500,6 +1500,13 @@ function getLogistIdByInput(inputId){
 function getCodeByNameInput(id){ const name=(document.getElementById(id).value||'').trim(); return codeByName[name] || ''; }
 function nameByCode(code){ return (dirByCode[code]?.name)||''; }
 function unitByCode(code){ return (dirByCode[code]?.unit)||''; }
+// Витягнути підрозділ з Label формату "Назва • Підрозділ • Компанія"
+function extractUnitFromLabel(label) {
+  if (!label || typeof label !== 'string') return '';
+  const parts = label.split('•').map(p => p.trim()).filter(Boolean);
+  // Другий елемент - це підрозділ
+  return parts.length >= 2 ? parts[1] : '';
+}
 function dayStartISO(d){ const x=new Date(d); x.setHours(0,0,0,0); return x.toISOString(); }
 function dayEndISO(d){ const x=new Date(d); x.setHours(23,59,59,999); return x.toISOString(); }
 function formatDate(dt){ if (!dt) return ''; const d=new Date(dt); if (isNaN(d)) return ''; const pad=n=>String(n).padStart(2,'0'); return `${pad(d.getDate())}.${pad(d.getMonth()+1)}.${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`; }
@@ -2035,11 +2042,9 @@ function parseSnap(snap){
       // а вже потім фолбеком з довідника за кодом. Так логіст побачить назви навіть без повного довідника.
   fromName: (d.fromName || shortByLabel(d.fromLabel) || nameByCode(d.fromCode) || ''),
   toName:   (d.toName   || shortByLabel(d.toLabel)   || nameByCode(d.toCode)   || ''),
-  // Підрозділ: спершу беремо з документа (якщо є), далі — з довідника
-  fromUnit: (d.fromUnit || d.unitFrom || d.fromUnitName || d.unitFromName || unitByCode(d.fromCode) || ''),
-  toUnit:   (d.toUnit   || d.unitTo   || d.toUnitName   || d.unitToName   || unitByCode(d.toCode)   || ''),
-  // Діагностика: логування якщо не вдалось витягнути підрозділ
-  _debugUnit: (!d.fromUnit && !d.unitFrom && !unitByCode(d.fromCode)) ? `Код: ${d.fromCode}, немає в довіднику` : null,
+  // Підрозділ: спершу беремо з документа (якщо є), потім витягуємо з Label, далі — з довідника
+  fromUnit: (d.fromUnit || d.unitFrom || d.fromUnitName || d.unitFromName || extractUnitFromLabel(d.fromLabel) || unitByCode(d.fromCode) || ''),
+  toUnit:   (d.toUnit   || d.unitTo   || d.toUnitName   || d.unitToName   || extractUnitFromLabel(d.toLabel) || unitByCode(d.toCode)   || ''),
       viaNames: viaArr.join(' • '),
       distance_km: (typeof d.distance_km==='number')? d.distance_km : NaN,
       type: d.routeType||'',
