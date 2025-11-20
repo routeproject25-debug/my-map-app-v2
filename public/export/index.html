@@ -1421,10 +1421,19 @@ async function loadDirectory(forceServer){
   const rows = [];
   snap.forEach(doc=>{
     const d = doc.data()||{};
-    rows.push({ code: (d.code || doc.id), name: d.name || (d.code || doc.id), company: d.company || '', unit: d.unit || '' });
+    const code = d.code || doc.id;
+    const unit = d.unit || '';
+    // Діагностика: логування записів без підрозділу
+    if (!unit) {
+      console.warn(`[directory] Відсутній unit для коду: ${code}, name: ${d.name || code}`);
+    }
+    rows.push({ code, name: d.name || code, company: d.company || '', unit });
   });
   fillDirectoryUI(rows);
-  try { console.log('[directory] loaded rows:', rows.length, 'forceServer=', !!forceServer); } catch(_) {}
+  try { 
+    const withoutUnit = rows.filter(r => !r.unit).length;
+    console.log('[directory] loaded rows:', rows.length, 'без підрозділу:', withoutUnit, 'forceServer=', !!forceServer); 
+  } catch(_) {}
 
   try{
     // кешуємо повний довідник
@@ -2029,6 +2038,8 @@ function parseSnap(snap){
   // Підрозділ: спершу беремо з документа (якщо є), далі — з довідника
   fromUnit: (d.fromUnit || d.unitFrom || d.fromUnitName || d.unitFromName || unitByCode(d.fromCode) || ''),
   toUnit:   (d.toUnit   || d.unitTo   || d.toUnitName   || d.unitToName   || unitByCode(d.toCode)   || ''),
+  // Діагностика: логування якщо не вдалось витягнути підрозділ
+  _debugUnit: (!d.fromUnit && !d.unitFrom && !unitByCode(d.fromCode)) ? `Код: ${d.fromCode}, немає в довіднику` : null,
       viaNames: viaArr.join(' • '),
       distance_km: (typeof d.distance_km==='number')? d.distance_km : NaN,
       type: d.routeType||'',
