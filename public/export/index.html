@@ -275,6 +275,70 @@ body.map-open #bottomScroller{
   bottom: var(--map-h);
 }
 
+/* ===== Стилі для попапа геозони ===== */
+.gz-popup {
+  font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+  padding: 4px;
+}
+.gz-info {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+.gz-info td {
+  padding: 10px 12px;
+  border-bottom: 1px solid #e5e7eb;
+  line-height: 1.4;
+}
+.gz-info td:first-child {
+  font-weight: 600;
+  color: #6b7280;
+  width: 90px;
+  text-align: right;
+  padding-right: 16px;
+  white-space: nowrap;
+}
+.gz-info td:last-child {
+  color: #111827;
+  font-weight: 500;
+}
+.gz-info tr:last-child td {
+  border-bottom: none;
+}
+.gz-popup details {
+  margin-top: 12px;
+  padding: 8px 12px;
+  background: #f9fafb;
+  border-radius: 6px;
+  border: 1px solid #e5e7eb;
+}
+.gz-popup summary {
+  cursor: pointer;
+  font-size: 13px;
+  color: #6b7280;
+  font-weight: 500;
+  user-select: none;
+  padding: 4px 0;
+}
+.gz-popup summary:hover {
+  color: #2563eb;
+}
+.gz-popup pre {
+  margin: 8px 0 0;
+  padding: 12px;
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  border-radius: 4px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #374151;
+  max-width: 340px;
+  max-height: 200px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
   </style>
   
   <!-- Proposal flag styling in table comment column -->
@@ -901,18 +965,18 @@ function formatGeozonePopupHTML(props, tilesetKey){
   const hub  = pickProp(props, ['Hub','hub','Хаб','hubs']);
   const area = pickProp(props, ['Area','area','Площа','Area_ha','area_ha','Площа_га']);
   const rows = [];
-  if (name) rows.push(`<tr><td>Назва</td><td>${name}</td></tr>`);
-  if (code) rows.push(`<tr><td>Код</td><td>${code}</td></tr>`);
-  if (hub)  rows.push(`<tr><td>Хаб</td><td>${hub}</td></tr>`);
-  if (area) rows.push(`<tr><td>Площа</td><td>${area}</td></tr>`);
-  rows.push(`<tr><td>Tileset</td><td>${tilesetKey}</td></tr>`);
-  const table = rows.length ? `<table class="gz-info"><tbody>${rows.join('')}</tbody></table>` : '<div>Немає відомих полів</div>';
+  if (name) rows.push(`<tr><td>📍 Назва</td><td>${escapeHtml(name)}</td></tr>`);
+  if (code) rows.push(`<tr><td>🔢 Код</td><td>${escapeHtml(code)}</td></tr>`);
+  if (hub)  rows.push(`<tr><td>🏢 Хаб</td><td>${escapeHtml(hub)}</td></tr>`);
+  if (area) rows.push(`<tr><td>📐 Площа</td><td>${escapeHtml(area)}</td></tr>`);
+  if (tilesetKey) rows.push(`<tr><td>🗂️ Tileset</td><td style="font-size:12px;color:#6b7280;">${escapeHtml(tilesetKey)}</td></tr>`);
+  const table = rows.length ? `<table class="gz-info"><tbody>${rows.join('')}</tbody></table>` : '<div style="padding:12px;color:#9ca3af;text-align:center;">Немає відомих полів</div>';
   return `
     <div class="gz-popup">
       ${table}
-      <details style="margin-top:8px">
-        <summary>Показати всі властивості</summary>
-        <pre style="max-width:360px; max-height:200px; overflow:auto; white-space:pre-wrap;">${escapeHtml(JSON.stringify(props, null, 2))}</pre>
+      <details>
+        <summary>🔍 Показати всі властивості</summary>
+        <pre>${escapeHtml(JSON.stringify(props, null, 2))}</pre>
       </details>
     </div>`;
 }
@@ -934,7 +998,12 @@ function registerGeozoneInfoHandlers(ts, ids){
         if (!f) return;
         const html = formatGeozonePopupHTML(f.properties || {}, ts.key);
         try { if (_gzPopup) _gzPopup.remove(); } catch(_){ }
-        _gzPopup = new window.mapboxgl.Popup({ closeButton:true, closeOnClick:true, maxWidth:'360px' })
+        _gzPopup = new window.mapboxgl.Popup({ 
+          closeButton: true, 
+          closeOnClick: true, 
+          maxWidth: '400px',
+          className: 'geozone-popup'
+        })
           .setLngLat(e.lngLat)
           .setHTML(html)
           .addTo(_map);
