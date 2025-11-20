@@ -361,6 +361,7 @@
   let watchId = null;
   let userMarker = null;
   let lastUserPos = null;
+  let firstGPSLock = false;
 
   let filteredPos = null;
   let filteredHeading = null;
@@ -596,7 +597,14 @@
 
       // Разово виставляємо мінімальний зум при старті навігації
       if (map.getZoom() < NAV_MIN_ZOOM) map.jumpTo({ zoom: NAV_MIN_ZOOM });
-    map.easeTo(opts);
+    
+    // Перше позиціонування — миттєво, далі — плавно
+    if (!firstGPSLock) {
+      map.jumpTo({ center: centerLL, bearing: opts.bearing, pitch: opts.pitch });
+      firstGPSLock = true;
+    } else {
+      map.easeTo(opts);
+    }
   }
 
   // Визначення та оновлення ярличка майбутнього маневру
