@@ -174,8 +174,8 @@
   const AUTO_START = qs.has('autostart') ? (qs.get('autostart') === '1') : true;
 
   // === CAMERA / TRACK-UP ===
-  const NAV_PITCH_DEG  = 60;
-  const NAV_OFFSET_PX  = 180;
+  const NAV_PITCH_DEG  = 45; // невеликий нахил для кращого відчуття руху
+  const NAV_OFFSET_PX  = 100; // менший offset для кращого огляду попереду
   const NAV_MIN_ZOOM   = 15;
   const CAMERA_DURATION = 300; // швидка анімація для плавного відгуку
   const MARKER_ROT_OFFSET = -90; // компенсуємо орієнтацію SVG, щоб стрілка вказувала по курсу
@@ -588,23 +588,30 @@
 
   function updateCamera(centerLL, bearingDeg){
     if (!centerLL) return;
+    
+    // Перше позиціонування — миттєво
+    if (!firstGPSLock) {
+      const bearing = (bearingDeg!=null && !Number.isNaN(bearingDeg)) ? bearingDeg : 0;
+      map.jumpTo({ 
+        center: centerLL, 
+        bearing: bearing, 
+        pitch: NAV_PITCH_DEG,
+        zoom: Math.max(map.getZoom(), NAV_MIN_ZOOM)
+      });
+      firstGPSLock = true;
+      return;
+    }
+    
+    // Подальші оновлення — плавно
     const opts = {
       center: centerLL, duration: CAMERA_DURATION, essential: true,
       bearing: (bearingDeg!=null && !Number.isNaN(bearingDeg)) ? bearingDeg : map.getBearing(),
       pitch: NAV_PITCH_DEG, offset: [0, NAV_OFFSET_PX]
     };
     // Не змінюємо зум тут — користувач може керувати через кнопки +/-
-
-      // Разово виставляємо мінімальний зум при старті навігації
-      if (map.getZoom() < NAV_MIN_ZOOM) map.jumpTo({ zoom: NAV_MIN_ZOOM });
+    if (map.getZoom() < NAV_MIN_ZOOM) map.jumpTo({ zoom: NAV_MIN_ZOOM });
     
-    // Перше позиціонування — миттєво, далі — плавно
-    if (!firstGPSLock) {
-      map.jumpTo({ center: centerLL, bearing: opts.bearing, pitch: opts.pitch });
-      firstGPSLock = true;
-    } else {
-      map.easeTo(opts);
-    }
+    map.easeTo(opts);
   }
 
   // Визначення та оновлення ярличка майбутнього маневру
