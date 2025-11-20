@@ -1049,6 +1049,13 @@
     if ($keepAwakeFab){
       $keepAwakeFab.textContent = keepAwakePref ? '💡' : '🌙';
       $keepAwakeFab.title = keepAwakePref ? 'Екран не гаситиметься' : 'Дозволити не гасити екран';
+      if (keepAwakePref) {
+        $keepAwakeFab.style.background = '#10b981'; // green
+        $keepAwakeFab.style.color = 'white';
+      } else {
+        $keepAwakeFab.style.background = '#6b7280'; // gray
+        $keepAwakeFab.style.color = 'white';
+      }
     }
   }
   updateKeepAwakeUI();
@@ -1061,11 +1068,26 @@
     if ($btnEtaMode){
       $btnEtaMode.title = `Режим ETA: ${etaMode === 'plan' ? 'план' : 'швидкість'}`;
       $btnEtaMode.textContent = '⏱';
+      if (etaMode === 'speed') {
+        $btnEtaMode.style.background = '#10b981'; // green - speed mode active
+        $btnEtaMode.style.color = 'white';
+      } else {
+        $btnEtaMode.style.background = '#3b82f6'; // blue - plan mode
+        $btnEtaMode.style.color = 'white';
+      }
     }
     if ($btnTraffic){
       $btnTraffic.title = `Світлофори: ${trafficLights ? 'вкл' : 'викл'}`;
       $btnTraffic.textContent = '🚦';
-      $btnTraffic.style.opacity = trafficLights ? '1' : '0.6';
+      if (trafficLights) {
+        $btnTraffic.style.background = '#10b981'; // green - enabled
+        $btnTraffic.style.color = 'white';
+        $btnTraffic.style.opacity = '1';
+      } else {
+        $btnTraffic.style.background = '#6b7280'; // gray - disabled
+        $btnTraffic.style.color = 'white';
+        $btnTraffic.style.opacity = '0.8';
+      }
     }
   }
   updateEtaTrafficUI();
