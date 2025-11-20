@@ -277,6 +277,9 @@
   .map-panel{position:fixed;left:0;right:0;bottom:0;height:var(--map-h);background:#eef2f7;border-top:1px solid #e5e7eb;z-index:100;transform:translateY(100%);transition:transform .25s ease;display:none}
   .map-panel.open{transform:translateY(0);display:block}
   body.map-open{padding-bottom:var(--map-h)}
+  /* Підняти table-wrap та xScroller над картою */
+  body.map-open .table-wrap{position:relative;z-index:101}
+  body.map-open #xScroller{z-index:102}
   #routeMap{width:100%;height:100%}
   .map-panel .map-resize{position:absolute;left:0;right:0;top:0;height:10px;cursor:ns-resize;z-index:2;background:linear-gradient(to bottom, rgba(0,0,0,.06), rgba(0,0,0,0));}
   .map-panel .map-resize::after{content:"";position:absolute;left:50%;top:2px;transform:translateX(-50%);width:36px;height:4px;border-radius:999px;background:#9ca3af}
