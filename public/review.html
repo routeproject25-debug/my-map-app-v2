@@ -1433,12 +1433,10 @@ function drawManualSegments(d){
     const role = result.role;
     const displayNameFromFirestore = result.displayName || '';
     
-    {
-      const dn = displayNameFromFirestore
-        || (u && typeof u.displayName === 'string' && u.displayName.trim())
-        || (`Хтось не місцевий і ${u.email || u.uid}`);
-      hello.textContent = 'Увійшли як ' + dn;
-    }
+    const dn = displayNameFromFirestore
+      || (u && typeof u.displayName === 'string' && u.displayName.trim())
+      || (`Хтось не місцевий і ${u.email || u.uid}`);
+    hello.textContent = 'Увійшли як ' + dn;
 
 	const sec = (role === 'security' || role === 'admin');
 	document.getElementById('secButtons').style.display = sec ? 'flex' : 'none';

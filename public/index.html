@@ -4976,6 +4976,8 @@ function updateProposalUIForData(data){
   HAS_PROPOSAL = has;
   const wrap = document.getElementById('proposalWrapMain');
   if (wrap) wrap.style.display = (has && (role === 'logist' || role === 'admin')) ? '' : 'none';
+  const btn = document.getElementById('btnShowProposal');
+  if (btn) btn.style.display = (has && (role === 'logist' || role === 'admin')) ? '' : 'none';
   const km = (typeof p?.distance_km === 'number') ? p.distance_km : NaN;
   const chip = document.getElementById('proposalKmChip');
   if (chip) chip.textContent = 'Пропозиція СБ: ' + (Number.isFinite(km) ? km.toFixed(3) + ' км' : '—');
