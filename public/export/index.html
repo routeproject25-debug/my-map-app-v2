@@ -2002,6 +2002,7 @@ function toStatusLabelRaw(v){
 
   if (s === true || s === 1 || YES.has(s)) return 'Погоджено';
   if (s === false || s === 0 || NO.has(s))  return 'Відхилено';
+  if (s === 'proposal') return 'Є пропозиція';
   if (typeof s === 'string' && [
     'pending','in_review','inreview','review','waiting','wait','on_approval','submitted'
   ].includes(s)) return 'Очікує';
@@ -2031,6 +2032,11 @@ function computeApprovalStatus(d){
     const label = toStatusLabelRaw(d.status);
     if (label) return d.status;        // приймаємо тільки валідні значення ("approved"/"rejected"/тощо)
     // якщо label порожній — ігноруємо (це може бути "Основний" або порожній рядок)
+  }
+
+  // 4) Якщо є пропозиція, але немає рішення — повертаємо спеціальний статус
+  if (d.proposal && typeof d.proposal === 'object' && Object.keys(d.proposal).length > 0) {
+    return 'proposal';
   }
 
   return null;
