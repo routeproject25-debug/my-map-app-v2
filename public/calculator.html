@@ -1,0 +1,699 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+  <meta charset="utf-8" />
+  <title>💰 Калькулятор вартості перевезення</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <!-- Firebase (compat) -->
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+  <!-- App config -->
+  <script src="/config/config.js"></script>
+  <!-- SheetJS для парсингу Excel -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+
+  <style>
+    * { box-sizing: border-box; }
+    body { font-family: Arial, sans-serif; margin: 0; padding: 20px; background: #f9fafb; }
+    .container { max-width: 1200px; margin: 0 auto; }
+    
+    header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; padding: 16px; background: #fff; border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+    h1 { margin: 0; font-size: 24px; }
+    
+    .card { background: #fff; border-radius: 12px; padding: 20px; margin-bottom: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+    .card h2 { margin: 0 0 16px; font-size: 18px; color: #374151; }
+    
+    .form-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 12px; margin-bottom: 16px; }
+    label { display: block; font-size: 13px; font-weight: 600; color: #374151; margin-bottom: 4px; }
+    input, select { width: 100%; padding: 8px 12px; border: 1px solid #d1d5db; border-radius: 8px; font-size: 14px; }
+    input:focus, select:focus { outline: none; border-color: #2563eb; }
+    
+    .btn { padding: 10px 16px; border: none; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; transition: all 0.2s; }
+    .btn-primary { background: #2563eb; color: #fff; }
+    .btn-primary:hover { background: #1d4ed8; }
+    .btn-secondary { background: #f3f4f6; color: #374151; border: 1px solid #d1d5db; }
+    .btn-secondary:hover { background: #e5e7eb; }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    
+    .result-box { background: #f0f9ff; border: 2px solid #3b82f6; border-radius: 12px; padding: 20px; margin-top: 20px; }
+    .result-box h3 { margin: 0 0 12px; color: #1e40af; }
+    .result-item { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #bfdbfe; }
+    .result-item:last-child { border-bottom: none; }
+    .result-label { font-weight: 600; color: #374151; }
+    .result-value { font-size: 18px; font-weight: 700; color: #1e40af; }
+    
+    .pricing-table { width: 100%; border-collapse: collapse; margin-top: 16px; }
+    .pricing-table th { background: #f3f4f6; padding: 10px; text-align: left; font-size: 13px; font-weight: 600; border-bottom: 2px solid #d1d5db; }
+    .pricing-table td { padding: 10px; border-bottom: 1px solid #e5e7eb; font-size: 14px; }
+    .pricing-table tr:hover { background: #f9fafb; }
+    
+    .upload-zone { border: 2px dashed #d1d5db; border-radius: 12px; padding: 40px; text-align: center; cursor: pointer; transition: all 0.2s; }
+    .upload-zone:hover { border-color: #2563eb; background: #f0f9ff; }
+    .upload-zone.drag-over { border-color: #2563eb; background: #dbeafe; }
+    
+    .muted { color: #6b7280; font-size: 13px; }
+    .error { color: #dc2626; font-size: 13px; margin-top: 4px; }
+    .success { color: #16a34a; font-size: 13px; margin-top: 4px; }
+    
+    .tabs { display: flex; gap: 8px; margin-bottom: 20px; border-bottom: 2px solid #e5e7eb; }
+    .tab { padding: 12px 20px; cursor: pointer; font-weight: 600; color: #6b7280; border-bottom: 3px solid transparent; margin-bottom: -2px; }
+    .tab.active { color: #2563eb; border-bottom-color: #2563eb; }
+    .tab:hover { color: #374151; }
+    
+    .tab-content { display: none; }
+    .tab-content.active { display: block; }
+  </style>
+
+  <!-- AUTH GUARD -->
+  <script>
+  (function () {
+    document.documentElement.style.visibility = 'hidden';
+    const CFG = window.APP_CONFIG?.firebase;
+    if (!CFG) { console.error('APP_CONFIG.firebase відсутній'); document.documentElement.style.visibility = 'visible'; return; }
+    try { firebase.apps?.length ? firebase.app() : firebase.initializeApp(CFG); } catch(e) { console.error(e); }
+
+    const auth = firebase.auth();
+    const db = firebase.firestore();
+    const loginURL = '/login.html?next=' + encodeURIComponent(location.pathname);
+
+    auth.onAuthStateChanged(async (u) => {
+      if (!u) { location.replace(loginURL); return; }
+      
+      // Перевірка ролі
+      try {
+        const snap = await db.collection('users').doc(u.uid).get({ source: 'server' });
+        const role = snap.exists ? (snap.data()?.role || 'pending') : 'pending';
+        const allowed = ['admin', 'logist', 'security'].includes(String(role).toLowerCase());
+        
+        if (!allowed) {
+          alert('Доступ заборонено. Потрібна роль: admin, logist або security.');
+          location.replace('/');
+          return;
+        }
+        
+        window.__userRole = role;
+        document.documentElement.style.visibility = 'visible';
+      } catch(e) {
+        console.error(e);
+        location.replace(loginURL);
+      }
+    });
+  })();
+  </script>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>💰 Калькулятор вартості перевезення</h1>
+      <div>
+        <a href="/index.html" class="btn btn-secondary">🏠 На карту</a>
+        <button id="btnLogout" class="btn btn-secondary">Вийти</button>
+      </div>
+    </header>
+
+    <!-- Tabs -->
+    <div class="tabs">
+      <div class="tab active" data-tab="calculator">Калькулятор</div>
+      <div class="tab" data-tab="pricing">Управління розцінками</div>
+    </div>
+
+    <!-- Tab: Calculator -->
+    <div class="tab-content active" data-content="calculator">
+      <div class="card">
+        <h2>Розрахунок вартості</h2>
+        
+        <div class="form-row">
+          <div>
+            <label>Хаб</label>
+            <select id="calcHub">
+              <option value="">Оберіть хаб...</option>
+            </select>
+          </div>
+          <div>
+            <label>Рік розцінки</label>
+            <select id="calcYear">
+              <option value="">Оберіть рік...</option>
+            </select>
+          </div>
+          <div>
+            <label>Маршрут (від - до)</label>
+            <input type="text" id="routeSearch" placeholder="Почніть вводити назву...">
+            <datalist id="routeList"></datalist>
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div>
+            <label>Відстань, км</label>
+            <input type="number" id="distance" step="0.01" placeholder="Автоматично з маршруту" readonly>
+          </div>
+          <div>
+            <label>Культура</label>
+            <select id="crop">
+              <option value="">Оберіть культуру...</option>
+              <option value="Соняшник">Соняшник</option>
+              <option value="Кукурудза">Кукурудза</option>
+              <option value="Ріпак">Ріпак</option>
+              <option value="Пшениця">Пшениця</option>
+              <option value="Соя">Соя</option>
+              <option value="Органіка">Органіка</option>
+            </select>
+          </div>
+          <div>
+            <label>Вага вантажу, тонн</label>
+            <input type="number" id="weight" value="27" step="0.1" placeholder="27">
+          </div>
+        </div>
+
+        <div style="margin-top: 16px;">
+          <button id="btnCalculate" class="btn btn-primary">Розрахувати</button>
+          <button id="btnClear" class="btn btn-secondary">Очистити</button>
+        </div>
+
+        <div id="resultBox" class="result-box" style="display: none;">
+          <h3>Результат розрахунку</h3>
+          <div class="result-item">
+            <span class="result-label">Тип розцінки:</span>
+            <span id="resType" class="result-value">-</span>
+          </div>
+          <div class="result-item">
+            <span class="result-label">Відстань:</span>
+            <span id="resDistance" class="result-value">-</span>
+          </div>
+          <div class="result-item">
+            <span class="result-label">Вага:</span>
+            <span id="resWeight" class="result-value">-</span>
+          </div>
+          <div class="result-item">
+            <span class="result-label">Розцінка:</span>
+            <span id="resRate" class="result-value">-</span>
+          </div>
+          <div class="result-item" style="border-top: 2px solid #3b82f6; margin-top: 8px; padding-top: 12px;">
+            <span class="result-label">Вартість без ПДВ:</span>
+            <span id="resPriceNoVAT" class="result-value">-</span>
+          </div>
+          <div class="result-item">
+            <span class="result-label">Вартість з ПДВ:</span>
+            <span id="resPriceWithVAT" class="result-value">-</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Tab: Pricing Management -->
+    <div class="tab-content" data-content="pricing">
+      <div class="card">
+        <h2>Завантаження розцінок</h2>
+        <p class="muted">Завантажте Excel файл з розцінками. Формат: ХАБ, Рік, ВІД, ДО, Без ПДВ, З ПДВ, Тип розцінки, Культура</p>
+        
+        <div class="form-row">
+          <div>
+            <label>Рік</label>
+            <input type="number" id="uploadYear" placeholder="2025" min="2020" max="2030">
+          </div>
+        </div>
+
+        <div id="uploadZone" class="upload-zone">
+          <p style="margin: 0 0 8px; font-size: 16px; font-weight: 600;">📁 Перетягніть Excel файл сюди</p>
+          <p class="muted">або клацніть для вибору файлу</p>
+          <input type="file" id="fileInput" accept=".xlsx,.xls" style="display: none;">
+        </div>
+
+        <div id="uploadStatus" style="margin-top: 16px;"></div>
+      </div>
+
+      <div class="card">
+        <h2>Поточні розцінки</h2>
+        
+        <div class="form-row">
+          <div>
+            <label>Фільтр: Хаб</label>
+            <select id="filterHub">
+              <option value="">Всі хаби</option>
+            </select>
+          </div>
+          <div>
+            <label>Фільтр: Рік</label>
+            <select id="filterYear">
+              <option value="">Всі роки</option>
+            </select>
+          </div>
+          <div>
+            <label>Фільтр: Культура</label>
+            <select id="filterCrop">
+              <option value="">Всі культури</option>
+              <option value="Соняшник">Соняшник</option>
+              <option value="Кукурудза">Кукурудза</option>
+              <option value="Ріпак">Ріпак</option>
+              <option value="Пшениця">Пшениця</option>
+              <option value="Соя">Соя</option>
+              <option value="Органіка">Органіка</option>
+            </select>
+          </div>
+        </div>
+
+        <div style="overflow-x: auto;">
+          <table class="pricing-table">
+            <thead>
+              <tr>
+                <th>Хаб</th>
+                <th>Рік</th>
+                <th>Культура</th>
+                <th>Від, км</th>
+                <th>До, км</th>
+                <th>Без ПДВ</th>
+                <th>З ПДВ</th>
+                <th>Тип</th>
+                <th>Дії</th>
+              </tr>
+            </thead>
+            <tbody id="pricingTableBody">
+              <tr><td colspan="9" style="text-align: center;" class="muted">Завантаження...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const db = firebase.firestore();
+    const auth = firebase.auth();
+    
+    // Logout
+    document.getElementById('btnLogout').addEventListener('click', async () => {
+      try { await auth.signOut(); } catch(e) { console.warn(e); }
+    });
+
+    // Tab switching
+    document.querySelectorAll('.tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        const targetTab = tab.getAttribute('data-tab');
+        
+        // Update tabs
+        document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+        tab.classList.add('active');
+        
+        // Update content
+        document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+        document.querySelector(`[data-content="${targetTab}"]`).classList.add('active');
+      });
+    });
+
+    // ==================== CALCULATOR ====================
+    
+    // Load routes for search
+    let allRoutes = [];
+    async function loadRoutes() {
+      try {
+        const snapshot = await db.collection('routes')
+          .where('approval.status', '==', 'approved')
+          .get();
+        
+        allRoutes = [];
+        snapshot.forEach(doc => {
+          const d = doc.data();
+          allRoutes.push({
+            id: doc.id,
+            from: d.fromName || d.fromLabel || '',
+            to: d.toName || d.toLabel || '',
+            distance: d.distance || 0
+          });
+        });
+      } catch(e) {
+        console.error('Load routes error:', e);
+      }
+    }
+
+    // Route search with autocomplete
+    const routeSearch = document.getElementById('routeSearch');
+    const routeList = document.getElementById('routeList');
+    
+    routeSearch.addEventListener('input', () => {
+      const query = routeSearch.value.toLowerCase();
+      if (query.length < 2) {
+        routeList.innerHTML = '';
+        return;
+      }
+      
+      const filtered = allRoutes.filter(r => 
+        r.from.toLowerCase().includes(query) || r.to.toLowerCase().includes(query)
+      ).slice(0, 20);
+      
+      routeList.innerHTML = '';
+      filtered.forEach(r => {
+        const opt = document.createElement('option');
+        opt.value = `${r.from} → ${r.to}`;
+        opt.setAttribute('data-distance', r.distance);
+        routeList.appendChild(opt);
+      });
+    });
+
+    routeSearch.addEventListener('change', () => {
+      const selected = Array.from(routeList.options).find(opt => opt.value === routeSearch.value);
+      if (selected) {
+        document.getElementById('distance').value = selected.getAttribute('data-distance');
+      }
+    });
+
+    // Calculate
+    document.getElementById('btnCalculate').addEventListener('click', async () => {
+      const hub = document.getElementById('calcHub').value;
+      const year = document.getElementById('calcYear').value;
+      const distance = parseFloat(document.getElementById('distance').value);
+      const crop = document.getElementById('crop').value;
+      const weight = parseFloat(document.getElementById('weight').value) || 27;
+      
+      if (!hub || !year || !distance || !crop) {
+        alert('Заповніть всі обов\'язкові поля');
+        return;
+      }
+      
+      try {
+        const pricing = await findPricingForDistance(hub, year, crop, distance);
+        if (!pricing) {
+          alert('Розцінку для вказаних параметрів не знайдено');
+          return;
+        }
+        
+        const result = calculatePrice(pricing, distance, weight);
+        displayResult(result, distance, weight, pricing);
+      } catch(e) {
+        console.error(e);
+        alert('Помилка розрахунку: ' + (e.message || e));
+      }
+    });
+
+    async function findPricingForDistance(hub, year, crop, distance) {
+      const snapshot = await db.collection('pricing')
+        .where('hub', '==', hub)
+        .where('year', '==', parseInt(year))
+        .where('crop', '==', crop)
+        .get();
+      
+      let found = null;
+      snapshot.forEach(doc => {
+        const d = doc.data();
+        if (distance >= d.distFrom && distance <= d.distTo) {
+          found = { id: doc.id, ...d };
+        }
+      });
+      
+      return found;
+    }
+
+    function calculatePrice(pricing, distance, weight) {
+      const type = pricing.priceType || 'т/км';
+      let priceNoVAT = 0;
+      let priceWithVAT = 0;
+      
+      if (type === 'т/км') {
+        // Формула: відстань * вага * розцінка
+        if (pricing.priceNoVAT) {
+          priceNoVAT = distance * weight * pricing.priceNoVAT;
+        }
+        if (pricing.priceWithVAT) {
+          priceWithVAT = distance * weight * pricing.priceWithVAT;
+        }
+      } else if (type === 'за тону') {
+        // Формула: вага * розцінка
+        if (pricing.priceNoVAT) {
+          priceNoVAT = weight * pricing.priceNoVAT;
+        }
+        if (pricing.priceWithVAT) {
+          priceWithVAT = weight * pricing.priceWithVAT;
+        }
+      }
+      
+      return {
+        type,
+        priceNoVAT: priceNoVAT || null,
+        priceWithVAT: priceWithVAT || null,
+        rate: type === 'т/км' ? pricing.priceNoVAT || pricing.priceWithVAT : pricing.priceNoVAT || pricing.priceWithVAT
+      };
+    }
+
+    function displayResult(result, distance, weight, pricing) {
+      document.getElementById('resType').textContent = result.type;
+      document.getElementById('resDistance').textContent = distance.toFixed(2) + ' км';
+      document.getElementById('resWeight').textContent = weight.toFixed(1) + ' т';
+      document.getElementById('resRate').textContent = result.rate ? result.rate.toFixed(2) + ' грн' : '-';
+      document.getElementById('resPriceNoVAT').textContent = result.priceNoVAT ? result.priceNoVAT.toFixed(2) + ' грн' : '-';
+      document.getElementById('resPriceWithVAT').textContent = result.priceWithVAT ? result.priceWithVAT.toFixed(2) + ' грн' : '-';
+      
+      document.getElementById('resultBox').style.display = 'block';
+    }
+
+    document.getElementById('btnClear').addEventListener('click', () => {
+      document.getElementById('routeSearch').value = '';
+      document.getElementById('distance').value = '';
+      document.getElementById('crop').value = '';
+      document.getElementById('weight').value = '27';
+      document.getElementById('resultBox').style.display = 'none';
+      // Don't clear hub and year selectors
+    });
+
+    // ==================== PRICING MANAGEMENT ====================
+    
+    // Upload Excel
+    const uploadZone = document.getElementById('uploadZone');
+    const fileInput = document.getElementById('fileInput');
+    
+    uploadZone.addEventListener('click', () => fileInput.click());
+    
+    uploadZone.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      uploadZone.classList.add('drag-over');
+    });
+    
+    uploadZone.addEventListener('dragleave', () => {
+      uploadZone.classList.remove('drag-over');
+    });
+    
+    uploadZone.addEventListener('drop', (e) => {
+      e.preventDefault();
+      uploadZone.classList.remove('drag-over');
+      const file = e.dataTransfer.files[0];
+      if (file) handleFile(file);
+    });
+    
+    fileInput.addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (file) handleFile(file);
+    });
+
+    async function handleFile(file) {
+      const year = parseInt(document.getElementById('uploadYear').value);
+      if (!year) {
+        alert('Вкажіть рік');
+        return;
+      }
+      
+      const status = document.getElementById('uploadStatus');
+      status.innerHTML = '<p class="muted">Завантаження...</p>';
+      
+      try {
+        const data = await file.arrayBuffer();
+        const workbook = XLSX.read(data);
+        const sheet = workbook.Sheets[workbook.SheetNames[0]];
+        const rows = XLSX.utils.sheet_to_json(sheet);
+        
+        await uploadPricing(year, rows);
+        status.innerHTML = '<p class="success">✅ Розцінки успішно завантажено!</p>';
+        loadPricingTable();
+      } catch(e) {
+        console.error(e);
+        status.innerHTML = '<p class="error">❌ Помилка: ' + (e.message || e) + '</p>';
+      }
+    }
+
+    async function uploadPricing(year, rows) {
+      const batch = db.batch();
+      let count = 0;
+      
+      for (const row of rows) {
+        const hub = String(row['ХАБ'] || row['хаб'] || row['Хаб'] || '').trim();
+        const rowYear = parseInt(row['Рік'] || row['рік'] || year);
+        const distFrom = parseFloat(row['ВІД'] || row['від'] || 0);
+        const distTo = parseFloat(row['ДО'] || row['до'] || 0);
+        const priceNoVAT = parseFloat(row['Без ПДВ'] || row['без пдв'] || 0) || null;
+        const priceWithVAT = parseFloat(row['З ПДВ'] || row['з пдв'] || 0) || null;
+        const priceType = String(row['Тип розцінки'] || row['тип розцінки'] || 'т/км').trim();
+        const crop = String(row['Культура'] || row['культура'] || '').trim();
+        
+        if (!hub || !crop || distFrom === 0 || distTo === 0) continue;
+        
+        // Унікальний ID: hub_year_crop_distFrom_distTo
+        const docId = `${hub.replace(/\s/g, '_')}_${rowYear}_${crop.replace(/\s/g, '_')}_${distFrom}_${distTo}`;
+        const ref = db.collection('pricing').doc(docId);
+        
+        batch.set(ref, {
+          hub,
+          year: rowYear,
+          crop,
+          distFrom,
+          distTo,
+          priceNoVAT,
+          priceWithVAT,
+          priceType,
+          updatedAt: new Date().toISOString()
+        }, { merge: true });
+        
+        count++;
+      }
+      
+      await batch.commit();
+      console.log(`Uploaded ${count} pricing records`);
+    }
+
+    // Load pricing table
+    let allPricing = [];
+    async function loadPricingTable() {
+      try {
+        const snapshot = await db.collection('pricing').get();
+        allPricing = [];
+        
+        snapshot.forEach(doc => {
+          allPricing.push({ id: doc.id, ...doc.data() });
+        });
+        
+        allPricing.sort((a, b) => {
+          if (a.hub !== b.hub) return (a.hub || '').localeCompare(b.hub || '', 'uk');
+          if (a.year !== b.year) return b.year - a.year;
+          if (a.crop !== b.crop) return a.crop.localeCompare(b.crop, 'uk');
+          return a.distFrom - b.distFrom;
+        });
+        
+        renderPricingTable();
+        populateYearFilters();
+      } catch(e) {
+        console.error(e);
+      }
+    }
+
+    function renderPricingTable() {
+      const tbody = document.getElementById('pricingTableBody');
+      const hubFilter = document.getElementById('filterHub').value;
+      const yearFilter = document.getElementById('filterYear').value;
+      const cropFilter = document.getElementById('filterCrop').value;
+      
+      const filtered = allPricing.filter(p => {
+        if (hubFilter && p.hub !== hubFilter) return false;
+        if (yearFilter && p.year !== parseInt(yearFilter)) return false;
+        if (cropFilter && p.crop !== cropFilter) return false;
+        return true;
+      });
+      
+      if (filtered.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="9" style="text-align: center;" class="muted">Немає даних</td></tr>';
+        return;
+      }
+      
+      tbody.innerHTML = filtered.map(p => `
+        <tr>
+          <td>${p.hub || '-'}</td>
+          <td>${p.year}</td>
+          <td>${p.crop}</td>
+          <td>${p.distFrom}</td>
+          <td>${p.distTo}</td>
+          <td>${p.priceNoVAT ? p.priceNoVAT.toFixed(2) : '-'}</td>
+          <td>${p.priceWithVAT ? p.priceWithVAT.toFixed(2) : '-'}</td>
+          <td>${p.priceType}</td>
+          <td><button class="btn btn-secondary" onclick="deletePricing('${p.id}')">🗑</button></td>
+        </tr>
+      `).join('');
+    }
+
+    window.deletePricing = async function(id) {
+      if (!confirm('Видалити цю розцінку?')) return;
+      try {
+        await db.collection('pricing').doc(id).delete();
+        loadPricingTable();
+      } catch(e) {
+        alert('Помилка видалення: ' + e.message);
+      }
+    };
+
+    function populateYearFilters() {
+      const years = [...new Set(allPricing.map(p => p.year))].sort((a, b) => b - a);
+      const hubs = [...new Set(allPricing.map(p => p.hub).filter(Boolean))].sort();
+      
+      const calcYearSelect = document.getElementById('calcYear');
+      const filterYearSelect = document.getElementById('filterYear');
+      const filterHubSelect = document.getElementById('filterHub');
+      
+      calcYearSelect.innerHTML = '<option value="">Оберіть рік...</option>' + 
+        years.map(y => `<option value="${y}">${y}</option>`).join('');
+      
+      filterYearSelect.innerHTML = '<option value="">Всі роки</option>' + 
+        years.map(y => `<option value="${y}">${y}</option>`).join('');
+      
+      filterHubSelect.innerHTML = '<option value="">Всі хаби</option>' + 
+        hubs.map(h => `<option value="${h}">${h}</option>`).join('');
+    }
+
+    document.getElementById('filterHub').addEventListener('change', renderPricingTable);
+    document.getElementById('filterYear').addEventListener('change', renderPricingTable);
+    document.getElementById('filterCrop').addEventListener('change', renderPricingTable);
+
+    // ==================== INIT ====================
+    let userAllowedHubs = [];
+    
+    async function loadUserHubs() {
+      try {
+        const user = auth.currentUser;
+        if (!user) return;
+        
+        const userDoc = await db.collection('users').doc(user.uid).get();
+        if (!userDoc.exists) return;
+        
+        const data = userDoc.data();
+        const allowedHubs = data.ALLOWED_HUBS || [];
+        
+        if (allowedHubs.includes('*')) {
+          // Admin: загружаем все хабы из pricing
+          userAllowedHubs = ['*'];
+        } else {
+          userAllowedHubs = allowedHubs;
+        }
+        
+        populateHubSelector();
+      } catch(e) {
+        console.error('Load user hubs error:', e);
+      }
+    }
+    
+    function populateHubSelector() {
+      const calcHubSelect = document.getElementById('calcHub');
+      
+      if (userAllowedHubs.includes('*')) {
+        // Admin: show all hubs from pricing data
+        const allHubs = [...new Set(allPricing.map(p => p.hub).filter(Boolean))].sort();
+        calcHubSelect.innerHTML = '<option value="">Оберіть хаб...</option>' + 
+          allHubs.map(h => `<option value="${h}">${h}</option>`).join('');
+      } else if (userAllowedHubs.length === 1) {
+        // Single hub: auto-select and disable
+        const hub = userAllowedHubs[0];
+        calcHubSelect.innerHTML = `<option value="${hub}" selected>${hub}</option>`;
+        calcHubSelect.disabled = true;
+      } else if (userAllowedHubs.length > 1) {
+        // Multiple hubs: show dropdown
+        calcHubSelect.innerHTML = '<option value="">Оберіть хаб...</option>' + 
+          userAllowedHubs.map(h => `<option value="${h}">${h}</option>`).join('');
+      } else {
+        // No hubs: show empty
+        calcHubSelect.innerHTML = '<option value="">Немає доступних хабів</option>';
+        calcHubSelect.disabled = true;
+      }
+    }
+    
+    (async () => {
+      await loadRoutes();
+      await loadPricingTable();
+      await loadUserHubs();
+    })();
+  </script>
+</body>
+</html>
