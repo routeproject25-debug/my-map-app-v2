@@ -193,6 +193,7 @@
                   <th class="sortable" data-col="from">Від <span class="s">↕</span></th>
                   <th class="sortable" data-col="to">До <span class="s">↕</span></th>
                   <th class="sortable" data-col="distance">Відстань, км <span class="s">↕</span></th>
+                  <th>Статус</th>
                   <th>Розцінка</th>
                   <th class="sortable" data-col="priceNoVAT">Без ПДВ <span class="s">↕</span></th>
                   <th class="sortable" data-col="priceWithVAT">З ПДВ <span class="s">↕</span></th>
@@ -201,6 +202,15 @@
                   <th><input type="text" id="filterFrom" placeholder="Фільтр..."></th>
                   <th><input type="text" id="filterTo" placeholder="Фільтр..."></th>
                   <th><input type="text" id="filterDistance" placeholder="Від-До км"></th>
+                  <th>
+                    <select id="filterStatus" style="width: 100%; padding: 4px 6px; border: 1px solid #e5e7eb; border-radius: 6px; font-size: 12px;">
+                      <option value="">Всі</option>
+                      <option value="approved">Погоджено</option>
+                      <option value="pending">Очікує</option>
+                      <option value="rejected">Відхилено</option>
+                      <option value="draft">Чернетка</option>
+                    </select>
+                  </th>
                   <th><input type="text" id="filterPriceType" placeholder="Тип..."></th>
                   <th><input type="text" id="filterNoVAT" placeholder="Від-До"></th>
                   <th><input type="text" id="filterWithVAT" placeholder="Від-До"></th>
@@ -345,9 +355,8 @@
     let allRoutes = [];
     async function loadRoutes() {
       try {
-        const snapshot = await db.collection('routes')
-          .where('approval.status', '==', 'approved')
-          .get();
+        // Завантажуємо ВСІ маршрути (як на сторінці експорту), не тільки approved
+        const snapshot = await db.collection('routes').get();
         
         allRoutes = [];
         snapshot.forEach(doc => {
@@ -358,7 +367,8 @@
             toCode: d.toCode || '',
             fromName: d.fromName || d.fromLabel || '',
             toName: d.toName || d.toLabel || '',
-            distance: d.distance_km || d.distance || 0
+            distance: d.distance_km || d.distance || 0,
+            approvalStatus: d.approval?.status || 'draft'
           });
         });
         console.log(`Завантажено ${allRoutes.length} маршрутів для пошуку`);
@@ -453,6 +463,7 @@
       const filterFrom = document.getElementById('filterFrom')?.value.toLowerCase().trim() || '';
       const filterTo = document.getElementById('filterTo')?.value.toLowerCase().trim() || '';
       const filterDistance = document.getElementById('filterDistance')?.value.trim() || '';
+      const filterStatus = document.getElementById('filterStatus')?.value || '';
       const filterPriceType = document.getElementById('filterPriceType')?.value.toLowerCase().trim() || '';
       
       if (filterFrom) {
@@ -476,6 +487,10 @@
         } else if (!isNaN(min) && !isNaN(max)) {
           filtered = filtered.filter(r => r.distance >= min && r.distance <= max);
         }
+      }
+      
+      if (filterStatus) {
+        filtered = filtered.filter(r => r.approvalStatus === filterStatus);
       }
       
       if (filterPriceType) {
@@ -524,17 +539,35 @@
       // Рендеринг
       const tbody = document.getElementById('routesTableBody');
       if (filtered.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; color: #6b7280;">Немає результатів за фільтрами</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="7" style="text-align: center; color: #6b7280;">Немає результатів за фільтрами</td></tr>';
         return;
       }
       
+      const statusColors = {
+        approved: '#16a34a',
+        pending: '#f59e0b',
+        rejected: '#dc2626',
+        draft: '#6b7280'
+      };
+      
+      const statusLabels = {
+        approved: 'Погоджено',
+        pending: 'Очікує',
+        rejected: 'Відхилено',
+        draft: 'Чернетка'
+      };
+      
       tbody.innerHTML = filtered.map(r => {
+        const statusColor = statusColors[r.approvalStatus] || '#6b7280';
+        const statusLabel = statusLabels[r.approvalStatus] || r.approvalStatus;
+        
         if (r.calc) {
           return `
             <tr>
               <td>${r.fromName || r.fromCode}</td>
               <td>${r.toName || r.toCode}</td>
               <td>${r.distance.toFixed(2)}</td>
+              <td><span style="color: ${statusColor}; font-weight: 600;">${statusLabel}</span></td>
               <td>${r.priceType || '-'}</td>
               <td>${r.calc.priceNoVAT ? r.calc.priceNoVAT.toFixed(2) + ' грн' : '-'}</td>
               <td>${r.calc.priceWithVAT ? r.calc.priceWithVAT.toFixed(2) + ' грн' : '-'}</td>
@@ -546,6 +579,7 @@
               <td>${r.fromName || r.fromCode}</td>
               <td>${r.toName || r.toCode}</td>
               <td>${r.distance.toFixed(2)}</td>
+              <td><span style="color: ${statusColor}; font-weight: 600;">${statusLabel}</span></td>
               <td colspan="3" style="text-align: center; color: #6b7280;">${r.calculated === false ? 'Розцінка не знайдена' : 'Натисніть "Розрахувати всі"'}</td>
             </tr>
           `;
@@ -913,10 +947,10 @@
     });
     
     // Фільтри в таблиці маршрутів
-    ['filterFrom', 'filterTo', 'filterDistance', 'filterPriceType'].forEach(id => {
+    ['filterFrom', 'filterTo', 'filterDistance', 'filterPriceType', 'filterStatus'].forEach(id => {
       const el = document.getElementById(id);
       if (el) {
-        el.addEventListener('input', () => {
+        el.addEventListener(el.tagName === 'SELECT' ? 'change' : 'input', () => {
           if (displayedRoutes.length > 0) {
             applyFiltersAndSort();
           }
