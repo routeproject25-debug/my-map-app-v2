@@ -159,6 +159,16 @@
             </select>
           </div>
           <div>
+            <label>Підрозділ</label>
+            <select id="calcDivision">
+              <option value="">Всі підрозділи</option>
+            </select>
+            <p class="muted" style="margin: 4px 0 0;">Опціонально</p>
+          </div>
+        </div>
+        
+        <div class="form-row">
+          <div>
             <label>Вага вантажу, тонн</label>
             <input type="number" id="weight" value="27" step="0.1" placeholder="27">
             <p class="muted" style="margin: 4px 0 0;">Вага однієї ходки</p>
@@ -166,10 +176,10 @@
           <div>
             <label>Загальна вага, тонн</label>
             <input type="number" id="totalWeight" step="0.1" placeholder="Опціонально">
-            <p class="muted" style="margin: 4px 0 0;">Для розрахунку загального об'єму</p>
+            <p class="muted" style="margin: 4px 0 0.">Для розрахунку загального об'єму</p>
           </div>
         </div>
-
+        
         <div class="form-row">
           <div>
             <label>Пошук "Від" (код або назва)</label>
@@ -412,8 +422,9 @@
     document.getElementById('btnSearch').addEventListener('click', () => {
       const searchFrom = document.getElementById('searchFrom').value.toLowerCase().trim();
       const searchTo = document.getElementById('searchTo').value.toLowerCase().trim();
+      const selectedDivision = document.getElementById('calcDivision').value;
       
-      console.log('Пошук маршрутів:', { searchFrom, searchTo, totalRoutes: allRoutes.length });
+      console.log('Пошук маршрутів:', { searchFrom, searchTo, selectedDivision, totalRoutes: allRoutes.length });
       
       if (!searchFrom && !searchTo) {
         alert('Введіть хоча б один параметр пошуку (Від або До)');
@@ -437,8 +448,9 @@
         const matchTo = !searchTo || 
           toCodeLower.includes(searchTo) || 
           toNameLower.includes(searchTo);
+        const matchDivision = !selectedDivision || r.division === selectedDivision;
         
-        const matches = matchFrom && matchTo;
+        const matches = matchFrom && matchTo && matchDivision;
         
         // Детальне логування для перших 5 перевірок
         if (foundRoutes.length < 5) {
@@ -1047,6 +1059,15 @@
       }
     });
 
+    // Populate division selector
+    function populateDivisionSelector() {
+      const calcDivisionSelect = document.getElementById('calcDivision');
+      const divisions = [...new Set(allRoutes.map(r => r.division).filter(d => d && d !== '-'))].sort();
+      
+      calcDivisionSelect.innerHTML = '<option value="">Всі підрозділи</option>' + 
+        divisions.map(d => `<option value="${d}">${d}</option>`).join('');
+    }
+    
     // ==================== INIT ====================
     let userAllowedHubs = [];
     
@@ -1098,6 +1119,7 @@
     
     (async () => {
       await loadRoutes();
+      populateDivisionSelector();
       await loadUserHubs();
       await loadPricingTable();
     })();
