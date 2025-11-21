@@ -677,11 +677,12 @@
 
     <!-- База (лише назва + зберегти + очистити форму) -->
     <div id="dbCreate" class="section">
-      <div><strong>База (Firestore)</strong></div>
+      <div><strong>База (Firestore)</strong> <span id="testModeIndicator" style="display:none;background:#fef3c7;color:#92400e;padding:2px 8px;border-radius:4px;font-size:11px;margin-left:8px;">🧪 ТЕСТОВИЙ РЕЖИМ</span></div>
       <input id="routeName" type="text" placeholder="Назва маршруту (згенерується автоматично, можна змінити)" />
       <div class="btn-row" style="margin-top:6px;">
         <button id="saveToDB" class="btn">💾 Зберегти в БД</button>
         <button id="clearForm" class="btn">🧹 Очистити форму</button>
+        <button id="checkTestMode" class="btn xs" style="background:#eef2ff;border-color:#c7d2fe;" title="Перевірити статус тестового режиму">🧪 Режим</button>
       </div>
     </div>
   </div>
@@ -917,6 +918,7 @@ function setRoleVisual(role){
       role = snap.exists ? String(data.role ?? 'pending').trim().toLowerCase() : null;
       window.__userTestMode = data.testMode === true; // 🧪 тестовий режим з кешу
       console.log('[role][cache] uid:', u.uid, 'role:', role, 'testMode:', window.__userTestMode, 'data:', data);
+      try { updateTestModeIndicator(); } catch(_) {}
     } catch (e) { console.warn('[role][cache] error:', e?.message||e); }
 
   window.__userRole = role || 'guest';
@@ -935,6 +937,7 @@ function setRoleVisual(role){
         window.__userRole = r;
         window.__userTestMode = data.testMode === true; // 🧪 тестовий режим з сервера
         console.log('[role][server] uid:', u.uid, 'role:', r, 'testMode:', window.__userTestMode, 'data:', data);
+        try { updateTestModeIndicator(); } catch(_) {}
 
   setupAdminMenu(r === 'admin');
   setRoleVisual(r);
@@ -3886,6 +3889,11 @@ async function saveToDB() {
 
     // 🧪 TEST MODE: позначаємо маршрут як тестовий, якщо користувач у testMode
     const isTestMode = window.__userTestMode === true;
+    console.log('[saveToDB] 🧪 testMode check:', { 
+      userTestMode: window.__userTestMode, 
+      isTestMode, 
+      willAddIsTest: isTestMode 
+    });
     
     const payload = {
   name: finalName,
@@ -3905,6 +3913,11 @@ async function saveToDB() {
   hub: hub || null,
   ...(isTestMode && { isTest: true })  // 🧪 додаємо поле isTest для тестових маршрутів
 };
+    
+    console.log('[saveToDB] 🧪 payload prepared:', { 
+      hasIsTest: 'isTest' in payload, 
+      isTestValue: payload.isTest 
+    });
 
     // Встановлюємо createdAt: якщо є значення з поля - використовуємо його,
     // інакше для overwrite беремо з існуючого документа, для нових - поточний час
@@ -5745,6 +5758,26 @@ panelToggleBtn.addEventListener('click', () => {
 window.addEventListener('resize', () => updatePanelToggleLabel());
 updatePanelToggleLabel();
 
+/* ===== 🧪 Test Mode indicator & checker ===== */
+function updateTestModeIndicator(){
+  const indicator = document.getElementById('testModeIndicator');
+  if (indicator) {
+    indicator.style.display = (window.__userTestMode === true) ? 'inline-block' : 'none';
+  }
+}
+
+document.getElementById('checkTestMode')?.addEventListener('click', () => {
+  const info = {
+    'window.__userTestMode': window.__userTestMode,
+    'typeof': typeof window.__userTestMode,
+    'isTrue': window.__userTestMode === true,
+    'Створені маршрути': window.__userTestMode === true ? 'Будуть позначені isTest:true' : 'Звичайні маршрути'
+  };
+  console.log('[🧪 Test Mode Check]', info);
+  alert('🧪 Тестовий режим:\n\n' + JSON.stringify(info, null, 2));
+  updateTestModeIndicator();
+});
+
 /* ===== Примусовий компактний режим (тумблер) ===== */
 try{
   const compactBtn = document.getElementById('compactToggle');
@@ -6036,6 +6069,7 @@ roleUnsub = db.collection('users').doc(user.uid)
     const r = doc.exists ? (String(data.role || 'pending').toLowerCase()) : 'pending';
     window.__userRole = r;
     window.__userTestMode = data.testMode === true; // 🧪 live-оновлення testMode
+    try { updateTestModeIndicator(); } catch(_) {}
     applyRoleUI(ALLOWED.has(r) ? r : 'guest'); // ✅ 'user' зберігається як read-only
   });
 
