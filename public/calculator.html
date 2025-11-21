@@ -158,11 +158,13 @@
         <div class="form-row">
           <div>
             <label>Пошук "Від" (код або назва)</label>
-            <input type="text" id="searchFrom" placeholder="Введіть код або назву...">
+            <input type="text" id="searchFrom" placeholder="Наприклад: біога, БІОГА3">
+            <p class="muted" style="margin: 4px 0 0;">Можна вводити частину коду або назви</p>
           </div>
           <div>
             <label>Пошук "До" (код або назва)</label>
-            <input type="text" id="searchTo" placeholder="Введіть код або назву...">
+            <input type="text" id="searchTo" placeholder="Наприклад: бабин, с. Бабин">
+            <p class="muted" style="margin: 4px 0 0;">Можна вводити частину коду або назви</p>
           </div>
         </div>
 
@@ -339,9 +341,13 @@
             toCode: d.toCode || '',
             fromName: d.fromName || d.fromLabel || '',
             toName: d.toName || d.toLabel || '',
-            distance: d.distance || 0
+            distance: d.distance_km || d.distance || 0
           });
         });
+        console.log(`Завантажено ${allRoutes.length} маршрутів для пошуку`);
+        if (allRoutes.length > 0) {
+          console.log('Приклад маршруту:', allRoutes[0]);
+        }
       } catch(e) {
         console.error('Load routes error:', e);
       }
@@ -353,8 +359,15 @@
       const searchFrom = document.getElementById('searchFrom').value.toLowerCase().trim();
       const searchTo = document.getElementById('searchTo').value.toLowerCase().trim();
       
+      console.log('Пошук маршрутів:', { searchFrom, searchTo, totalRoutes: allRoutes.length });
+      
       if (!searchFrom && !searchTo) {
         alert('Введіть хоча б один параметр пошуку (Від або До)');
+        return;
+      }
+      
+      if (allRoutes.length === 0) {
+        alert('Маршрути ще завантажуються або відсутні. Перезавантажте сторінку.');
         return;
       }
       
@@ -365,11 +378,18 @@
         const matchTo = !searchTo || 
           r.toCode.toLowerCase().includes(searchTo) || 
           r.toName.toLowerCase().includes(searchTo);
-        return matchFrom && matchTo;
+        
+        const matches = matchFrom && matchTo;
+        if (matches && foundRoutes.length < 3) {
+          console.log('Знайдено маршрут:', r);
+        }
+        return matches;
       });
       
+      console.log(`Знайдено ${foundRoutes.length} маршрутів`);
+      
       if (foundRoutes.length === 0) {
-        alert('Маршрути не знайдено');
+        alert(`Маршрути не знайдено.\nПошук: від="${searchFrom}", до="${searchTo}"\nВсього маршрутів у базі: ${allRoutes.length}`);
         document.getElementById('routesContainer').style.display = 'none';
         document.getElementById('summaryBox').style.display = 'none';
         document.getElementById('btnCalculateAll').style.display = 'none';
