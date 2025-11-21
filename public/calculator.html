@@ -161,6 +161,12 @@
           <div>
             <label>Вага вантажу, тонн</label>
             <input type="number" id="weight" value="27" step="0.1" placeholder="27">
+            <p class="muted" style="margin: 4px 0 0;">Вага однієї ходки</p>
+          </div>
+          <div>
+            <label>Загальна вага, тонн</label>
+            <input type="number" id="totalWeight" step="0.1" placeholder="Опціонально">
+            <p class="muted" style="margin: 4px 0 0;">Для розрахунку загального об'єму</p>
           </div>
         </div>
 
@@ -193,6 +199,7 @@
                   <th class="sortable" data-col="from">Від <span class="s">↕</span></th>
                   <th class="sortable" data-col="to">До <span class="s">↕</span></th>
                   <th class="sortable" data-col="distance">Відстань, км <span class="s">↕</span></th>
+                  <th class="sortable" data-col="division">Підрозділ <span class="s">↕</span></th>
                   <th>Статус</th>
                   <th>Розцінка</th>
                   <th class="sortable" data-col="priceNoVAT">Без ПДВ <span class="s">↕</span></th>
@@ -202,6 +209,7 @@
                   <th><input type="text" id="filterFrom" placeholder="Фільтр..."></th>
                   <th><input type="text" id="filterTo" placeholder="Фільтр..."></th>
                   <th><input type="text" id="filterDistance" placeholder="Від-До км"></th>
+                  <th><input type="text" id="filterDivision" placeholder="Підрозділ..."></th>
                   <th>
                     <select id="filterStatus" style="width: 100%; padding: 4px 6px; border: 1px solid #e5e7eb; border-radius: 6px; font-size: 12px;">
                       <option value="">Всі</option>
@@ -251,6 +259,24 @@
           <div class="result-item">
             <span class="result-label">Сума з ПДВ:</span>
             <span id="sumTotalPriceWithVAT" class="result-value">-</span>
+          </div>
+          <div id="totalWeightSection" style="display: none; border-top: 2px solid #3b82f6; margin-top: 8px; padding-top: 12px;">
+            <div class="result-item">
+              <span class="result-label">Загальна вага:</span>
+              <span id="sumTotalWeightDisplay" class="result-value">-</span>
+            </div>
+            <div class="result-item">
+              <span class="result-label">Кількість ходок:</span>
+              <span id="sumTotalTrips" class="result-value">-</span>
+            </div>
+            <div class="result-item">
+              <span class="result-label">Загальна вартість без ПДВ:</span>
+              <span id="sumTotalCargoNoVAT" class="result-value">-</span>
+            </div>
+            <div class="result-item">
+              <span class="result-label">Загальна вартість з ПДВ:</span>
+              <span id="sumTotalCargoWithVAT" class="result-value">-</span>
+            </div>
           </div>
         </div>
       </div>
@@ -368,6 +394,7 @@
             fromName: d.fromName || d.fromLabel || '',
             toName: d.toName || d.toLabel || '',
             distance: d.distance_km || d.distance || 0,
+            division: d.division || '-',
             approvalStatus: d.approval?.status || 'draft'
           });
         });
@@ -463,6 +490,7 @@
       const filterFrom = document.getElementById('filterFrom')?.value.toLowerCase().trim() || '';
       const filterTo = document.getElementById('filterTo')?.value.toLowerCase().trim() || '';
       const filterDistance = document.getElementById('filterDistance')?.value.trim() || '';
+      const filterDivision = document.getElementById('filterDivision')?.value.toLowerCase().trim() || '';
       const filterStatus = document.getElementById('filterStatus')?.value || '';
       const filterPriceType = document.getElementById('filterPriceType')?.value.toLowerCase().trim() || '';
       
@@ -487,6 +515,12 @@
         } else if (!isNaN(min) && !isNaN(max)) {
           filtered = filtered.filter(r => r.distance >= min && r.distance <= max);
         }
+      }
+      
+      if (filterDivision) {
+        filtered = filtered.filter(r => 
+          (r.division || '').toLowerCase().includes(filterDivision)
+        );
       }
       
       if (filterStatus) {
@@ -516,6 +550,10 @@
               valA = a.distance || 0;
               valB = b.distance || 0;
               break;
+            case 'division':
+              valA = (a.division || '').toLowerCase();
+              valB = (b.division || '').toLowerCase();
+              break;
             case 'priceNoVAT':
               valA = a.calc?.priceNoVAT || 0;
               valB = b.calc?.priceNoVAT || 0;
@@ -539,7 +577,7 @@
       // Рендеринг
       const tbody = document.getElementById('routesTableBody');
       if (filtered.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="7" style="text-align: center; color: #6b7280;">Немає результатів за фільтрами</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="8" style="text-align: center; color: #6b7280;">Немає результатів за фільтрами</td></tr>';
         return;
       }
       
@@ -567,6 +605,7 @@
               <td>${r.fromName || r.fromCode}</td>
               <td>${r.toName || r.toCode}</td>
               <td>${r.distance.toFixed(2)}</td>
+              <td>${r.division || '-'}</td>
               <td><span style="color: ${statusColor}; font-weight: 600;">${statusLabel}</span></td>
               <td>${r.priceType || '-'}</td>
               <td>${r.calc.priceNoVAT ? r.calc.priceNoVAT.toFixed(2) + ' грн' : '-'}</td>
@@ -579,6 +618,7 @@
               <td>${r.fromName || r.fromCode}</td>
               <td>${r.toName || r.toCode}</td>
               <td>${r.distance.toFixed(2)}</td>
+              <td>${r.division || '-'}</td>
               <td><span style="color: ${statusColor}; font-weight: 600;">${statusLabel}</span></td>
               <td colspan="3" style="text-align: center; color: #6b7280;">${r.calculated === false ? 'Розцінка не знайдена' : 'Натисніть "Розрахувати всі"'}</td>
             </tr>
@@ -642,6 +682,27 @@
           document.getElementById('sumTotalPriceNoVAT').textContent = totalPriceNoVAT.toFixed(2) + ' грн';
           document.getElementById('sumAvgPriceWithVAT').textContent = avgPriceWithVAT.toFixed(2) + ' грн';
           document.getElementById('sumTotalPriceWithVAT').textContent = totalPriceWithVAT.toFixed(2) + ' грн';
+          
+          // Розрахунок для загальної ваги
+          const totalWeightInput = parseFloat(document.getElementById('totalWeight').value);
+          if (totalWeightInput && totalWeightInput > 0) {
+            const trips = Math.ceil(totalWeightInput / weight);
+            
+            // Середня розцінка для avgDistance
+            const avgRateNoVAT = avgPriceNoVAT / (avgDistance * weight);
+            const avgRateWithVAT = avgPriceWithVAT / (avgDistance * weight);
+            
+            const totalCargoNoVAT = avgDistance * avgRateNoVAT * totalWeightInput;
+            const totalCargoWithVAT = avgDistance * avgRateWithVAT * totalWeightInput;
+            
+            document.getElementById('sumTotalWeightDisplay').textContent = totalWeightInput.toFixed(2) + ' т';
+            document.getElementById('sumTotalTrips').textContent = trips;
+            document.getElementById('sumTotalCargoNoVAT').textContent = totalCargoNoVAT.toFixed(2) + ' грн';
+            document.getElementById('sumTotalCargoWithVAT').textContent = totalCargoWithVAT.toFixed(2) + ' грн';
+            document.getElementById('totalWeightSection').style.display = 'block';
+          } else {
+            document.getElementById('totalWeightSection').style.display = 'none';
+          }
           
           document.getElementById('summaryBox').style.display = 'block';
         }
@@ -975,7 +1036,7 @@
     });
     
     // Фільтри в таблиці маршрутів
-    ['filterFrom', 'filterTo', 'filterDistance', 'filterPriceType', 'filterStatus'].forEach(id => {
+    ['filterFrom', 'filterTo', 'filterDistance', 'filterDivision', 'filterPriceType', 'filterStatus'].forEach(id => {
       const el = document.getElementById(id);
       if (el) {
         el.addEventListener(el.tagName === 'SELECT' ? 'change' : 'input', () => {
