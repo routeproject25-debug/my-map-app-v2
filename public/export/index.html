@@ -2125,28 +2125,36 @@ function parseSnap(snap){
   snap.forEach(doc=>{
     const d=doc.data()||{};
     
-    // 🧪 TEST MODE: фільтруємо маршрути (користувач з testMode бачить лише маршрути з тестовими точками)
+    // 🧪 TEST MODE: фільтруємо маршрути (користувач з testMode бачить лише тестові маршрути)
     if (isTestMode) {
-      const fromCode = d.fromCode || '';
-      const toCode = d.toCode || '';
-      const fromName = d.fromName || d.fromLabel || '';
-      const toName = d.toName || d.toLabel || '';
+      // Спочатку перевіряємо, чи сам маршрут позначений як тестовий
+      const isRouteTest = d.isTest === true;
       
-      // Перевіряємо, чи обидві точки (від/до) є тестовими
-      const fromEntry = dirByCode[fromCode];
-      const toEntry = dirByCode[toCode];
-      
-      // Якщо запису немає в довіднику або він не тестовий — пропускаємо
-      const isFromTest = fromEntry 
-        ? (fromEntry.isTest === true || /^(тест|test)/i.test(fromEntry.name || '') || /^(тест|test)/i.test(fromCode))
-        : /^(тест|test)/i.test(fromName) || /^(тест|test)/i.test(fromCode);
-      
-      const isToTest = toEntry
-        ? (toEntry.isTest === true || /^(тест|test)/i.test(toEntry.name || '') || /^(тест|test)/i.test(toCode))
-        : /^(тест|test)/i.test(toName) || /^(тест|test)/i.test(toCode);
-      
-      // Маршрут показується лише якщо ОБИ кінці тестові
-      if (!isFromTest || !isToTest) return;
+      // Якщо маршрут явно позначений як тестовий - показуємо його
+      if (isRouteTest) {
+        // Маршрут тестовий - продовжуємо обробку
+      } else {
+        // Якщо маршрут НЕ позначений як тестовий - перевіряємо точки
+        const fromCode = d.fromCode || '';
+        const toCode = d.toCode || '';
+        const fromName = d.fromName || d.fromLabel || '';
+        const toName = d.toName || d.toLabel || '';
+        
+        // Перевіряємо, чи обидві точки (від/до) є тестовими
+        const fromEntry = dirByCode[fromCode];
+        const toEntry = dirByCode[toCode];
+        
+        const isFromTest = fromEntry 
+          ? (fromEntry.isTest === true || /^(тест|test)/i.test(fromEntry.name || '') || /^(тест|test)/i.test(fromCode))
+          : /^(тест|test)/i.test(fromName) || /^(тест|test)/i.test(fromCode);
+        
+        const isToTest = toEntry
+          ? (toEntry.isTest === true || /^(тест|test)/i.test(toEntry.name || '') || /^(тест|test)/i.test(toCode))
+          : /^(тест|test)/i.test(toName) || /^(тест|test)/i.test(toCode);
+        
+        // Маршрут показується лише якщо ОБИ кінці тестові АБО маршрут позначений як тестовий
+        if (!isFromTest || !isToTest) return;
+      }
     }
     
     const viaArr = extractViaList(d);

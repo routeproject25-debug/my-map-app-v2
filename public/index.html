@@ -3884,6 +3884,9 @@ async function saveToDB() {
       }
     }
 
+    // 🧪 TEST MODE: позначаємо маршрут як тестовий, якщо користувач у testMode
+    const isTestMode = window.__userTestMode === true;
+    
     const payload = {
   name: finalName,
   fromCode, toCode, routeType, purpose, intermediateText,
@@ -3899,7 +3902,8 @@ async function saveToDB() {
   createdByEmail: user?.email || null,
   distance_km: getUIKm(),
   updatedAt: new Date().toISOString(),
-  hub: hub || null
+  hub: hub || null,
+  ...(isTestMode && { isTest: true })  // 🧪 додаємо поле isTest для тестових маршрутів
 };
 
     // Встановлюємо createdAt: якщо є значення з поля - використовуємо його,
