@@ -2027,16 +2027,21 @@ function computeApprovalStatus(d){
   if (d.approvalStatus !== undefined && d.approvalStatus !== null) return d.approvalStatus;
   if (d.approved       !== undefined && d.approved       !== null) return d.approved;
 
-  // 3) Верхньорівневе d.status беремо ЛИШЕ якщо воно виглядає як статус погодження
+  // 3) Перевіряємо наявність пропозиції ПЕРЕД тим, як повертати "pending"
+  const hasPendingStatus = d.status !== undefined && d.status !== null && 
+    ['pending','in_review','inreview','review','waiting','wait','on_approval','submitted'].includes(
+      String(d.status).trim().toLowerCase()
+    );
+  
+  if (hasPendingStatus && d.proposal && typeof d.proposal === 'object' && Object.keys(d.proposal).length > 0) {
+    return 'proposal'; // Є пропозиція — пріоритетніше за "pending"
+  }
+
+  // 4) Верхньорівневе d.status беремо ЛИШЕ якщо воно виглядає як статус погодження
   if (d.status !== undefined && d.status !== null){
     const label = toStatusLabelRaw(d.status);
     if (label) return d.status;        // приймаємо тільки валідні значення ("approved"/"rejected"/тощо)
     // якщо label порожній — ігноруємо (це може бути "Основний" або порожній рядок)
-  }
-
-  // 4) Якщо є пропозиція, але немає рішення — повертаємо спеціальний статус
-  if (d.proposal && typeof d.proposal === 'object' && Object.keys(d.proposal).length > 0) {
-    return 'proposal';
   }
 
   return null;
