@@ -658,15 +658,43 @@
         .where('crop', '==', crop)
         .get();
       
-      let found = null;
+      let allPricingRanges = [];
       snapshot.forEach(doc => {
         const d = doc.data();
-        if (distance >= d.distFrom && distance <= d.distTo) {
-          found = { id: doc.id, ...d };
+        allPricingRanges.push({ id: doc.id, ...d });
+      });
+      
+      // Спочатку шукаємо точне попадання в діапазон
+      let found = allPricingRanges.find(p => 
+        distance >= p.distFrom && distance <= p.distTo
+      );
+      
+      if (found) return found;
+      
+      // Якщо точного попадання немає, шукаємо найближчий діапазон
+      // Наприклад, 100.31 -> ближче до 100 (розцінка 75-100), ніж до 101 (розцінка 101-150)
+      let closestRange = null;
+      let minDistance = Infinity;
+      
+      allPricingRanges.forEach(p => {
+        // Відстань до нижньої межі діапазону
+        const distToFrom = Math.abs(distance - p.distFrom);
+        // Відстань до верхньої межі діапазону
+        const distToTo = Math.abs(distance - p.distTo);
+        // Беремо мінімальну відстань до діапазону
+        const distToRange = Math.min(distToFrom, distToTo);
+        
+        if (distToRange < minDistance) {
+          minDistance = distToRange;
+          closestRange = p;
         }
       });
       
-      return found;
+      if (closestRange) {
+        console.log(`Відстань ${distance} км не попадає точно в діапазон. Використовуємо найближчу розцінку: ${closestRange.distFrom}-${closestRange.distTo} км (відстань до діапазону: ${minDistance.toFixed(2)} км)`);
+      }
+      
+      return closestRange;
     }
 
     function calculatePrice(pricing, distance, weight) {
