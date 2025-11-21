@@ -2028,13 +2028,13 @@ function computeApprovalStatus(d){
   if (d.approved       !== undefined && d.approved       !== null) return d.approved;
 
   // 3) Перевіряємо наявність пропозиції ПЕРЕД тим, як повертати "pending"
-  const hasPendingStatus = d.status !== undefined && d.status !== null && 
-    ['pending','in_review','inreview','review','waiting','wait','on_approval','submitted'].includes(
-      String(d.status).trim().toLowerCase()
-    );
-  
-  if (hasPendingStatus && d.proposal && typeof d.proposal === 'object' && Object.keys(d.proposal).length > 0) {
-    return 'proposal'; // Є пропозиція — пріоритетніше за "pending"
+  // Пропозиція має пріоритет над статусом "pending"
+  if (d.proposal && typeof d.proposal === 'object') {
+    // Перевіряємо, чи є реальні поля (не лише meta-поля типу __typename)
+    const proposalKeys = Object.keys(d.proposal).filter(k => !k.startsWith('_'));
+    if (proposalKeys.length > 0) {
+      return 'proposal'; // Є пропозиція — показуємо її незалежно від статусу
+    }
   }
 
   // 4) Верхньорівневе d.status беремо ЛИШЕ якщо воно виглядає як статус погодження
