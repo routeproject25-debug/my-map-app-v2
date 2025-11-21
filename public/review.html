@@ -669,8 +669,8 @@
     return o;
   }
   async function saveProposal(){
-    const role = await getNormalizedRole();
-    if (!['security','admin'].includes(role)) { alert('Недостатньо прав.'); return; }
+    const roleObj = await getNormalizedRole();
+    if (!['security','admin'].includes(roleObj.role)) { alert('Недостатньо прав.'); return; }
     const user = auth.currentUser;
     const base = proposalObjFromDraw();
     // compute distance via preview chip if exists; otherwise compute quickly
@@ -695,8 +695,8 @@
     }catch(e){ alert('Не вдалося зберегти пропозицію: ' + (e?.message||e)); }
   }
   async function clearProposal(){
-    const role = await getNormalizedRole();
-    if (!['security','admin'].includes(role)) { alert('Недостатньо прав.'); return; }
+    const roleObj = await getNormalizedRole();
+    if (!['security','admin'].includes(roleObj.role)) { alert('Недостатньо прав.'); return; }
     if (!confirm('Очистити пропозицію?')) return;
     try{
       await db.collection('routes').doc(rid).set({ proposal: firebase.firestore.FieldValue.delete(), updatedAt: new Date().toISOString() }, { merge:true });

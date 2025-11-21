@@ -4975,9 +4975,10 @@ function updateProposalUIForData(data){
   const has = !!(p && Array.isArray(p.points) && p.points.length >= 2);
   HAS_PROPOSAL = has;
   const wrap = document.getElementById('proposalWrapMain');
-  if (wrap) wrap.style.display = (has && (role === 'logist' || role === 'admin')) ? '' : 'none';
+  // Показуємо пропозицію для logist (перегляд/прийняття), security (перегляд своєї пропозиції) та admin (все)
+  if (wrap) wrap.style.display = (has && (role === 'logist' || role === 'security' || role === 'admin')) ? '' : 'none';
   const btn = document.getElementById('btnShowProposal');
-  if (btn) btn.style.display = (has && (role === 'logist' || role === 'admin')) ? '' : 'none';
+  if (btn) btn.style.display = (has && (role === 'logist' || role === 'security' || role === 'admin')) ? '' : 'none';
   const km = (typeof p?.distance_km === 'number') ? p.distance_km : NaN;
   const chip = document.getElementById('proposalKmChip');
   if (chip) chip.textContent = 'Пропозиція СБ: ' + (Number.isFinite(km) ? km.toFixed(3) + ' км' : '—');
