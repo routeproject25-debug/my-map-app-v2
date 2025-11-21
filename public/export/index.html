@@ -96,7 +96,8 @@
     }
     /* багатоваріантний вибір у фільтрах таблиці */
     thead tr.filters select[multiple]{ min-height:2.6em; height:auto; }
-    .range { display:grid; grid-template-columns: 1fr 1fr; gap:6px; }
+    .range { display:flex; flex-wrap:wrap; gap:4px; }
+    .range input { flex:1 1 90px; min-width:90px; max-width:100%; }
     
       /* ===== Excel-like column filter ===== */
       .excel-filter-btn{
