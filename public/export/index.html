@@ -2012,11 +2012,20 @@ function toStatusLabelRaw(v){
 function computeApprovalStatus(d){
   if (!d || typeof d !== 'object') return null;
 
-  // 1) Найнадійніше — всередині d.approval
+  // 0) ПЕРША ПРІОРИТЕТНА ПЕРЕВІРКА: якщо є пропозиція — вона важливіша за статус
+  if (d.proposal && typeof d.proposal === 'object') {
+    const proposalKeys = Object.keys(d.proposal).filter(k => !k.startsWith('_'));
+    if (proposalKeys.length > 0) {
+      return 'proposal'; // Є пропозиція — показуємо її НЕЗАЛЕЖНО від approval.status
+    }
+  }
+
+  // 1) Перевіряємо остаточні рішення всередині d.approval
   if (typeof d.approval === 'string') return d.approval;
   if (d.approval && typeof d.approval === 'object'){
     const A = d.approval;
-    if (A.status   !== undefined && A.status   !== null) return A.status;
+    // Перевіряємо лише ФІНАЛЬНІ статуси (approved/rejected), але НЕ pending
+    if (A.status && A.status !== 'pending') return A.status;
     if (A.result   !== undefined && A.result   !== null) return A.result;
     if (A.decision !== undefined && A.decision !== null) return A.decision;
     if (A.approved !== undefined && A.approved !== null) return A.approved; // true/false
@@ -2027,15 +2036,8 @@ function computeApprovalStatus(d){
   if (d.approvalStatus !== undefined && d.approvalStatus !== null) return d.approvalStatus;
   if (d.approved       !== undefined && d.approved       !== null) return d.approved;
 
-  // 3) Перевіряємо наявність пропозиції ПЕРЕД тим, як повертати "pending"
-  // Пропозиція має пріоритет над статусом "pending"
-  if (d.proposal && typeof d.proposal === 'object') {
-    // Перевіряємо, чи є реальні поля (не лише meta-поля типу __typename)
-    const proposalKeys = Object.keys(d.proposal).filter(k => !k.startsWith('_'));
-    if (proposalKeys.length > 0) {
-      return 'proposal'; // Є пропозиція — показуємо її незалежно від статусу
-    }
-  }
+  // 3) Якщо є approval.status === 'pending', повертаємо його
+  if (d.approval?.status === 'pending') return 'pending';
 
   // 4) Верхньорівневе d.status беремо ЛИШЕ якщо воно виглядає як статус погодження
   if (d.status !== undefined && d.status !== null){
