@@ -494,7 +494,7 @@
         
         await uploadPricing(rows);
         status.innerHTML = '<p class="success">✅ Розцінки успішно завантажено!</p>';
-        loadPricingTable();
+        await loadPricingTable();
       } catch(e) {
         console.error(e);
         status.innerHTML = '<p class="error">❌ Помилка: ' + (e.message || e) + '</p>';
@@ -587,6 +587,7 @@
         
         renderPricingTable();
         populateYearFilters();
+        populateHubSelector();
       } catch(e) {
         console.error(e);
       }
@@ -669,7 +670,7 @@
         if (!userDoc.exists) return;
         
         const data = userDoc.data();
-        const allowedHubs = data.ALLOWED_HUBS || [];
+        const allowedHubs = data.allowedHubs || data.ALLOWED_HUBS || [];
         
         if (allowedHubs.includes('*')) {
           // Admin: загружаем все хабы из pricing
@@ -677,8 +678,6 @@
         } else {
           userAllowedHubs = allowedHubs;
         }
-        
-        populateHubSelector();
       } catch(e) {
         console.error('Load user hubs error:', e);
       }
@@ -710,8 +709,8 @@
     
     (async () => {
       await loadRoutes();
-      await loadPricingTable();
       await loadUserHubs();
+      await loadPricingTable();
     })();
   </script>
 </body>
