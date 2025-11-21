@@ -378,6 +378,7 @@ function renderUsers(){
   bindRoleChangeHandlers();
   bindNameChangeHandlers();
   bindHubHandlers();
+  bindTestModeHandlers(); // 🧪 перемикач тестового режиму
   bindDeleteHandlers();
 }
 
@@ -478,6 +479,11 @@ function userRowHTML(id, user){
             <option value="security" ${role==="security"?"selected":""}>Security</option>
             <option value="admin"    ${role==="admin"   ?"selected":""}>Admin</option>
           </select>
+        </label>
+
+        <label style="display:flex; align-items:center; gap:6px; margin-left:12px;" title="Користувач бачитиме лише тестові дані з директорії">
+          <input type="checkbox" class="testmode-toggle" data-id="${id}" ${user.testMode === true ? 'checked' : ''}>
+          <span>🧪 Тестові дані</span>
         </label>
 
         <button class="btn save-hubs" data-id="${id}">💾 Зберегти доступ до хабів</button>
@@ -741,6 +747,36 @@ function bindHubHandlers(){
 }
 
 /* (block/unblock logic removed) */
+
+/* ================= Перемикач testMode ================= */
+function bindTestModeHandlers(){
+  document.querySelectorAll('#user-list .user-row .testmode-toggle').forEach((chk) => {
+    chk.addEventListener('change', async (e) => {
+      const uid = e.target.dataset.id;
+      const testMode = e.target.checked;
+      
+      e.target.disabled = true;
+      statusEl.textContent = `Оновлення testMode для ${uid}…`;
+      
+      try {
+        await db.collection('users').doc(uid).set({
+          testMode: testMode,
+          testModeUpdatedAt: new Date().toISOString(),
+          testModeUpdatedBy: currentUser ? currentUser.uid : null
+        }, { merge: true });
+        
+        statusEl.textContent = `✅ TestMode оновлено: ${uid} → ${testMode ? 'тестові дані' : 'всі дані'}`;
+      } catch (err) {
+        console.error(err);
+        alert('Помилка збереження testMode: ' + (err.message || err));
+        e.target.checked = !testMode; // відкотити
+        statusEl.textContent = '❌ Не вдалося оновити testMode.';
+      } finally {
+        e.target.disabled = false;
+      }
+    });
+  });
+}
 
 /* ================= Видалення користувачів (адмін) ================= */
 async function apiDeleteUser(uid, deleteAuth){

@@ -913,8 +913,10 @@ function setRoleVisual(role){
     let role = null;
     try {
       const snap = await db.collection('users').doc(u.uid).get({ source: 'cache' });
-      role = snap.exists ? String(snap.data().role ?? 'pending').trim().toLowerCase() : null;
-      console.log('[role][cache] uid:', u.uid, 'role:', role, 'data:', snap.data());
+      const data = snap.data() || {};
+      role = snap.exists ? String(data.role ?? 'pending').trim().toLowerCase() : null;
+      window.__userTestMode = data.testMode === true; // 🧪 тестовий режим з кешу
+      console.log('[role][cache] uid:', u.uid, 'role:', role, 'testMode:', window.__userTestMode, 'data:', data);
     } catch (e) { console.warn('[role][cache] error:', e?.message||e); }
 
   window.__userRole = role || 'guest';
@@ -928,9 +930,11 @@ function setRoleVisual(role){
     (async () => {
       try {
         const s = await db.collection('users').doc(u.uid).get({ source: 'server' });
-        const r = s.exists ? String(s.data().role ?? 'pending').trim().toLowerCase() : 'pending';
+        const data = s.data() || {};
+        const r = s.exists ? String(data.role ?? 'pending').trim().toLowerCase() : 'pending';
         window.__userRole = r;
-        console.log('[role][server] uid:', u.uid, 'role:', r, 'data:', s.data());
+        window.__userTestMode = data.testMode === true; // 🧪 тестовий режим з сервера
+        console.log('[role][server] uid:', u.uid, 'role:', r, 'testMode:', window.__userTestMode, 'data:', data);
 
   setupAdminMenu(r === 'admin');
   setRoleVisual(r);
@@ -3030,6 +3034,8 @@ async function getAllowedHubsForUser(uid, role){
       ? d.displayName.trim()
       : '';
     
+    const testMode = d.testMode === true; // 🧪 тестовий режим користувача
+    
     let hubs = null;
     if (rl === 'admin' || rl === 'security') hubs = null;
     else if (d.allowAllHubs === true || d.allowedHubs === '*' || d.hubs === '*') hubs = null;
@@ -3039,7 +3045,7 @@ async function getAllowedHubsForUser(uid, role){
     else if (typeof d.hubAccess === 'string' && d.hubAccess.trim()) hubs = [d.hubAccess.trim()];
     else hubs = [];
     
-    return { hubs, displayName };
+    return { hubs, displayName, testMode };
   }catch(e){
     console.warn('getAllowedHubsForUser:', e?.message||e);
     return { hubs: [], displayName: '' }; // безпечний дефолт
@@ -3198,15 +3204,27 @@ async function loadDirectory(force = false){
 q = withHubFilter(q, 'hub');
 const snap = await q.get({ source:'default' });
   const rows = [];
+  const isTestMode = window.__userTestMode === true; // читаємо з даних користувача
+  
   snap.forEach(doc => {
     const d = doc.data() || {};
-    rows.push({ code: (d.code || doc.id), name: d.name || (d.code || doc.id), company: d.company || '', unit: d.unit || '' });
+    const code = d.code || doc.id;
+    const name = d.name || code;
+    
+    // 🧪 TEST MODE: фільтруємо записи (per-user налаштування)
+    if (isTestMode) {
+      const isTestEntry = d.isTest === true || /^(тест|test)/i.test(name) || /^(тест|test)/i.test(code);
+      if (!isTestEntry) return; // пропускаємо не-тестові записи
+    }
+    
+    rows.push({ code, name, company: d.company || '', unit: d.unit || '' });
   });
 
   fillDirectoryUI(rows);
   updateRouteName();
   try{ localStorage.setItem(dirCacheKey(), JSON.stringify({ ts: Date.now(), rows })); }catch{}
-  console.log('📒 Directory loaded from Firestore (force):', rows.length);
+  const mode = isTestMode ? ' [TEST MODE]' : '';
+  console.log(`📒 Directory${mode} loaded from Firestore (force):`, rows.length);
 }
 
 // === Typeahead: префіксний запит у Firestore і оновлення підказок ===
@@ -3251,13 +3269,24 @@ async function queryDirectoryPrefix(prefix, limit = 20){
         q1 = withHubFilter(q1, 'hub');  // 👈 додали
 
       const s1 = await q1.get({ source:'default' });
+      const isTestMode = window.__userTestMode === true; // читаємо з даних користувача
+      
       s1.forEach(doc => {
         if (accRows.length >= limit) return;
         if (seen.has(doc.id)) return;
         const d = doc.data() || {};
+        const code = d.code || doc.id;
+        const name = d.name || code;
+        
+        // 🧪 TEST MODE: фільтр (per-user налаштування)
+        if (isTestMode) {
+          const isTestEntry = d.isTest === true || /^(тест|test)/i.test(name) || /^(тест|test)/i.test(code);
+          if (!isTestEntry) return;
+        }
+        
         accRows.push({
-          code: (d.code || doc.id),
-          name: d.name || (d.code || doc.id),
+          code,
+          name,
           company: d.company || '',
           unit: d.unit || ''
         });
@@ -3277,13 +3306,24 @@ if (accRows.length < limit && pLower.length >= 4){
         .limit(limit);
       if (h) q2 = q2.where('hub','==', h);  // 👈 уникаємо IN + array-contains-any
       const s2 = await q2.get({ source:'default' });
+      const isTestMode = window.__userTestMode === true; // читаємо з даних користувача
+      
       s2.forEach(doc => {
         if (accRows.length >= limit) return;
         if (seen.has(doc.id)) return;
         const d = doc.data() || {};
+        const code = d.code || doc.id;
+        const name = d.name || code;
+        
+        // 🧪 TEST MODE: фільтр (per-user налаштування)
+        if (isTestMode) {
+          const isTestEntry = d.isTest === true || /^(тест|test)/i.test(name) || /^(тест|test)/i.test(code);
+          if (!isTestEntry) return;
+        }
+        
         accRows.push({
-          code: (d.code || doc.id),
-          name: d.name || (d.code || doc.id),
+          code,
+          name,
           company: d.company || '',
           unit: d.unit || ''
         });
@@ -5932,6 +5972,7 @@ try {
   const result = await getAllowedHubsForUser(user.uid, window.__userRole || role || 'user');
   ALLOWED_HUBS = result.hubs;
   displayNameFromFirestore = result.displayName || '';
+  window.__userTestMode = result.testMode === true; // 🧪 тестовий режим
 } catch (_) {
   ALLOWED_HUBS = [];
 }
@@ -5987,8 +6028,10 @@ try{ subscribeToGlobalNotifications(); }catch(_){ }
 
 roleUnsub = db.collection('users').doc(user.uid)
   .onSnapshot((doc) => {
-    const r = doc.exists ? (String(doc.data().role || 'pending').toLowerCase()) : 'pending';
+    const data = doc.data() || {};
+    const r = doc.exists ? (String(data.role || 'pending').toLowerCase()) : 'pending';
     window.__userRole = r;
+    window.__userTestMode = data.testMode === true; // 🧪 live-оновлення testMode
     applyRoleUI(ALLOWED.has(r) ? r : 'guest'); // ✅ 'user' зберігається як read-only
   });
 

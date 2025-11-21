@@ -14,5 +14,8 @@
     // Optional: set to your Cloudflare Worker URL + "/send-approval" to send Telegram messages online
     // Example: "https://route-telegram-endpoint.<account>.workers.dev/send-approval"
     telegramEndpoint: "https://route-telegram-endpoint.route-project25.workers.dev/send-approval"
+    
+    // 🧪 testMode більше не використовується — тепер це налаштування per-user в Firestore (users/{uid}.testMode)
+    // Адмін керує цим на сторінці admin.html через перемикач "Тестові дані"
   });
 })();

@@ -463,6 +463,7 @@ body.map-open #bottomScroller{
       window.__userRole     = role;
       window.__userHubs     = hubs;    // масив дозволених хабів
       window.__userAllHubs  = !!all;   // прапор «всі хаби»
+      window.__userTestMode = data.testMode === true; // 🧪 тестовий режим per-user
 
       setRoleBadge(role);
 
@@ -485,6 +486,7 @@ body.map-open #bottomScroller{
           window.__userRole    = r;
           window.__userHubs    = hh.hubs;
           window.__userAllHubs = !!hh.all;
+          window.__userTestMode = dd.testMode === true; // 🧪 оновлення testMode в реальному часі
           setRoleBadge(r);
           if (r === 'pending' || !['admin','logist','user','security'].includes(r)) {
             alert('Доступ відкликано або роль змінено. Потрібен повторний вхід.');
@@ -1500,20 +1502,31 @@ async function loadDirectory(forceServer){
   if (!snap || snap.empty) { snap = await q.get({ source: 'default' }); }
 
   const rows = [];
+  const isTestMode = window.__userTestMode === true; // читаємо з даних користувача
+  
   snap.forEach(doc=>{
     const d = doc.data()||{};
     const code = d.code || doc.id;
+    const name = d.name || code;
     const unit = d.unit || '';
+    
+    // 🧪 TEST MODE: фільтруємо записи (per-user налаштування)
+    if (isTestMode) {
+      const isTestEntry = d.isTest === true || /^(тест|test)/i.test(name) || /^(тест|test)/i.test(code);
+      if (!isTestEntry) return; // пропускаємо не-тестові записи
+    }
+    
     // Діагностика: логування записів без підрозділу
     if (!unit) {
-      console.warn(`[directory] Відсутній unit для коду: ${code}, name: ${d.name || code}`);
+      console.warn(`[directory] Відсутній unit для коду: ${code}, name: ${name}`);
     }
-    rows.push({ code, name: d.name || code, company: d.company || '', unit });
+    rows.push({ code, name, company: d.company || '', unit });
   });
   fillDirectoryUI(rows);
   try { 
     const withoutUnit = rows.filter(r => !r.unit).length;
-    console.log('[directory] loaded rows:', rows.length, 'без підрозділу:', withoutUnit, 'forceServer=', !!forceServer); 
+    const mode = isTestMode ? ' [TEST MODE]' : '';
+    console.log(`[directory]${mode} loaded rows:`, rows.length, 'без підрозділу:', withoutUnit, 'forceServer=', !!forceServer); 
   } catch(_) {}
 
   try{
