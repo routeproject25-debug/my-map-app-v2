@@ -1251,8 +1251,8 @@ function drawManualSegments(d){
         decidedByUid: user?.uid || null,
         decidedByEmail: user?.email || null,
         comment: kind === 'approved' ? null : (comment || '')
-      },
-      updatedAt: new Date().toISOString()
+      }
+      // updatedAt не змінюємо — це тільки для змін самого маршруту
     };
     try{
       await ref.set(payload, { merge:true });

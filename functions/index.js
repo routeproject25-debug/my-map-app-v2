@@ -167,8 +167,8 @@ exports.approveRoute = onRequest({ cors: true }, async (req, res) => {
         decidedByUid: auth.uid,
         decidedByEmail: auth.email || null,
         comment: decision === 'rejected' ? (comment || '') : null
-      },
-      updatedAt: nowIso
+      }
+      // updatedAt не змінюємо — це тільки для змін самого маршруту
     };
     await ref.set(payload, { merge:true });
     return res.json({ ok:true, id, status: decision });
