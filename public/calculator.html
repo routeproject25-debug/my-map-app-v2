@@ -47,7 +47,16 @@
     .pricing-table { width: 100%; border-collapse: collapse; margin-top: 16px; }
     .pricing-table th { background: #f3f4f6; padding: 10px; text-align: left; font-size: 13px; font-weight: 600; border-bottom: 2px solid #d1d5db; }
     .pricing-table td { padding: 10px; border-bottom: 1px solid #e5e7eb; font-size: 14px; }
-    .pricing-table tr:hover { background: #f9fafb; }
+    .pricing-table tbody tr:hover { background: #f9fafb; }
+    
+    /* Сортування та фільтри */
+    th.sortable { cursor: pointer; user-select: none; position: relative; }
+    th.sortable .s { font-size: 11px; opacity: 0.6; margin-left: 6px; }
+    th.sortable.active .s { opacity: 1; }
+    th.sortable.asc .s::before { content: '▲'; }
+    th.sortable.desc .s::before { content: '▼'; }
+    thead tr.filters th { background: #fafafa; padding: 6px; }
+    thead tr.filters input { width: 100%; padding: 4px 6px; border: 1px solid #e5e7eb; border-radius: 6px; font-size: 12px; background: #fff; }
     
     .upload-zone { border: 2px dashed #d1d5db; border-radius: 12px; padding: 40px; text-align: center; cursor: pointer; transition: all 0.2s; }
     .upload-zone:hover { border-color: #2563eb; background: #f0f9ff; }
@@ -178,15 +187,23 @@
         <div id="routesContainer" style="display: none; margin-top: 20px;">
           <h3 style="margin: 0 0 12px; font-size: 16px; color: #374151;">Знайдені маршрути (<span id="routeCount">0</span>)</h3>
           <div style="overflow-x: auto;">
-            <table class="pricing-table">
+            <table class="pricing-table" id="routesTable">
               <thead>
                 <tr>
-                  <th>Від</th>
-                  <th>До</th>
-                  <th>Відстань, км</th>
+                  <th class="sortable" data-col="from">Від <span class="s">↕</span></th>
+                  <th class="sortable" data-col="to">До <span class="s">↕</span></th>
+                  <th class="sortable" data-col="distance">Відстань, км <span class="s">↕</span></th>
                   <th>Розцінка</th>
-                  <th>Без ПДВ</th>
-                  <th>З ПДВ</th>
+                  <th class="sortable" data-col="priceNoVAT">Без ПДВ <span class="s">↕</span></th>
+                  <th class="sortable" data-col="priceWithVAT">З ПДВ <span class="s">↕</span></th>
+                </tr>
+                <tr class="filters">
+                  <th><input type="text" id="filterFrom" placeholder="Фільтр..."></th>
+                  <th><input type="text" id="filterTo" placeholder="Фільтр..."></th>
+                  <th><input type="text" id="filterDistance" placeholder="Від-До км"></th>
+                  <th><input type="text" id="filterPriceType" placeholder="Тип..."></th>
+                  <th><input type="text" id="filterNoVAT" placeholder="Від-До"></th>
+                  <th><input type="text" id="filterWithVAT" placeholder="Від-До"></th>
                 </tr>
               </thead>
               <tbody id="routesTableBody"></tbody>
@@ -372,16 +389,35 @@
       }
       
       foundRoutes = allRoutes.filter(r => {
+        const fromCodeLower = (r.fromCode || '').toLowerCase();
+        const fromNameLower = (r.fromName || '').toLowerCase();
+        const toCodeLower = (r.toCode || '').toLowerCase();
+        const toNameLower = (r.toName || '').toLowerCase();
+        
         const matchFrom = !searchFrom || 
-          r.fromCode.toLowerCase().includes(searchFrom) || 
-          r.fromName.toLowerCase().includes(searchFrom);
+          fromCodeLower.includes(searchFrom) || 
+          fromNameLower.includes(searchFrom);
         const matchTo = !searchTo || 
-          r.toCode.toLowerCase().includes(searchTo) || 
-          r.toName.toLowerCase().includes(searchTo);
+          toCodeLower.includes(searchTo) || 
+          toNameLower.includes(searchTo);
         
         const matches = matchFrom && matchTo;
-        if (matches && foundRoutes.length < 3) {
-          console.log('Знайдено маршрут:', r);
+        
+        // Детальне логування для перших 5 перевірок
+        if (foundRoutes.length < 5) {
+          console.log('Перевірка маршруту:', {
+            from: `${r.fromCode} - ${r.fromName}`,
+            to: `${r.toCode} - ${r.toName}`,
+            searchFrom,
+            searchTo,
+            matchFrom,
+            matchTo,
+            matches
+          });
+        }
+        
+        if (matches) {
+          console.log('✅ Знайдено маршрут:', r);
         }
         return matches;
       });
@@ -402,16 +438,119 @@
       renderFoundRoutes();
     });
 
+    let displayedRoutes = [];
+    let currentSort = { col: null, dir: 'asc' };
+    
     function renderFoundRoutes() {
+      displayedRoutes = [...foundRoutes];
+      applyFiltersAndSort();
+    }
+    
+    function applyFiltersAndSort() {
+      let filtered = [...displayedRoutes];
+      
+      // Фільтри
+      const filterFrom = document.getElementById('filterFrom')?.value.toLowerCase().trim() || '';
+      const filterTo = document.getElementById('filterTo')?.value.toLowerCase().trim() || '';
+      const filterDistance = document.getElementById('filterDistance')?.value.trim() || '';
+      const filterPriceType = document.getElementById('filterPriceType')?.value.toLowerCase().trim() || '';
+      
+      if (filterFrom) {
+        filtered = filtered.filter(r => 
+          (r.fromName || '').toLowerCase().includes(filterFrom) || 
+          (r.fromCode || '').toLowerCase().includes(filterFrom)
+        );
+      }
+      
+      if (filterTo) {
+        filtered = filtered.filter(r => 
+          (r.toName || '').toLowerCase().includes(filterTo) || 
+          (r.toCode || '').toLowerCase().includes(filterTo)
+        );
+      }
+      
+      if (filterDistance) {
+        const [min, max] = filterDistance.split('-').map(s => parseFloat(s.trim()));
+        if (!isNaN(min) && isNaN(max)) {
+          filtered = filtered.filter(r => r.distance >= min);
+        } else if (!isNaN(min) && !isNaN(max)) {
+          filtered = filtered.filter(r => r.distance >= min && r.distance <= max);
+        }
+      }
+      
+      if (filterPriceType) {
+        filtered = filtered.filter(r => 
+          (r.priceType || '').toLowerCase().includes(filterPriceType)
+        );
+      }
+      
+      // Сортування
+      if (currentSort.col) {
+        filtered.sort((a, b) => {
+          let valA, valB;
+          switch(currentSort.col) {
+            case 'from':
+              valA = (a.fromName || a.fromCode || '').toLowerCase();
+              valB = (b.fromName || b.fromCode || '').toLowerCase();
+              break;
+            case 'to':
+              valA = (a.toName || a.toCode || '').toLowerCase();
+              valB = (b.toName || b.toCode || '').toLowerCase();
+              break;
+            case 'distance':
+              valA = a.distance || 0;
+              valB = b.distance || 0;
+              break;
+            case 'priceNoVAT':
+              valA = a.calc?.priceNoVAT || 0;
+              valB = b.calc?.priceNoVAT || 0;
+              break;
+            case 'priceWithVAT':
+              valA = a.calc?.priceWithVAT || 0;
+              valB = b.calc?.priceWithVAT || 0;
+              break;
+            default:
+              return 0;
+          }
+          
+          if (typeof valA === 'string') {
+            return currentSort.dir === 'asc' ? valA.localeCompare(valB, 'uk') : valB.localeCompare(valA, 'uk');
+          } else {
+            return currentSort.dir === 'asc' ? valA - valB : valB - valA;
+          }
+        });
+      }
+      
+      // Рендеринг
       const tbody = document.getElementById('routesTableBody');
-      tbody.innerHTML = foundRoutes.map(r => `
-        <tr>
-          <td>${r.fromName || r.fromCode}</td>
-          <td>${r.toName || r.toCode}</td>
-          <td>${r.distance.toFixed(2)}</td>
-          <td colspan="3" style="text-align: center; color: #6b7280;">Натисніть "Розрахувати всі"</td>
-        </tr>
-      `).join('');
+      if (filtered.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; color: #6b7280;">Немає результатів за фільтрами</td></tr>';
+        return;
+      }
+      
+      tbody.innerHTML = filtered.map(r => {
+        if (r.calc) {
+          return `
+            <tr>
+              <td>${r.fromName || r.fromCode}</td>
+              <td>${r.toName || r.toCode}</td>
+              <td>${r.distance.toFixed(2)}</td>
+              <td>${r.priceType || '-'}</td>
+              <td>${r.calc.priceNoVAT ? r.calc.priceNoVAT.toFixed(2) + ' грн' : '-'}</td>
+              <td>${r.calc.priceWithVAT ? r.calc.priceWithVAT.toFixed(2) + ' грн' : '-'}</td>
+            </tr>
+          `;
+        } else {
+          return `
+            <tr>
+              <td>${r.fromName || r.fromCode}</td>
+              <td>${r.toName || r.toCode}</td>
+              <td>${r.distance.toFixed(2)}</td>
+              <td colspan="3" style="text-align: center; color: #6b7280;">${r.calculated === false ? 'Розцінка не знайдена' : 'Натисніть "Розрахувати всі"'}</td>
+            </tr>
+          `;
+        }
+      }).join('');
     }
 
     // Calculate all routes
@@ -430,53 +569,30 @@
       tbody.innerHTML = '<tr><td colspan="6" style="text-align: center;">Розрахунок...</td></tr>';
       
       try {
-        const results = [];
+        // Оновлюємо foundRoutes з результатами розрахунків
         for (const route of foundRoutes) {
           const pricing = await findPricingForDistance(hub, year, crop, route.distance);
           if (pricing) {
             const calc = calculatePrice(pricing, route.distance, weight);
-            results.push({
-              route,
-              pricing,
-              calc
-            });
+            route.calc = calc;
+            route.pricing = pricing;
+            route.priceType = pricing.priceType;
+            route.calculated = true;
           } else {
-            results.push({
-              route,
-              pricing: null,
-              calc: null
-            });
+            route.calc = null;
+            route.pricing = null;
+            route.priceType = null;
+            route.calculated = false;
           }
         }
         
-        // Render results
-        tbody.innerHTML = results.map(r => {
-          if (!r.calc) {
-            return `
-              <tr>
-                <td>${r.route.fromName || r.route.fromCode}</td>
-                <td>${r.route.toName || r.route.toCode}</td>
-                <td>${r.route.distance.toFixed(2)}</td>
-                <td colspan="3" style="text-align: center; color: #dc2626;">Розцінка не знайдена</td>
-              </tr>
-            `;
-          }
-          return `
-            <tr>
-              <td>${r.route.fromName || r.route.fromCode}</td>
-              <td>${r.route.toName || r.route.toCode}</td>
-              <td>${r.route.distance.toFixed(2)}</td>
-              <td>${r.pricing.priceType}</td>
-              <td>${r.calc.priceNoVAT ? r.calc.priceNoVAT.toFixed(2) + ' грн' : '-'}</td>
-              <td>${r.calc.priceWithVAT ? r.calc.priceWithVAT.toFixed(2) + ' грн' : '-'}</td>
-            </tr>
-          `;
-        }).join('');
+        displayedRoutes = [...foundRoutes];
+        applyFiltersAndSort();
         
         // Calculate summary
-        const validResults = results.filter(r => r.calc);
+        const validResults = foundRoutes.filter(r => r.calc);
         if (validResults.length > 0) {
-          const totalDistance = validResults.reduce((sum, r) => sum + r.route.distance, 0);
+          const totalDistance = validResults.reduce((sum, r) => sum + r.distance, 0);
           const avgDistance = totalDistance / validResults.length;
           
           const totalPriceNoVAT = validResults.reduce((sum, r) => sum + (r.calc.priceNoVAT || 0), 0);
@@ -770,6 +886,43 @@
     document.getElementById('filterHub').addEventListener('change', renderPricingTable);
     document.getElementById('filterYear').addEventListener('change', renderPricingTable);
     document.getElementById('filterCrop').addEventListener('change', renderPricingTable);
+    
+    // Сортування в таблиці маршрутів
+    document.addEventListener('click', (e) => {
+      const th = e.target.closest('th.sortable');
+      if (!th) return;
+      
+      const col = th.getAttribute('data-col');
+      if (!col) return;
+      
+      // Оновлюємо напрямок
+      if (currentSort.col === col) {
+        currentSort.dir = currentSort.dir === 'asc' ? 'desc' : 'asc';
+      } else {
+        currentSort.col = col;
+        currentSort.dir = 'asc';
+      }
+      
+      // Оновлюємо UI
+      document.querySelectorAll('#routesTable th.sortable').forEach(h => {
+        h.classList.remove('active', 'asc', 'desc');
+      });
+      th.classList.add('active', currentSort.dir);
+      
+      applyFiltersAndSort();
+    });
+    
+    // Фільтри в таблиці маршрутів
+    ['filterFrom', 'filterTo', 'filterDistance', 'filterPriceType'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) {
+        el.addEventListener('input', () => {
+          if (displayedRoutes.length > 0) {
+            applyFiltersAndSort();
+          }
+        });
+      }
+    });
 
     // ==================== INIT ====================
     let userAllowedHubs = [];
