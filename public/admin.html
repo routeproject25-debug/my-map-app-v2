@@ -36,6 +36,15 @@
       margin:2px 12px 8px 0;
       user-select:none;
     }
+    .name-edit-wrap{
+      display:flex; gap:8px; align-items:center; margin-top:6px;
+    }
+    .name-edit-wrap input{
+      flex:1; padding:6px 8px; border:1px solid #cbd5e1; border-radius:6px; font-size:14px;
+    }
+    .name-edit-wrap .btn{
+      white-space:nowrap;
+    }
     /* ── Панель керування ─────────────────────────── */
 .controls{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:8px 0 12px}
 .controls input,.controls select{padding:8px 10px;border:1px solid #cbd5e1;border-radius:8px}
@@ -367,6 +376,7 @@ function renderUsers(){
 
   // повертаємо інтерактивність
   bindRoleChangeHandlers();
+  bindNameChangeHandlers();
   bindHubHandlers();
   bindDeleteHandlers();
 }
@@ -452,6 +462,11 @@ function userRowHTML(id, user){
       <div>
         <b>${escapeHtml(name)}</b>
         <span class="user-meta">(${escapeHtml(role)})${email ? ' • ' + escapeHtml(email) : ''}${created ? ' • створено: ' + escapeHtml(created) : ''}</span>
+      </div>
+      
+      <div class="name-edit-wrap">
+        <input type="text" class="name-input" data-id="${id}" placeholder="Ім'я користувача" value="${escapeHtml(user.displayName || '')}" data-original="${escapeHtml(user.displayName || '')}">
+        <button class="btn save-name" data-id="${id}" disabled title="Зберегти ім'я">✏️ Зберегти ім'я</button>
       </div>
 
       <div class="row-actions">
@@ -563,6 +578,71 @@ function bindRoleChangeHandlers(){
         statusEl.textContent = '❌ Не вдалося оновити роль.';
       } finally {
         e.target.disabled = false;
+      }
+    });
+  });
+}
+
+/* ================= Обробка зміни displayName ================= */
+function bindNameChangeHandlers(){
+  document.querySelectorAll('#user-list .user-row .name-input').forEach((input) => {
+    const btn = input.parentElement.querySelector('.save-name');
+    
+    // Відслідковуємо зміни в інпуті
+    input.addEventListener('input', () => {
+      const original = input.getAttribute('data-original') || '';
+      const current = input.value.trim();
+      btn.disabled = (current === original);
+    });
+    
+    // Збереження displayName
+    btn?.addEventListener('click', async () => {
+      const uid = input.dataset.id;
+      const newName = input.value.trim();
+      const original = input.getAttribute('data-original') || '';
+      
+      if (newName === original) return;
+      
+      btn.disabled = true;
+      const prevText = btn.textContent;
+      btn.textContent = 'Збереження…';
+      statusEl.textContent = `Оновлення імені користувача ${uid}…`;
+      
+      try {
+        const batch = db.batch();
+        const uref = db.collection('users').doc(uid);
+        
+        batch.set(uref, {
+          displayName: newName || null,
+          displayNameUpdatedAt: new Date().toISOString(),
+          displayNameUpdatedBy: currentUser ? currentUser.uid : null
+        }, { merge: true });
+        
+        // аудит
+        const auditRef = db.collection('audit').doc();
+        batch.set(auditRef, {
+          type: 'displayName_change',
+          targetUid: uid,
+          newName,
+          prevName: original,
+          by: currentUser ? currentUser.uid : null,
+          at: new Date().toISOString()
+        });
+        
+        await batch.commit();
+        
+        input.setAttribute('data-original', newName);
+        btn.disabled = true;
+        btn.textContent = '✅ Збережено';
+        statusEl.textContent = `✅ Ім'я оновлено: ${uid}`;
+        
+        setTimeout(() => btn.textContent = prevText, 900);
+      } catch (err) {
+        console.error(err);
+        alert('Помилка збереження імені: ' + (err.message || err));
+        btn.textContent = prevText;
+        btn.disabled = false;
+        statusEl.textContent = '❌ Не вдалося оновити ім\'я.';
       }
     });
   });
