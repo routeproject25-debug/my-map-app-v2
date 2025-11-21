@@ -138,18 +138,6 @@
             </select>
           </div>
           <div>
-            <label>Маршрут (від - до)</label>
-            <input type="text" id="routeSearch" placeholder="Почніть вводити назву...">
-            <datalist id="routeList"></datalist>
-          </div>
-        </div>
-
-        <div class="form-row">
-          <div>
-            <label>Відстань, км</label>
-            <input type="number" id="distance" step="0.01" placeholder="Автоматично з маршруту" readonly>
-          </div>
-          <div>
             <label>Культура</label>
             <select id="crop">
               <option value="">Оберіть культуру...</option>
@@ -167,36 +155,73 @@
           </div>
         </div>
 
+        <div class="form-row">
+          <div>
+            <label>Пошук "Від" (код або назва)</label>
+            <input type="text" id="searchFrom" placeholder="Введіть код або назву...">
+          </div>
+          <div>
+            <label>Пошук "До" (код або назва)</label>
+            <input type="text" id="searchTo" placeholder="Введіть код або назву...">
+          </div>
+        </div>
+
         <div style="margin-top: 16px;">
-          <button id="btnCalculate" class="btn btn-primary">Розрахувати</button>
+          <button id="btnSearch" class="btn btn-primary">🔍 Знайти маршрути</button>
+          <button id="btnCalculateAll" class="btn btn-primary" style="display: none;">💰 Розрахувати всі</button>
           <button id="btnClear" class="btn btn-secondary">Очистити</button>
         </div>
 
-        <div id="resultBox" class="result-box" style="display: none;">
-          <h3>Результат розрахунку</h3>
+        <!-- Список знайдених маршрутів -->
+        <div id="routesContainer" style="display: none; margin-top: 20px;">
+          <h3 style="margin: 0 0 12px; font-size: 16px; color: #374151;">Знайдені маршрути (<span id="routeCount">0</span>)</h3>
+          <div style="overflow-x: auto;">
+            <table class="pricing-table">
+              <thead>
+                <tr>
+                  <th>Від</th>
+                  <th>До</th>
+                  <th>Відстань, км</th>
+                  <th>Розцінка</th>
+                  <th>Без ПДВ</th>
+                  <th>З ПДВ</th>
+                </tr>
+              </thead>
+              <tbody id="routesTableBody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Зведена статистика -->
+        <div id="summaryBox" class="result-box" style="display: none; margin-top: 20px;">
+          <h3>📊 Зведена статистика</h3>
           <div class="result-item">
-            <span class="result-label">Тип розцінки:</span>
-            <span id="resType" class="result-value">-</span>
+            <span class="result-label">Кількість маршрутів:</span>
+            <span id="sumCount" class="result-value">-</span>
           </div>
           <div class="result-item">
-            <span class="result-label">Відстань:</span>
-            <span id="resDistance" class="result-value">-</span>
+            <span class="result-label">Середня відстань:</span>
+            <span id="sumAvgDistance" class="result-value">-</span>
           </div>
           <div class="result-item">
-            <span class="result-label">Вага:</span>
-            <span id="resWeight" class="result-value">-</span>
-          </div>
-          <div class="result-item">
-            <span class="result-label">Розцінка:</span>
-            <span id="resRate" class="result-value">-</span>
+            <span class="result-label">Загальна відстань:</span>
+            <span id="sumTotalDistance" class="result-value">-</span>
           </div>
           <div class="result-item" style="border-top: 2px solid #3b82f6; margin-top: 8px; padding-top: 12px;">
-            <span class="result-label">Вартість без ПДВ:</span>
-            <span id="resPriceNoVAT" class="result-value">-</span>
+            <span class="result-label">Середня вартість без ПДВ:</span>
+            <span id="sumAvgPriceNoVAT" class="result-value">-</span>
           </div>
           <div class="result-item">
-            <span class="result-label">Вартість з ПДВ:</span>
-            <span id="resPriceWithVAT" class="result-value">-</span>
+            <span class="result-label">Сума без ПДВ:</span>
+            <span id="sumTotalPriceNoVAT" class="result-value">-</span>
+          </div>
+          <div class="result-item" style="border-top: 2px solid #3b82f6; margin-top: 8px; padding-top: 12px;">
+            <span class="result-label">Середня вартість з ПДВ:</span>
+            <span id="sumAvgPriceWithVAT" class="result-value">-</span>
+          </div>
+          <div class="result-item">
+            <span class="result-label">Сума з ПДВ:</span>
+            <span id="sumTotalPriceWithVAT" class="result-value">-</span>
           </div>
         </div>
       </div>
@@ -310,8 +335,10 @@
           const d = doc.data();
           allRoutes.push({
             id: doc.id,
-            from: d.fromName || d.fromLabel || '',
-            to: d.toName || d.toLabel || '',
+            fromCode: d.fromCode || '',
+            toCode: d.toCode || '',
+            fromName: d.fromName || d.fromLabel || '',
+            toName: d.toName || d.toLabel || '',
             distance: d.distance || 0
           });
         });
@@ -320,59 +347,134 @@
       }
     }
 
-    // Route search with autocomplete
-    const routeSearch = document.getElementById('routeSearch');
-    const routeList = document.getElementById('routeList');
-    
-    routeSearch.addEventListener('input', () => {
-      const query = routeSearch.value.toLowerCase();
-      if (query.length < 2) {
-        routeList.innerHTML = '';
+    // Search routes
+    let foundRoutes = [];
+    document.getElementById('btnSearch').addEventListener('click', () => {
+      const searchFrom = document.getElementById('searchFrom').value.toLowerCase().trim();
+      const searchTo = document.getElementById('searchTo').value.toLowerCase().trim();
+      
+      if (!searchFrom && !searchTo) {
+        alert('Введіть хоча б один параметр пошуку (Від або До)');
         return;
       }
       
-      const filtered = allRoutes.filter(r => 
-        r.from.toLowerCase().includes(query) || r.to.toLowerCase().includes(query)
-      ).slice(0, 20);
-      
-      routeList.innerHTML = '';
-      filtered.forEach(r => {
-        const opt = document.createElement('option');
-        opt.value = `${r.from} → ${r.to}`;
-        opt.setAttribute('data-distance', r.distance);
-        routeList.appendChild(opt);
+      foundRoutes = allRoutes.filter(r => {
+        const matchFrom = !searchFrom || 
+          r.fromCode.toLowerCase().includes(searchFrom) || 
+          r.fromName.toLowerCase().includes(searchFrom);
+        const matchTo = !searchTo || 
+          r.toCode.toLowerCase().includes(searchTo) || 
+          r.toName.toLowerCase().includes(searchTo);
+        return matchFrom && matchTo;
       });
-    });
-
-    routeSearch.addEventListener('change', () => {
-      const selected = Array.from(routeList.options).find(opt => opt.value === routeSearch.value);
-      if (selected) {
-        document.getElementById('distance').value = selected.getAttribute('data-distance');
+      
+      if (foundRoutes.length === 0) {
+        alert('Маршрути не знайдено');
+        document.getElementById('routesContainer').style.display = 'none';
+        document.getElementById('summaryBox').style.display = 'none';
+        document.getElementById('btnCalculateAll').style.display = 'none';
+        return;
       }
+      
+      document.getElementById('routeCount').textContent = foundRoutes.length;
+      document.getElementById('routesContainer').style.display = 'block';
+      document.getElementById('btnCalculateAll').style.display = 'inline-block';
+      renderFoundRoutes();
     });
 
-    // Calculate
-    document.getElementById('btnCalculate').addEventListener('click', async () => {
+    function renderFoundRoutes() {
+      const tbody = document.getElementById('routesTableBody');
+      tbody.innerHTML = foundRoutes.map(r => `
+        <tr>
+          <td>${r.fromName || r.fromCode}</td>
+          <td>${r.toName || r.toCode}</td>
+          <td>${r.distance.toFixed(2)}</td>
+          <td colspan="3" style="text-align: center; color: #6b7280;">Натисніть "Розрахувати всі"</td>
+        </tr>
+      `).join('');
+    }
+
+    // Calculate all routes
+    document.getElementById('btnCalculateAll').addEventListener('click', async () => {
       const hub = document.getElementById('calcHub').value;
       const year = document.getElementById('calcYear').value;
-      const distance = parseFloat(document.getElementById('distance').value);
       const crop = document.getElementById('crop').value;
       const weight = parseFloat(document.getElementById('weight').value) || 27;
       
-      if (!hub || !year || !distance || !crop) {
-        alert('Заповніть всі обов\'язкові поля');
+      if (!hub || !year || !crop) {
+        alert('Оберіть хаб, рік та культуру');
         return;
       }
       
+      const tbody = document.getElementById('routesTableBody');
+      tbody.innerHTML = '<tr><td colspan="6" style="text-align: center;">Розрахунок...</td></tr>';
+      
       try {
-        const pricing = await findPricingForDistance(hub, year, crop, distance);
-        if (!pricing) {
-          alert('Розцінку для вказаних параметрів не знайдено');
-          return;
+        const results = [];
+        for (const route of foundRoutes) {
+          const pricing = await findPricingForDistance(hub, year, crop, route.distance);
+          if (pricing) {
+            const calc = calculatePrice(pricing, route.distance, weight);
+            results.push({
+              route,
+              pricing,
+              calc
+            });
+          } else {
+            results.push({
+              route,
+              pricing: null,
+              calc: null
+            });
+          }
         }
         
-        const result = calculatePrice(pricing, distance, weight);
-        displayResult(result, distance, weight, pricing);
+        // Render results
+        tbody.innerHTML = results.map(r => {
+          if (!r.calc) {
+            return `
+              <tr>
+                <td>${r.route.fromName || r.route.fromCode}</td>
+                <td>${r.route.toName || r.route.toCode}</td>
+                <td>${r.route.distance.toFixed(2)}</td>
+                <td colspan="3" style="text-align: center; color: #dc2626;">Розцінка не знайдена</td>
+              </tr>
+            `;
+          }
+          return `
+            <tr>
+              <td>${r.route.fromName || r.route.fromCode}</td>
+              <td>${r.route.toName || r.route.toCode}</td>
+              <td>${r.route.distance.toFixed(2)}</td>
+              <td>${r.pricing.priceType}</td>
+              <td>${r.calc.priceNoVAT ? r.calc.priceNoVAT.toFixed(2) + ' грн' : '-'}</td>
+              <td>${r.calc.priceWithVAT ? r.calc.priceWithVAT.toFixed(2) + ' грн' : '-'}</td>
+            </tr>
+          `;
+        }).join('');
+        
+        // Calculate summary
+        const validResults = results.filter(r => r.calc);
+        if (validResults.length > 0) {
+          const totalDistance = validResults.reduce((sum, r) => sum + r.route.distance, 0);
+          const avgDistance = totalDistance / validResults.length;
+          
+          const totalPriceNoVAT = validResults.reduce((sum, r) => sum + (r.calc.priceNoVAT || 0), 0);
+          const avgPriceNoVAT = totalPriceNoVAT / validResults.length;
+          
+          const totalPriceWithVAT = validResults.reduce((sum, r) => sum + (r.calc.priceWithVAT || 0), 0);
+          const avgPriceWithVAT = totalPriceWithVAT / validResults.length;
+          
+          document.getElementById('sumCount').textContent = validResults.length;
+          document.getElementById('sumAvgDistance').textContent = avgDistance.toFixed(2) + ' км';
+          document.getElementById('sumTotalDistance').textContent = totalDistance.toFixed(2) + ' км';
+          document.getElementById('sumAvgPriceNoVAT').textContent = avgPriceNoVAT.toFixed(2) + ' грн';
+          document.getElementById('sumTotalPriceNoVAT').textContent = totalPriceNoVAT.toFixed(2) + ' грн';
+          document.getElementById('sumAvgPriceWithVAT').textContent = avgPriceWithVAT.toFixed(2) + ' грн';
+          document.getElementById('sumTotalPriceWithVAT').textContent = totalPriceWithVAT.toFixed(2) + ' грн';
+          
+          document.getElementById('summaryBox').style.display = 'block';
+        }
       } catch(e) {
         console.error(e);
         alert('Помилка розрахунку: ' + (e.message || e));
@@ -428,24 +530,15 @@
       };
     }
 
-    function displayResult(result, distance, weight, pricing) {
-      document.getElementById('resType').textContent = result.type;
-      document.getElementById('resDistance').textContent = distance.toFixed(2) + ' км';
-      document.getElementById('resWeight').textContent = weight.toFixed(1) + ' т';
-      document.getElementById('resRate').textContent = result.rate ? result.rate.toFixed(2) + ' грн' : '-';
-      document.getElementById('resPriceNoVAT').textContent = result.priceNoVAT ? result.priceNoVAT.toFixed(2) + ' грн' : '-';
-      document.getElementById('resPriceWithVAT').textContent = result.priceWithVAT ? result.priceWithVAT.toFixed(2) + ' грн' : '-';
-      
-      document.getElementById('resultBox').style.display = 'block';
-    }
-
     document.getElementById('btnClear').addEventListener('click', () => {
-      document.getElementById('routeSearch').value = '';
-      document.getElementById('distance').value = '';
+      document.getElementById('searchFrom').value = '';
+      document.getElementById('searchTo').value = '';
       document.getElementById('crop').value = '';
       document.getElementById('weight').value = '27';
-      document.getElementById('resultBox').style.display = 'none';
-      // Don't clear hub and year selectors
+      document.getElementById('routesContainer').style.display = 'none';
+      document.getElementById('summaryBox').style.display = 'none';
+      document.getElementById('btnCalculateAll').style.display = 'none';
+      foundRoutes = [];
     });
 
     // ==================== PRICING MANAGEMENT ====================
