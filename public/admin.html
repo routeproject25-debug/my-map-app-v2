@@ -154,12 +154,26 @@ btnLogout.addEventListener('click', async () => {
 async function resolveUserRole(uid){
   try {
     const udoc = await db.collection('users').doc(uid).get({ source: 'server' });
-    if (udoc.exists && udoc.data()?.role) return String(udoc.data().role);
+    if (udoc.exists) {
+      const d = udoc.data() || {};
+      const role = d.role ? String(d.role) : 'pending';
+      const displayName = (d.displayName && typeof d.displayName === 'string' && d.displayName.trim())
+        ? d.displayName.trim()
+        : '';
+      return { role, displayName };
+    }
   } catch(e){ console.warn('users role read (server) failed', e); }
 
   try {
     const udoc2 = await db.collection('users').doc(uid).get();
-    if (udoc2.exists && udoc2.data()?.role) return String(udoc2.data().role);
+    if (udoc2.exists) {
+      const d = udoc2.data() || {};
+      const role = d.role ? String(d.role) : 'pending';
+      const displayName = (d.displayName && typeof d.displayName === 'string' && d.displayName.trim())
+        ? d.displayName.trim()
+        : '';
+      return { role, displayName };
+    }
   } catch(e){ console.warn('users role read (cache) failed', e); }
 
   try {
@@ -379,16 +393,21 @@ auth.onAuthStateChanged(async (u) => {
     return;
   }
 
+  let role = 'pending';
+  let displayNameFromFirestore = '';
+  try {
+    const result = await resolveUserRole(u.uid);
+    role = String(result.role || 'pending').trim().toLowerCase();
+    displayNameFromFirestore = result.displayName || '';
+  } catch(e){ console.error(e); }
+  
   {
-    const dn = (u && typeof u.displayName === 'string' && u.displayName.trim())
-      ? u.displayName.trim()
-      : (`Хтось не місцевий і ${u.email || u.uid}`);
+    const dn = displayNameFromFirestore
+      || (u && typeof u.displayName === 'string' && u.displayName.trim())
+      || (`Хтось не місцевий і ${u.email || u.uid}`);
     helloEl.textContent = 'Увійшли як ' + dn;
   }
   btnLogout.style.display = '';
-
-  let role = 'pending';
-  try { role = (await resolveUserRole(u.uid)).trim().toLowerCase(); } catch(e){ console.error(e); }
   if (role !== 'admin') {
     statusEl.textContent = '⛔ Доступ заборонено (потрібна роль admin)';
     document.documentElement.style.visibility = 'visible';

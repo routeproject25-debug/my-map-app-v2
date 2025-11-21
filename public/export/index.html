@@ -1363,15 +1363,22 @@ btnLogout.addEventListener('click', async () => { try{ await auth.signOut(); }ca
 async function getAllowedHubsForUser(uid, role){
   try{
     const r = String(role||'').toLowerCase();
-    if (r === 'admin' || r === 'security') return [];
     const snap = await firebase.firestore().collection('users').doc(uid).get({ source: 'server' });
     const d = snap.exists ? (snap.data() || {}) : {};
-    if (Array.isArray(d.allowedHubs) && d.allowedHubs.length) return d.allowedHubs.slice(0,10);
-    if (Array.isArray(d.hubs) && d.hubs.length)               return d.hubs.slice(0,10);
-    if (typeof d.hub === 'string' && d.hub.trim())            return [d.hub.trim()];
-    if (typeof d.hubAccess === 'string' && d.hubAccess.trim())return [d.hubAccess.trim()];
-    return []; // [] = всі хаби
-  }catch(e){ console.warn('getAllowedHubsForUser(export):', e?.message||e); return []; }
+    
+    let hubs = [];
+    if (r === 'admin' || r === 'security') hubs = [];
+    else if (Array.isArray(d.allowedHubs) && d.allowedHubs.length) hubs = d.allowedHubs.slice(0,10);
+    else if (Array.isArray(d.hubs) && d.hubs.length) hubs = d.hubs.slice(0,10);
+    else if (typeof d.hub === 'string' && d.hub.trim()) hubs = [d.hub.trim()];
+    else if (typeof d.hubAccess === 'string' && d.hubAccess.trim()) hubs = [d.hubAccess.trim()];
+    
+    const displayName = (d.displayName && typeof d.displayName === 'string' && d.displayName.trim())
+      ? d.displayName.trim()
+      : '';
+    
+    return { hubs, displayName };
+  }catch(e){ console.warn('getAllowedHubsForUser(export):', e?.message||e); return { hubs: [], displayName: '' }; }
 }
 
 auth?.onAuthStateChanged(async (u) => {
@@ -1383,9 +1390,12 @@ auth?.onAuthStateChanged(async (u) => {
   }
 
   currentRole   = window.__userRole || 'pending';
+  let displayNameFromFirestore = '';
   try {
-    const hubsSrv = await getAllowedHubsForUser(u.uid, currentRole);
-    ALLOWED_HUBS = hubsSrv;                                 // [] = всі хаби
+    const result = await getAllowedHubsForUser(u.uid, currentRole);
+    const hubsSrv = result.hubs || [];
+    displayNameFromFirestore = result.displayName || '';
+    ALLOWED_HUBS = hubsSrv;
     allowedHubs  = Array.isArray(hubsSrv) ? hubsSrv.slice() : [];
     allowAllHubs = !Array.isArray(ALLOWED_HUBS) || ALLOWED_HUBS.length === 0;
     applyTilesetHubVisibilitySafe();
@@ -1398,9 +1408,9 @@ auth?.onAuthStateChanged(async (u) => {
   fillHubsList();
 
   {
-    const dn = (u && typeof u.displayName === 'string' && u.displayName.trim())
-      ? u.displayName.trim()
-      : (`Хтось не місцевий і ${u.email || u.uid}`);
+    const dn = displayNameFromFirestore
+      || (u && typeof u.displayName === 'string' && u.displayName.trim())
+      || (`Хтось не місцевий і ${u.email || u.uid}`);
     authInfo.textContent = `Увійшли як ${dn}`;
   }
   btnLogout.style.display = '';

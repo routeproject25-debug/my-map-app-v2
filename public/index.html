@@ -3021,18 +3021,26 @@ async function getAllowedHubsForUser(uid, role){
   try{
     // адміни/СБ — бачать всі
     const rl = String(role||'').toLowerCase();
-    if (rl === 'admin' || rl === 'security') return null;
     const snap = await db.collection('users').doc(uid).get({ source: 'server' });
     const d = snap.exists ? (snap.data() || {}) : {};
-    if (d.allowAllHubs === true || d.allowedHubs === '*' || d.hubs === '*') return null;
-    if (Array.isArray(d.allowedHubs) && d.allowedHubs.length) return d.allowedHubs.slice(0, 10);
-    if (Array.isArray(d.hubs) && d.hubs.length)               return d.hubs.slice(0, 10);
-    if (typeof d.hub === 'string' && d.hub.trim())            return [d.hub.trim()];
-    if (typeof d.hubAccess === 'string' && d.hubAccess.trim())return [d.hubAccess.trim()];
-    return []; // жодного
+    
+    const displayName = (d.displayName && typeof d.displayName === 'string' && d.displayName.trim())
+      ? d.displayName.trim()
+      : '';
+    
+    let hubs = null;
+    if (rl === 'admin' || rl === 'security') hubs = null;
+    else if (d.allowAllHubs === true || d.allowedHubs === '*' || d.hubs === '*') hubs = null;
+    else if (Array.isArray(d.allowedHubs) && d.allowedHubs.length) hubs = d.allowedHubs.slice(0, 10);
+    else if (Array.isArray(d.hubs) && d.hubs.length) hubs = d.hubs.slice(0, 10);
+    else if (typeof d.hub === 'string' && d.hub.trim()) hubs = [d.hub.trim()];
+    else if (typeof d.hubAccess === 'string' && d.hubAccess.trim()) hubs = [d.hubAccess.trim()];
+    else hubs = [];
+    
+    return { hubs, displayName };
   }catch(e){
     console.warn('getAllowedHubsForUser:', e?.message||e);
-    return []; // безпечний дефолт — жодного
+    return { hubs: [], displayName: '' }; // безпечний дефолт
   }
 }
 
@@ -5897,12 +5905,7 @@ auth?.onAuthStateChanged(async (user) => {
   if (user){
   window.__canHideSplash = true;
   hideSplash();          // ⬅️ ховаємо сплеш тільки після успішної авторизації
-    {
-      const dn = (user && typeof user.displayName === 'string' && user.displayName.trim())
-        ? user.displayName.trim()
-        : (`Хтось не місцевий і ${user.email || user.uid}`);
-      authHello.textContent = 'Увійшли як ' + dn;
-    }
+    // displayName буде доступний після getAllowedHubsForUser
     loginBtn.style.display='none'; authEmail.style.display='none'; authPass.style.display='none';
     logoutBtn.style.display='inline-block';
     if (window.matchMedia('(max-width: 1024px)').matches || document.body.classList.contains('force-compact')) {
@@ -5919,10 +5922,20 @@ if (!['admin','logist','user'].includes(role)) {
 // ✅ показуємо реальну роль, у т.ч. user (read-only)
 applyRoleUI(['admin','logist','user'].includes(role) ? role : 'guest');
 // ⬇️ підвантажуємо дозволені хаби для користувача
+let displayNameFromFirestore = '';
 try {
-  ALLOWED_HUBS = await getAllowedHubsForUser(user.uid, window.__userRole || role || 'user');
+  const result = await getAllowedHubsForUser(user.uid, window.__userRole || role || 'user');
+  ALLOWED_HUBS = result.hubs;
+  displayNameFromFirestore = result.displayName || '';
 } catch (_) {
   ALLOWED_HUBS = [];
+}
+// Оновлюємо привітання з displayName з Firestore
+{
+  const dn = displayNameFromFirestore
+    || (user && typeof user.displayName === 'string' && user.displayName.trim())
+    || (`Хтось не місцевий і ${user.email || user.uid}`);
+  authHello.textContent = 'Увійшли як ' + dn;
 }
 applyHubSelectVisibility();
 // Якщо нема доступу до жодного хабу — залочити UI і показати банер

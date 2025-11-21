@@ -268,14 +268,17 @@
   const db   = firebase.firestore();
   const auth = firebase.auth();
   async function getNormalizedRole(){
-  if (window.__userRole) return String(window.__userRole).trim().toLowerCase();
   try{
     const u = auth.currentUser;
-    if (!u) return 'user';
+    if (!u) return { role: 'user', displayName: '' };
     const us = await db.collection('users').doc(u.uid).get();
-    const r = us.exists ? (us.data().role || 'pending') : 'pending';
-    return String(r).trim().toLowerCase();
-  }catch{ return 'user'; }
+    const d = us.exists ? us.data() : {};
+    const r = d.role || 'pending';
+    const dn = (d.displayName && typeof d.displayName === 'string' && d.displayName.trim())
+      ? d.displayName.trim()
+      : '';
+    return { role: String(r).trim().toLowerCase(), displayName: dn };
+  }catch{ return { role: 'user', displayName: '' }; }
 }
 
   // --- нормалізація координат ---
@@ -1426,14 +1429,17 @@ function drawManualSegments(d){
       location.replace('/login.html?next=' + encodeURIComponent(location.pathname + location.search));
       return;
     }
+    const result = await getNormalizedRole();
+    const role = result.role;
+    const displayNameFromFirestore = result.displayName || '';
+    
     {
-      const dn = (u && typeof u.displayName === 'string' && u.displayName.trim())
-        ? u.displayName.trim()
-        : (`Хтось не місцевий і ${u.email || u.uid}`);
+      const dn = displayNameFromFirestore
+        || (u && typeof u.displayName === 'string' && u.displayName.trim())
+        || (`Хтось не місцевий і ${u.email || u.uid}`);
       hello.textContent = 'Увійшли як ' + dn;
     }
 
-    const role = await getNormalizedRole();
 	const sec = (role === 'security' || role === 'admin');
 	document.getElementById('secButtons').style.display = sec ? 'flex' : 'none';
 
