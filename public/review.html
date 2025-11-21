@@ -1167,8 +1167,8 @@ function drawManualSegments(d){
     chip('chipStatus',   'Статус: ' + fmtStatus(d.approval?.status));
 	    // якщо вже є рішення — не показуємо дії
     const decided = ['approved','rejected'].includes(String(d.approval?.status||'').toLowerCase());
-    const role = await getNormalizedRole();
-    const canDecide = (role==='security' || role==='admin') && !decided;
+    const roleObj = await getNormalizedRole();
+    const canDecide = (roleObj.role==='security' || roleObj.role==='admin') && !decided;
     document.getElementById('secButtons').style.display = canDecide ? 'flex' : 'none';
 
     const subInfo = d.approval?.submittedAt ? `Подано: ${d.approval.submittedAt} (${d.approval.submittedByEmail||d.approval.submittedByUid||''})` : '';
@@ -1227,8 +1227,8 @@ function drawManualSegments(d){
 
   // Approve / Reject actions (перестраховка на боці клієнта по ролях)
   async function applyDecision(kind, comment){
-    const role = String(window.__userRole || 'user').trim().toLowerCase();
-	const allowed = (role === 'security' || role === 'admin');
+    const userRole = String(window.__userRole || 'user').trim().toLowerCase();
+	const allowed = (userRole === 'security' || userRole === 'admin');
     if (!allowed){
       alert('Недостатньо прав для цієї дії.');
       return;
