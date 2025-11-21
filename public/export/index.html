@@ -447,9 +447,12 @@ body.map-open #bottomScroller{
 
   window.addEventListener('beforeunload', () => { try { window.__roleUnsub?.(); } catch(_) {} });
 
-
+  let _authHandled = false;
   async function handleUser(u){
     if (!u) { location.replace(loginURL); return; }
+    if (_authHandled) return; // захист від повторних викликів
+    _authHandled = true;
+    
     try {
       const snap = await db.collection('users').doc(u.uid).get({ source: 'server' });
       const data = snap.exists ? (snap.data() || {}) : {};
@@ -499,9 +502,7 @@ body.map-open #bottomScroller{
     }
   }
 
-  // 1) Якщо користувач уже відомий у цій вкладці — стартуємо одразу
-  if (auth.currentUser) { handleUser(auth.currentUser); }
-  // 2) А також підпишемось на зміну стану (для випадків, коли стан ще не відновився з IndexedDB)
+  // Підписуємось на onAuthStateChanged один раз
   auth.onAuthStateChanged((u) => { handleUser(u); });
 })();
 </script>
