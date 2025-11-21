@@ -1,0 +1,342 @@
+// Firestore Security Rules
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    /* ===== Helpers ===== */
+    function authed() { return request.auth != null; }
+
+    // Поточний користувач (читання свого users/{uid})
+    function me() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
+
+    // Роль користувача: users/{uid} -> roles/{uid} -> 'pending'
+    function role() {
+      return authed()
+        ? (
+            exists(/databases/$(database)/documents/users/$(request.auth.uid))
+              ? me().data.role
+              : (
+                  exists(/databases/$(database)/documents/roles/$(request.auth.uid))
+                    ? get(/databases/$(database)/documents/roles/$(request.auth.uid)).data.role
+                    : 'pending'
+                )
+          )
+        : null;
+    }
+
+    function isAdmin()    { return role() == 'admin'; }
+    function isLogist()   { return role() == 'logist'; }
+    function isUser()     { return role() == 'user'; }
+    function isSecurity() { return role() == 'security'; }
+    function isWriter()   { return isAdmin() || isLogist(); } // створення/редагування маршрутів
+
+    // ===== Доступ за хабами =====
+    function _userAllowedHubs() {
+      return exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        ? (
+            (me().data.allowedHubs is list) ? me().data.allowedHubs
+          : (me().data.hubs        is list) ? me().data.hubs
+          : (me().data.hub         is string) ? [me().data.hub]
+          : (me().data.hubAccess   is string) ? [me().data.hubAccess]
+          : []
+          )
+        : [];
+    }
+
+    // Порожній список = "усі хаби"
+    function hasAllHubs() {
+      return _userAllowedHubs().size() == 0;
+    }
+
+    // Читання/доступ до маршруту з урахуванням хабів
+    function canReadRoute(d) {
+      return (isAdmin() || isSecurity())
+          || hasAllHubs()
+          || (d.hub is string && d.hub in _userAllowedHubs());
+    }
+
+    // Читання/доступ до розцінок з урахуванням хабів
+    function canReadPricing(d) {
+      return isAdmin()
+          || hasAllHubs()
+          || (d.hub is string && d.hub in _userAllowedHubs());
+    }
+
+    // Утиліти
+    function nonEmptyString(s) { return s is string && s.matches('^\\S.*$'); }
+    function validYear(y)      { return y.matches('^\\d{4}$'); }
+    function isNum(x)          { return x is int || x is float; }
+
+    // Валідація структури розцінки
+    function validPricing(d) {
+      return d.hub is string
+          && nonEmptyString(d.hub)
+          && d.year is int
+          && d.year >= 2020
+          && d.year <= 2030
+          && d.crop is string
+          && nonEmptyString(d.crop)
+          && isNum(d.distFrom)
+          && isNum(d.distTo)
+          && d.distFrom >= 0
+          && d.distTo > d.distFrom
+          && d.priceType is string
+          && (d.priceType == 'т/км' || d.priceType == 'за тону')
+          && (!('priceNoVAT' in d) || d.priceNoVAT == null || isNum(d.priceNoVAT))
+          && (!('priceWithVAT' in d) || d.priceWithVAT == null || isNum(d.priceWithVAT));
+    }
+
+    // Чи змінилась відстань суттєво (>0.01 км)
+    function distanceChanged() {
+      return isNum(resource.data.distance_km)
+          && isNum(request.resource.data.distance_km)
+          && (
+               request.resource.data.distance_km > resource.data.distance_km + 0.01
+            || request.resource.data.distance_km < resource.data.distance_km - 0.01
+          );
+    }
+
+    // Базова валідація маршруту (без обов'язкового hub)
+    function validRouteBase(d) {
+      return d.fromCode  is string
+          && d.toCode    is string
+          && d.routeType is string
+          && (!('routeKey' in d) || d.routeKey.matches('^[A-Za-zА-ЯІЇЄҐ]{2}-\\d{10}$'));
+    }
+
+    // Додаткова умова по hub: якщо "всі хаби" — hub може бути відсутнім/порожнім; інакше — обов'язково непорожній
+    function hubWriteOk(d) {
+      return hasAllHubs()
+        ? ( !('hub' in d) || d.hub == null || nonEmptyString(d.hub) )
+        : ( ('hub' in d) && nonEmptyString(d.hub) );
+    }
+
+    // ---- approval: логіст → pending
+    function canSetPending(oldApp, newApp) {
+      return newApp is map
+             && ('status' in newApp) && newApp.status == 'pending'
+             && (!('comment' in newApp) || (newApp.comment == null || (newApp.comment is string && newApp.comment.size() == 0)))
+             && (!('decidedByUid'   in newApp) || newApp.decidedByUid   == null)
+             && (!('decidedByEmail' in newApp) || newApp.decidedByEmail == null)
+             && (!('decisionAt'     in newApp) || newApp.decisionAt     == null);
+    }
+
+    // ---- approval: інвалідація у draft при зміні відстані (логіст)
+    function canInvalidateToDraft(oldApp, newApp) {
+      return newApp is map
+             && ('status' in newApp) && newApp.status == 'draft'
+             && distanceChanged()
+             && (!('submittedAt'     in newApp) || newApp.submittedAt     == null)
+             && (!('submittedByUid'  in newApp) || newApp.submittedByUid  == null)
+             && (!('submittedByEmail'in newApp) || newApp.submittedByEmail== null)
+             && (!('decidedByUid'    in newApp) || newApp.decidedByUid    == null)
+             && (!('decidedByEmail'  in newApp) || newApp.decidedByEmail  == null)
+             && (!('decisionAt'      in newApp) || newApp.decisionAt      == null)
+             && (!('revision' in newApp) || (newApp.revision is int));
+    }
+
+    // ---- approval: СБ/Адмін → approved/rejected
+    function canSecurityDecide(oldApp, newApp) {
+      return newApp is map
+             && ('status' in newApp)
+             && (newApp.status == 'approved' || newApp.status == 'rejected')
+             && (newApp.status != 'rejected' || (('comment' in newApp) && nonEmptyString(newApp.comment)));
+    }
+
+    /* ===== NEW: helpers для пропозицій ===== */
+    function changedOnly(keys) {
+      return request.resource.data.diff(resource.data).changedKeys().hasOnly(keys);
+    }
+    function proposalRemoved() {
+      return ('proposal' in resource.data) && !('proposal' in request.resource.data);
+    }
+    function proposalPresent() {
+      return ('proposal' in request.resource.data);
+    }
+    // Просте обмеження на тип поля proposal (допускаємо map або відсутність)
+    function proposalWriteOk() {
+      return !proposalPresent() || (request.resource.data.proposal is map);
+    }
+    // Перевірка форми при "прийнятті" (лише типи полів; детальна перевірка — на бекенді/клієнті)
+    function acceptProposalShapeOk() {
+      return (!('points' in request.resource.data)      || (request.resource.data.points      is list))
+          && (!('startRuler' in request.resource.data)  || (request.resource.data.startRuler  is list))
+          && (!('endRuler' in request.resource.data)    || (request.resource.data.endRuler    is list))
+          && (!('distance_km' in request.resource.data) || isNum(request.resource.data.distance_km));
+    }
+
+    /* ===== Collections ===== */
+
+    // Логісти
+    match /logists/{id} {
+      allow read: if authed();
+      allow create, update, delete: if isAdmin(); // або додати || isLogist()
+    }
+
+    // ===== Розцінки (pricing) =====
+    match /pricing/{id} {
+      // Читання — всі авторизовані користувачі з доступом до хабу
+      allow read: if authed() && canReadPricing(resource.data);
+      
+      // Створення/оновлення — ТІЛЬКИ адміністратор з валідацією структури
+      allow create, update: if isAdmin() && validPricing(request.resource.data);
+      
+      // Видалення — ТІЛЬКИ адміністратор
+      allow delete: if isAdmin();
+    }
+
+    // Маршрути
+    match /routes/{id} {
+      // Читання — за роллю/хабами
+      allow read: if authed() && canReadRoute(resource.data);
+
+      // Створення — автор (адмін/логіст), валідний маршрут, hub‑правило, доступ по хабу
+      allow create: if isWriter()
+                    && validRouteBase(request.resource.data)
+                    && hubWriteOk(request.resource.data)
+                    && canReadRoute(request.resource.data);
+
+      // Оновлення:
+      //  A) Базовий апдейт автором (адмін/логіст) + правила для approval (як було)
+      //  B) Рішення СБ/Адміна по approval (approved/rejected) — тільки approval/updatedAt
+      //  C) СБ/Адмін: робота з пропозицією — тільки proposal/updatedAt (створити/оновити/видалити)
+      //  D) Логіст/Адмін: ПРИЙНЯТИ пропозицію — оновлення points/startRuler/endRuler/distance_km та видалення proposal (+ updatedAt)
+      //  E) Логіст/Адмін: ВІДХИЛИТИ пропозицію — лише видалення proposal (+ updatedAt)
+      allow update: if (
+        // A) базовий апдейт автором
+        isWriter()
+        && validRouteBase(request.resource.data)
+        && hubWriteOk(request.resource.data)
+        && canReadRoute(request.resource.data)
+        && (!('routeKey' in resource.data) || resource.data.routeKey == request.resource.data.routeKey)
+        && !(('approval' in resource.data) && !('approval' in request.resource.data))
+        && (
+             (!('approval' in request.resource.data) && !('approval' in resource.data))
+             || (('approval' in request.resource.data) && ('approval' in resource.data) && request.resource.data.approval == resource.data.approval)
+             || (('approval' in request.resource.data) && canSetPending(resource.data.approval, request.resource.data.approval))
+             || (('approval' in request.resource.data) && canInvalidateToDraft(resource.data.approval, request.resource.data.approval))
+           )
+      ) || (
+        // B) рішення СБ/Адміна по approval
+        (isSecurity() || isAdmin())
+        && changedOnly(['approval', 'updatedAt'])
+        && ('approval' in request.resource.data)
+        && canSecurityDecide(resource.data.approval, request.resource.data.approval)
+        && (!('routeKey' in resource.data) || resource.data.routeKey == request.resource.data.routeKey)
+        && canReadRoute(request.resource.data)
+      ) || (
+        // C) СБ/Адмін може створити/оновити/видалити ТІЛЬКИ proposal (+ updatedAt)
+        (isSecurity() || isAdmin())
+        && changedOnly(['proposal', 'updatedAt'])
+        && proposalWriteOk()
+        && (!('routeKey' in resource.data) || resource.data.routeKey == request.resource.data.routeKey)
+        && canReadRoute(request.resource.data)
+      ) || (
+        // D) Логіст/Адмін ПРИЙМАЄ пропозицію:
+        //    — змінює тільки points/startRuler/endRuler/distance_km/proposal/updatedAt
+        //    — і обов'язково видаляє proposal
+        isWriter()
+        && changedOnly(['points','startRuler','endRuler','distance_km','proposal','updatedAt'])
+        && proposalRemoved()
+        && acceptProposalShapeOk()
+        && (!('routeKey' in resource.data) || resource.data.routeKey == request.resource.data.routeKey)
+        && hubWriteOk(request.resource.data)
+        && canReadRoute(request.resource.data)
+      ) || (
+        // E) Логіст/Адмін ВІДХИЛЯЄ пропозицію:
+        //    — змінює тільки proposal/updatedAt
+        //    — і обов'язково видаляє proposal
+        isWriter()
+        && changedOnly(['proposal','updatedAt'])
+        && proposalRemoved()
+        && (!('routeKey' in resource.data) || resource.data.routeKey == request.resource.data.routeKey)
+        && canReadRoute(request.resource.data)
+      );
+
+      // Видаляти може лише адміністратор
+      allow delete: if isAdmin();
+    }
+
+    // Резерв унікальних кодів маршрутів — тільки для адмінів/СБ
+    match /routeKeys/{key} {
+      allow read: if isWriter();
+      allow create, update: if isAdmin() || isSecurity();
+      allow delete: if isAdmin();
+    }
+
+    // Довідники
+    match /directory/{id} {
+      allow read: if true;
+      allow create, update, delete: if isAdmin() || isLogist();
+    }
+
+    // ===== Users =====
+    match /users/{uid} {
+      allow create: if authed()
+                    && request.auth.uid == uid
+                    && !exists(/databases/$(database)/documents/users/$(uid));
+      allow read: if authed() && (request.auth.uid == uid || isAdmin());
+      allow update, delete: if isAdmin();
+    }
+
+    // ===== Audit =====
+    match /audit/{docId} {
+      allow create: if isAdmin();
+      allow read:   if isAdmin();
+      allow update, delete: if isAdmin();
+    }
+
+    // ===== Route Audit Logs (client-side on Spark) =====
+    match /route_logs/{id} {
+      // Дозволяємо створювати журнали admin/security/logist
+      allow create: if authed() && (isAdmin() || isSecurity() || isLogist());
+      // Дозволяємо читати журнали тим же ролям (щоб бачити їх у вʼювері)
+      allow read:   if authed() && (isAdmin() || isSecurity() || isLogist());
+      // Забороняємо редагування/видалення — журнали append-only
+      allow update, delete: if false;
+    }
+
+    // ===== Legacy roles (read-only) =====
+    match /roles/{uid} {
+      allow read: if authed() && (request.auth.uid == uid || isAdmin());
+      allow write: if false;
+    }
+
+    // ===== Codes =====
+    match /codes/{year}/sowings/{sowing_key} {
+      allow read: if authed();
+      allow create, update: if isAdmin()
+                            && validYear(year)
+                            && (request.resource.data.code is string)
+                            && validSowingCodeData(request.resource.data);
+      allow delete: if isAdmin();
+    }
+
+    match /codes_by_code/{year}/codes/{code} {
+      allow read: if authed();
+      allow create, update: if isAdmin()
+                            && validYear(year)
+                            && request.resource.data.sowing_key is string
+                            && request.resource.data.sowing_key.matches('^\\S.*$');
+      allow delete: if isAdmin();
+    }
+
+    // ===== Онлайн-конфіг tilesets =====
+    match /config/tilesets {
+      allow read: if authed();
+      allow write: if isAdmin();
+    }
+
+    // Fallback
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+
+  // Helper для codes (якщо використовується)
+  function validSowingCodeData(d) {
+    return d.code is string && d.code.matches('^\\S.*$');
+  }
+}

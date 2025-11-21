@@ -208,13 +208,6 @@
         <h2>Завантаження розцінок</h2>
         <p class="muted">Завантажте Excel файл з розцінками. Формат: ХАБ, Рік, ВІД, ДО, Без ПДВ, З ПДВ, Тип розцінки, Культура</p>
         
-        <div class="form-row">
-          <div>
-            <label>Рік</label>
-            <input type="number" id="uploadYear" placeholder="2025" min="2020" max="2030">
-          </div>
-        </div>
-
         <div id="uploadZone" class="upload-zone">
           <p style="margin: 0 0 8px; font-size: 16px; font-weight: 600;">📁 Перетягніть Excel файл сюди</p>
           <p class="muted">або клацніть для вибору файлу</p>
@@ -485,12 +478,6 @@
     });
 
     async function handleFile(file) {
-      const year = parseInt(document.getElementById('uploadYear').value);
-      if (!year) {
-        alert('Вкажіть рік');
-        return;
-      }
-      
       const status = document.getElementById('uploadStatus');
       status.innerHTML = '<p class="muted">Завантаження...</p>';
       
@@ -500,7 +487,12 @@
         const sheet = workbook.Sheets[workbook.SheetNames[0]];
         const rows = XLSX.utils.sheet_to_json(sheet);
         
-        await uploadPricing(year, rows);
+        if (rows.length === 0) {
+          status.innerHTML = '<p class="error">❌ Файл не містить даних</p>';
+          return;
+        }
+        
+        await uploadPricing(rows);
         status.innerHTML = '<p class="success">✅ Розцінки успішно завантажено!</p>';
         loadPricingTable();
       } catch(e) {
@@ -509,13 +501,15 @@
       }
     }
 
-    async function uploadPricing(year, rows) {
+    async function uploadPricing(rows) {
       const batch = db.batch();
       let count = 0;
+      let errors = [];
       
-      for (const row of rows) {
+      for (let i = 0; i < rows.length; i++) {
+        const row = rows[i];
         const hub = String(row['ХАБ'] || row['хаб'] || row['Хаб'] || '').trim();
-        const rowYear = parseInt(row['Рік'] || row['рік'] || year);
+        const rowYear = parseInt(row['Рік'] || row['рік'] || 0);
         const distFrom = parseFloat(row['ВІД'] || row['від'] || 0);
         const distTo = parseFloat(row['ДО'] || row['до'] || 0);
         const priceNoVAT = parseFloat(row['Без ПДВ'] || row['без пдв'] || 0) || null;
@@ -523,7 +517,23 @@
         const priceType = String(row['Тип розцінки'] || row['тип розцінки'] || 'т/км').trim();
         const crop = String(row['Культура'] || row['культура'] || '').trim();
         
-        if (!hub || !crop || distFrom === 0 || distTo === 0) continue;
+        // Валідація
+        if (!hub) {
+          errors.push(`Рядок ${i + 2}: відсутній ХАБ`);
+          continue;
+        }
+        if (!rowYear || rowYear < 2020 || rowYear > 2030) {
+          errors.push(`Рядок ${i + 2}: некоректний Рік (${rowYear})`);
+          continue;
+        }
+        if (!crop) {
+          errors.push(`Рядок ${i + 2}: відсутня Культура`);
+          continue;
+        }
+        if (distFrom === 0 || distTo === 0) {
+          errors.push(`Рядок ${i + 2}: відстані не можуть бути 0`);
+          continue;
+        }
         
         // Унікальний ID: hub_year_crop_distFrom_distTo
         const docId = `${hub.replace(/\s/g, '_')}_${rowYear}_${crop.replace(/\s/g, '_')}_${distFrom}_${distTo}`;
@@ -542,6 +552,15 @@
         }, { merge: true });
         
         count++;
+      }
+      
+      if (errors.length > 0) {
+        console.warn('Помилки валідації:', errors);
+        throw new Error(`Оброблено ${count} рядків. Помилки: ${errors.slice(0, 3).join('; ')}${errors.length > 3 ? '...' : ''}`);
+      }
+      
+      if (count === 0) {
+        throw new Error('Жодного коректного рядка не знайдено');
       }
       
       await batch.commit();
