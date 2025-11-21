@@ -1462,8 +1462,8 @@ function fillDirectoryUI(rows){
   Object.keys(codeByName).forEach(k=>delete codeByName[k]);
 
   for (const r of rows){
-    const { code, name, company, unit } = r;
-    dirByCode[code] = { name, company, unit };
+    const { code, name, company, unit, isTest } = r;
+    dirByCode[code] = { name, company, unit, isTest };
     if(!(name in codeByName)) codeByName[name]=code;
     if (unit) unitsSet.add(unit);
     const opt = document.createElement('option');
@@ -1509,10 +1509,11 @@ async function loadDirectory(forceServer){
     const code = d.code || doc.id;
     const name = d.name || code;
     const unit = d.unit || '';
+    const isTest = d.isTest === true;
     
     // 🧪 TEST MODE: фільтруємо записи (per-user налаштування)
     if (isTestMode) {
-      const isTestEntry = d.isTest === true || /^(тест|test)/i.test(name) || /^(тест|test)/i.test(code);
+      const isTestEntry = isTest || /^(тест|test)/i.test(name) || /^(тест|test)/i.test(code);
       if (!isTestEntry) return; // пропускаємо не-тестові записи
     }
     
@@ -1520,7 +1521,7 @@ async function loadDirectory(forceServer){
     if (!unit) {
       console.warn(`[directory] Відсутній unit для коду: ${code}, name: ${name}`);
     }
-    rows.push({ code, name, company: d.company || '', unit });
+    rows.push({ code, name, company: d.company || '', unit, isTest });
   });
   fillDirectoryUI(rows);
   try { 
@@ -2119,8 +2120,35 @@ function buildBaseQuery(){
 
 function parseSnap(snap){
   const rows=[];
+  const isTestMode = window.__userTestMode === true;
+  
   snap.forEach(doc=>{
     const d=doc.data()||{};
+    
+    // 🧪 TEST MODE: фільтруємо маршрути (користувач з testMode бачить лише маршрути з тестовими точками)
+    if (isTestMode) {
+      const fromCode = d.fromCode || '';
+      const toCode = d.toCode || '';
+      const fromName = d.fromName || d.fromLabel || '';
+      const toName = d.toName || d.toLabel || '';
+      
+      // Перевіряємо, чи обидві точки (від/до) є тестовими
+      const fromEntry = dirByCode[fromCode];
+      const toEntry = dirByCode[toCode];
+      
+      // Якщо запису немає в довіднику або він не тестовий — пропускаємо
+      const isFromTest = fromEntry 
+        ? (fromEntry.isTest === true || /^(тест|test)/i.test(fromEntry.name || '') || /^(тест|test)/i.test(fromCode))
+        : /^(тест|test)/i.test(fromName) || /^(тест|test)/i.test(fromCode);
+      
+      const isToTest = toEntry
+        ? (toEntry.isTest === true || /^(тест|test)/i.test(toEntry.name || '') || /^(тест|test)/i.test(toCode))
+        : /^(тест|test)/i.test(toName) || /^(тест|test)/i.test(toCode);
+      
+      // Маршрут показується лише якщо ОБИ кінці тестові
+      if (!isFromTest || !isToTest) return;
+    }
+    
     const viaArr = extractViaList(d);
 
     const statusValue = computeApprovalStatus(d);
@@ -2171,6 +2199,12 @@ function parseSnap(snap){
     });
   });
   const lastDoc = snap.docs[snap.docs.length-1] || null;
+  
+  // Діагностичне логування для testMode
+  if (isTestMode) {
+    console.log(`[parseSnap] TEST MODE: показано ${rows.length} маршрутів з ${snap.size} всього`);
+  }
+  
   return { rows, lastDoc };
 }
 
