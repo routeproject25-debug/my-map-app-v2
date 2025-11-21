@@ -255,6 +255,9 @@
           <label>ХАБ</label>
           <input id="singleHub" placeholder="Напр.: Центральний" style="width:100%" />
         </div>
+        <div>
+          <label><input type="checkbox" id="singleIsTest" /> 🧪 Тестові дані</label>
+        </div>
       </div>
       <div class="toolbar" style="margin-top:10px">
         <button id="btnAddSingle" class="btn primary">Зберегти запис</button>
@@ -459,6 +462,15 @@ async function resolveUserRole(uid){
   }
   $('dryRun').addEventListener('change', updateImportButton);
   $('mergeDup').addEventListener('change', updateImportButton);
+  $('isTestData')?.addEventListener('change', (e) => {
+    if (e.target.checked) {
+      const confirmMsg = 'Ви позначаєте дані як тестові. Вони будуть видимі лише користувачам з testMode.\n\nРекомендується вимкнути "Сухий запуск" для реального збереження тестових даних.';
+      if ($('dryRun').checked && confirm(confirmMsg)) {
+        $('dryRun').checked = false;
+        updateImportButton();
+      }
+    }
+  });
 
   btnLogout.addEventListener('click', async () => {
     try{ await auth.signOut(); }catch(e){ console.warn(e); }
@@ -665,6 +677,7 @@ function makeNGrams(s, n = 3){
         }
       }
 
+      const isTest = $('singleIsTest').checked;
       const newData = {
         name,
         nameLower: toUkLower(name),
@@ -672,7 +685,8 @@ function makeNGrams(s, n = 3){
         ...(company && { company }),
         ...(unit && { unit }),
         ...(hub && { hub }),
-        ...(codeIn && { code: codeIn })
+        ...(codeIn && { code: codeIn }),
+        ...(isTest && { isTest: true })
       };
 
       const statusEl = $('singleStatus');
@@ -784,6 +798,7 @@ function makeNGrams(s, n = 3){
       nameToCodes.get(idByName).add(code);
       if (!nameToSample.has(idByName)) nameToSample.set(idByName, name);
 
+      const isTestData = $('isTestData').checked;
       entries.push({
         id,
         legacyId: idByName,
@@ -794,7 +809,8 @@ function makeNGrams(s, n = 3){
           ...(unit    && { unit }),
           ...(hub     && { hub }),
           nameLower: toUkLower(name),
-          nameNgrams: makeNGrams(name)
+          nameNgrams: makeNGrams(name),
+          ...(isTestData && { isTest: true })
         }
       });
     }
