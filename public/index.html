@@ -864,14 +864,32 @@ function setRoleVisual(role){
     const map = {
       admin: '👨‍💻',
       logist: '🚛',
+      security: '👮🏻‍♂️',
       reviewer: '👮🏻‍♂️',
       pending: '🚧',
       user: '👤',
       guest: '👤'
     };
-    const emoji = map[String(role||'guest').toLowerCase()] || '👤';
+    
+    // 🔑 Показуємо основну роль + додаткові ролі
+    const primaryRole = String(role||'guest').toLowerCase();
+    const additionalRoles = window.__userAdditionalRoles || [];
+    
+    let emoji = map[primaryRole] || '👤';
+    let roleText = primaryRole;
+    
+    // Якщо є додаткові ролі, додаємо їх до відображення
+    if (additionalRoles.length > 0) {
+      const additionalEmojis = additionalRoles.map(r => map[r] || '').join('');
+      emoji = emoji + additionalEmojis;
+      roleText = primaryRole + ' + ' + additionalRoles.join(', ');
+    }
+    
     const el = document.getElementById('roleEmoji');
-    if (el){ el.textContent = emoji; }
+    if (el){ 
+      el.textContent = emoji;
+      el.title = 'Роль: ' + roleText; // підказка при наведенні
+    }
   }catch(_){ }
 }
 (function(){
@@ -1391,7 +1409,13 @@ function applyRoleUI(role){
   document.getElementById('remoteRoutes').disabled = false;
   document.getElementById('routeSearch').disabled = false;
 
-  document.getElementById('roleChip').textContent = 'Роль: ' + (currentRole || '–');
+  // 🔑 Показуємо основну роль + додаткові ролі в текстовому чіпі
+  const additionalRoles = window.__userAdditionalRoles || [];
+  let roleText = currentRole || '–';
+  if (additionalRoles.length > 0) {
+    roleText += ' + ' + additionalRoles.join(', ');
+  }
+  document.getElementById('roleChip').textContent = 'Роль: ' + roleText;
   try { setRoleVisual(currentRole); } catch(_){}
 }
 
