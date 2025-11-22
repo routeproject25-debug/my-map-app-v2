@@ -472,7 +472,11 @@ body.map-open #bottomScroller{
         alert('Ваш акаунт очікує підтвердження адміністратором.');
         location.replace(loginURL); return;
       }
-      if (!['admin','logist','user','security'].includes(role)) {
+      // 🔑 перевірка основної ролі АБО додаткових ролей
+      const additionalRolesInitial = Array.isArray(data.additionalRoles) ? data.additionalRoles : [];
+      const hasAllowedRole = ['admin','logist','user','security'].includes(role) || 
+                             additionalRolesInitial.some(r => ['admin','logist','user','security'].includes(r));
+      if (!hasAllowedRole) {
         alert('Недостатньо прав для сторінки Експорту.');
         location.replace(loginURL); return;
       }
@@ -490,7 +494,10 @@ body.map-open #bottomScroller{
           window.__userTestMode = dd.testMode === true; // 🧪 оновлення testMode в реальному часі
           window.__userAdditionalRoles = Array.isArray(dd.additionalRoles) ? dd.additionalRoles : []; // 🔑 оновлення додаткових ролей
           setRoleBadge(r);
-          if (r === 'pending' || !['admin','logist','user','security'].includes(r)) {
+          // 🔑 перевірка основної ролі АБО додаткових ролей
+          const hasAllowedRoleLive = ['admin','logist','user','security'].includes(r) || 
+                                     window.__userAdditionalRoles.some(role => ['admin','logist','user','security'].includes(role));
+          if (r === 'pending' || !hasAllowedRoleLive) {
             alert('Доступ відкликано або роль змінено. Потрібен повторний вхід.');
             location.replace(loginURL);
           }

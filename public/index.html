@@ -944,7 +944,11 @@ function setRoleVisual(role){
   setupAdminMenu(r === 'admin');
   setRoleVisual(r);
 
-        if (!ALLOWED.has(r)) {
+        // 🔑 перевірка основної ролі АБО додаткових ролей
+        const additionalRolesArray = Array.isArray(data.additionalRoles) ? data.additionalRoles : [];
+        const hasAllowedRole = ALLOWED.has(r) || additionalRolesArray.some(role => ALLOWED.has(role));
+        
+        if (!hasAllowedRole) {
           alert(r === 'pending'
             ? 'Ваш акаунт очікує підтвердження адміністратором.'
             : 'Недостатньо прав для цієї сторінки.');
