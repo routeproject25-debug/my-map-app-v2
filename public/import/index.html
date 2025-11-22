@@ -426,6 +426,8 @@ async function resolveUserRole(uid){
       const displayName = (d.displayName && typeof d.displayName === 'string' && d.displayName.trim())
         ? d.displayName.trim()
         : '';
+      // 🔑 Синхронізуємо додаткові ролі
+      window.__userAdditionalRoles = Array.isArray(d.additionalRoles) ? d.additionalRoles : [];
       return { role, displayName };
     }
   }catch{}
@@ -506,7 +508,13 @@ auth?.onAuthStateChanged(async (u) => {
     authInfo.textContent = `Увійшли як ${dn}`;
   }
   btnLogout.style.display = '';
-  authRoleBadge.textContent = `Роль: ${currentRole}`;
+  // 🔑 Показуємо основну роль + додаткові ролі
+  const additionalRolesInit = window.__userAdditionalRoles || [];
+  let roleText = currentRole;
+  if (additionalRolesInit.length > 0) {
+    roleText += ' + ' + additionalRolesInit.join(', ');
+  }
+  authRoleBadge.textContent = `Роль: ${roleText}`;
   authRoleBadge.style.display = '';
   statusTop.textContent = 'Готово';
   updateImportButton();
@@ -515,7 +523,11 @@ auth?.onAuthStateChanged(async (u) => {
   roleUnsub?.();
   roleUnsub = db.collection('users').doc(u.uid)
     .onSnapshot({ includeMetadataChanges:true }, async (doc) => {
-      let r = doc.exists ? NORM(doc.data().role) : 'pending';
+      const docData = doc.exists ? doc.data() : {};
+      let r = doc.exists ? NORM(docData.role) : 'pending';
+      // 🔑 Синхронізуємо додаткові ролі
+      window.__userAdditionalRoles = Array.isArray(docData.additionalRoles) ? docData.additionalRoles : [];
+      
       if (r === 'pending') {
         // fallback на roles, якщо потрібно
         try{
@@ -525,7 +537,13 @@ auth?.onAuthStateChanged(async (u) => {
       }
       currentRole = r;
       window.__userRole = r;
-      authRoleBadge.textContent = `Роль: ${r}`;
+      // 🔑 Показуємо основну роль + додаткові ролі
+      const additionalRolesLive = window.__userAdditionalRoles || [];
+      let roleTextLive = r;
+      if (additionalRolesLive.length > 0) {
+        roleTextLive += ' + ' + additionalRolesLive.join(', ');
+      }
+      authRoleBadge.textContent = `Роль: ${roleTextLive}`;
       updateImportButton();
     });
 });

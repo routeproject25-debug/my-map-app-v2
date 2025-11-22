@@ -1450,7 +1450,14 @@ function drawManualSegments(d){
     const dn = displayNameFromFirestore
       || (u && typeof u.displayName === 'string' && u.displayName.trim())
       || (`Хтось не місцевий і ${u.email || u.uid}`);
-    hello.textContent = 'Увійшли як ' + dn;
+    
+    // 🔑 Показуємо роль з додатковими ролями
+    const additionalRoles = window.__userAdditionalRoles || [];
+    let roleDisplay = role;
+    if (additionalRoles.length > 0) {
+      roleDisplay += ' + ' + additionalRoles.join(', ');
+    }
+    hello.textContent = `Увійшли як ${dn} (${roleDisplay})`;
 
 	// 🔑 перевірка ролі (security або admin, основна або додаткова)
 	const sec = userHasRole('security') || userHasRole('admin');

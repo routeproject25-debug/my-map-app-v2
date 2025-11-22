@@ -411,8 +411,46 @@ body.map-open #bottomScroller{
 
   function setRoleBadge(r) {
     const el = document.getElementById('authRole');
-    if (el) { el.textContent = `Роль: ${r || '—'}`; el.style.display = ''; }
+    if (el) {
+      // 🔑 Показуємо основну роль + додаткові ролі
+      const additionalRoles = window.__userAdditionalRoles || [];
+      let roleText = r || '—';
+      if (additionalRoles.length > 0) {
+        roleText += ' + ' + additionalRoles.join(', ');
+      }
+      el.textContent = `Роль: ${roleText}`;
+      el.style.display = '';
+    }
+    
+    // 🔑 Показуємо випадаючий список адмін-сторінок тільки для admin
+    const adminMenu = document.getElementById('adminMenuExport');
+    if (adminMenu) {
+      adminMenu.style.display = userHasRole('admin') ? '' : 'none';
+    }
   }
+  
+  // 🔑 Обробка випадаючого меню адміна
+  document.addEventListener('DOMContentLoaded', () => {
+    const btn = document.getElementById('adminMenuBtn');
+    const dropdown = document.getElementById('adminDropdown');
+    
+    if (btn && dropdown) {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        dropdown.style.display = dropdown.style.display === 'none' ? 'block' : 'none';
+      });
+      
+      // Закрити при кліку поза меню
+      document.addEventListener('click', () => {
+        dropdown.style.display = 'none';
+      });
+      
+      // Не закривати при кліку всередині dropdown
+      dropdown.addEventListener('click', (e) => {
+        e.stopPropagation();
+      });
+    }
+  });
 
   // 👉 Уніфікатор доступу до хабів з users/{uid}
   function readHubsFromUserDoc(d){
