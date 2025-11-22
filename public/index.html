@@ -1356,12 +1356,15 @@ function applyRoleUI(role){
   // нормалізуємо
   role = (role || 'guest').toString().toLowerCase();
   currentRole = role;
-  readOnly = (role === 'guest' || role === 'user');
+  
+  // 🔑 перевіряємо основну роль АБО додаткові ролі для визначення readOnly
+  const canWrite = userHasRole('admin') || userHasRole('logist') || userHasRole('security');
+  readOnly = !canWrite;
 
-  // ⬇️ Показувати адмін-лінк лише адмінам
+  // 🔑 Показувати адмін-лінк лише адмінам (основна роль або додаткова)
   ['adminLink','adminLinkViewer','geojsonBuilderLink','uploadRoutesLink'].forEach(id => {
   const el = document.getElementById(id);
-  if (el) el.style.display = (role === 'admin') ? '' : 'none';
+  if (el) el.style.display = userHasRole('admin') ? '' : 'none';
 });
 
   const disableIds = [
