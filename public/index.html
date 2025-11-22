@@ -4319,8 +4319,25 @@ function renderRoutesDocs(docs){
     return str.length > n ? (str.slice(0, n-1) + '…') : str;
   };
 
+  // 🧪 TEST MODE: фільтруємо маршрути
+  const isTestMode = window.__userTestMode === true;
+  let filteredCount = 0, totalCount = 0;
+
   docs.forEach(doc=>{
     const d = doc.data() || {};
+    totalCount++;
+    
+    // 🧪 Фільтруємо маршрути за testMode
+    if (isTestMode) {
+      // Користувач у testMode бачить лише маршрути з isTest: true
+      if (d.isTest !== true) return;
+    } else {
+      // Звичайний користувач НЕ бачить тестові маршрути
+      if (d.isTest === true) return;
+    }
+    
+    filteredCount++;
+    
     const km = (typeof d.distance_km === 'number') ? ` (${d.distance_km.toFixed(2)} км)` : '';
     const labelNow = formatRouteTitle(d);
     const label = labelNow + km;
@@ -4345,6 +4362,11 @@ function renderRoutesDocs(docs){
   // update global search results
   window.currentSearchResults = currentResults;
   routesLoadedCount = Object.keys(routesLookup).length;
+
+  // 🧪 Діагностика фільтрації
+  if (isTestMode) {
+    console.log(`[renderRoutesDocs] 🧪 TEST MODE: показано ${filteredCount} тестових маршрутів з ${totalCount} всього`);
+  }
 
   // 🔽 Заповнюємо кастомний попап підказок (із тултіпами)
   try {
@@ -4541,10 +4563,19 @@ async function loadFromDB() {
         if (!id && label.length >= 2) {
           // 4) Точний збіг по nameLower
           try {
-            const exact = await withHubFilter(db.collection('routes'), 'hub')
+            let exact = withHubFilter(db.collection('routes'), 'hub')
               .where('nameLower','==', label.toLowerCase())
-              .limit(1).get({ source:'default' });
-            if (!exact.empty) { id = exact.docs[0].id; }
+              .limit(20);
+            const exactSnap = await exact.get({ source:'default' });
+            // 🧪 Фільтруємо за testMode на клієнті
+            const isTestMode = window.__userTestMode === true;
+            for (const doc of exactSnap.docs) {
+              const d = doc.data();
+              if (isTestMode && d.isTest !== true) continue;
+              if (!isTestMode && d.isTest === true) continue;
+              id = doc.id;
+              break;
+            }
           } catch(_) { /* ignore */ }
         }
         if (!id && label.length >= 2) {
@@ -4554,10 +4585,18 @@ async function loadFromDB() {
               .orderBy('nameLower')
               .startAt(label.toLowerCase())
               .endBefore(label.toLowerCase() + '\uf8ff')
-              .limit(1);
+              .limit(20);
             qRef = withHubFilter(qRef, 'hub');
-            const s = await qRef.get({ source:'default' });
-            if (!s.empty) { id = s.docs[0].id; }
+            const prefixSnap = await qRef.get({ source:'default' });
+            // 🧪 Фільтруємо за testMode на клієнті
+            const isTestMode = window.__userTestMode === true;
+            for (const doc of prefixSnap.docs) {
+              const d = doc.data();
+              if (isTestMode && d.isTest !== true) continue;
+              if (!isTestMode && d.isTest === true) continue;
+              id = doc.id;
+              break;
+            }
           } catch(_) { /* ignore */ }
         }
         if (id) { sel.value = id; }
@@ -4569,6 +4608,21 @@ async function loadFromDB() {
     const docSnap = await docRef.get();
     if (!docSnap.exists) { alert('Маршрут не знайдено'); return; }
     const data = docSnap.data();
+    
+    // 🧪 TEST MODE: перевірка доступу до маршруту
+    const isTestMode = window.__userTestMode === true;
+    const isRouteTest = data.isTest === true;
+    
+    if (isTestMode && !isRouteTest) {
+      alert('⛔ Ви в тестовому режимі і не можете завантажити звичайний маршрут.\nВи бачите лише тестові маршрути (з позначкою isTest: true).');
+      return;
+    }
+    
+    if (!isTestMode && isRouteTest) {
+      alert('⛔ Цей маршрут позначений як тестовий і недоступний у звичайному режимі.');
+      return;
+    }
+    
     if (!userAllowsHub(data.hub || '')) {
   alert('⛔ У вас немає доступу до хабу цього маршруту: ' + (data.hub || '—'));
   return;
