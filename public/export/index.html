@@ -464,6 +464,7 @@ body.map-open #bottomScroller{
       window.__userHubs     = hubs;    // масив дозволених хабів
       window.__userAllHubs  = !!all;   // прапор «всі хаби»
       window.__userTestMode = data.testMode === true; // 🧪 тестовий режим per-user
+      window.__userAdditionalRoles = Array.isArray(data.additionalRoles) ? data.additionalRoles : []; // 🔑 додаткові ролі
 
       setRoleBadge(role);
 
@@ -487,6 +488,7 @@ body.map-open #bottomScroller{
           window.__userHubs    = hh.hubs;
           window.__userAllHubs = !!hh.all;
           window.__userTestMode = dd.testMode === true; // 🧪 оновлення testMode в реальному часі
+          window.__userAdditionalRoles = Array.isArray(dd.additionalRoles) ? dd.additionalRoles : []; // 🔑 оновлення додаткових ролей
           setRoleBadge(r);
           if (r === 'pending' || !['admin','logist','user','security'].includes(r)) {
             alert('Доступ відкликано або роль змінено. Потрібен повторний вхід.');
@@ -1362,15 +1364,24 @@ btnExportJsonAll.disabled = b || !currentUser;
 
 btnLogout.addEventListener('click', async () => { try{ await auth.signOut(); }catch(e){ console.warn(e); } });
 
+// 🔑 Перевірка ролі (основна або додаткова)
+function userHasRole(checkRole) {
+  const primary = (window.__userRole || currentRole || '').toLowerCase();
+  const additional = window.__userAdditionalRoles || [];
+  return primary === checkRole || additional.includes(checkRole);
+}
+
 // Отримати дозволені хаби для користувача (аналог головної сторінки)
 async function getAllowedHubsForUser(uid, role){
   try{
     const r = String(role||'').toLowerCase();
     const snap = await firebase.firestore().collection('users').doc(uid).get({ source: 'server' });
     const d = snap.exists ? (snap.data() || {}) : {};
+    const additionalRoles = Array.isArray(d.additionalRoles) ? d.additionalRoles : []; // 🔑 додаткові ролі
     
     let hubs = [];
-    if (r === 'admin' || r === 'security') hubs = [];
+    // 🔑 admin, security або з додатковою роллю security мають доступ до всіх хабів
+    if (r === 'admin' || r === 'security' || additionalRoles.includes('security')) hubs = [];
     else if (Array.isArray(d.allowedHubs) && d.allowedHubs.length) hubs = d.allowedHubs.slice(0,10);
     else if (Array.isArray(d.hubs) && d.hubs.length) hubs = d.hubs.slice(0,10);
     else if (typeof d.hub === 'string' && d.hub.trim()) hubs = [d.hub.trim()];
@@ -2072,11 +2083,11 @@ function buildBaseQuery(){
   const hubSel = (document.getElementById('hubFilter')?.value || '').trim();
 
   // обмеження за роллю
-  const roleNow = String(window.__userRole ?? currentRole ?? '').toLowerCase();
   const allNow  = !!(window.__userAllHubs ?? allowAllHubs);
   const hubsAllowed = (Array.isArray(window.__userHubs) ? window.__userHubs : (allowedHubs || [])).filter(Boolean);
 
-  if (roleNow === 'logist' && !allNow) {
+  // 🔑 якщо користувач має роль логіста (основну або додаткову) і не має доступу до всіх хабів
+  if (userHasRole('logist') && !allNow) {
     if (!hubsAllowed.length) throw new Error('Вашій ролі не призначено жодного ХАБу. Зверніться до адміністратора.');
 
     if (hubSel) {
@@ -2793,10 +2804,9 @@ function buildColumnPickerUI(){
 
 /* ---------- Таблиця ---------- */
 function renderTable(rows){
-  // хто може бачити лінк на review / видалення
-  const roleNow   = String(window.__userRole ?? currentRole ?? '').toLowerCase();
-  const canReview = (roleNow === 'admin' || roleNow === 'security');
-  const canDelete = (roleNow === 'admin');
+  // 🔑 хто може бачити лінк на review / видалення
+  const canReview = userHasRole('admin') || userHasRole('security');
+  const canDelete = userHasRole('admin');
 
   const tb = document.querySelector('#resTable tbody');
   tb.innerHTML = rows.map(r=>`<tr data-id="${r.id}" class="${r.isActive ? '' : 'is-inactive'}">
@@ -3314,8 +3324,8 @@ if (jsonOne){
   if (delBtn){
     const id   = delBtn.getAttribute('data-id');
     const name = delBtn.getAttribute('data-name') || 'маршрут';
-    const roleNow = String(window.__userRole ?? currentRole ?? '').toLowerCase();
-    if (roleNow !== 'admin'){ alert('Видаляти може лише адміністратор.'); return; }
+    // 🔑 видаляти може лише адміністратор
+    if (!userHasRole('admin')){ alert('Видаляти може лише адміністратор.'); return; }
 
     const ok = confirm(`Видалити «${name}» (ID: ${id}) з бази?\nЦю дію не можна скасувати.`);
     if (!ok) return;

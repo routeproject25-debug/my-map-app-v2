@@ -917,7 +917,8 @@ function setRoleVisual(role){
       const data = snap.data() || {};
       role = snap.exists ? String(data.role ?? 'pending').trim().toLowerCase() : null;
       window.__userTestMode = data.testMode === true; // 🧪 тестовий режим з кешу
-      console.log('[role][cache] uid:', u.uid, 'role:', role, 'testMode:', window.__userTestMode, 'data:', data);
+      window.__userAdditionalRoles = Array.isArray(data.additionalRoles) ? data.additionalRoles : []; // 🔑 додаткові ролі
+      console.log('[role][cache] uid:', u.uid, 'role:', role, 'testMode:', window.__userTestMode, 'additionalRoles:', window.__userAdditionalRoles, 'data:', data);
       try { updateTestModeIndicator(); } catch(_) {}
     } catch (e) { console.warn('[role][cache] error:', e?.message||e); }
 
@@ -936,7 +937,8 @@ function setRoleVisual(role){
         const r = s.exists ? String(data.role ?? 'pending').trim().toLowerCase() : 'pending';
         window.__userRole = r;
         window.__userTestMode = data.testMode === true; // 🧪 тестовий режим з сервера
-        console.log('[role][server] uid:', u.uid, 'role:', r, 'testMode:', window.__userTestMode, 'data:', data);
+        window.__userAdditionalRoles = Array.isArray(data.additionalRoles) ? data.additionalRoles : []; // 🔑 додаткові ролі
+        console.log('[role][server] uid:', u.uid, 'role:', r, 'testMode:', window.__userTestMode, 'additionalRoles:', window.__userAdditionalRoles, 'data:', data);
         try { updateTestModeIndicator(); } catch(_) {}
 
   setupAdminMenu(r === 'admin');
@@ -3038,9 +3040,11 @@ async function getAllowedHubsForUser(uid, role){
       : '';
     
     const testMode = d.testMode === true; // 🧪 тестовий режим користувача
+    const additionalRoles = Array.isArray(d.additionalRoles) ? d.additionalRoles : []; // 🔑 додаткові ролі
     
     let hubs = null;
-    if (rl === 'admin' || rl === 'security') hubs = null;
+    // 🔑 admin, security або користувачі з додатковою роллю security мають доступ до всіх хабів
+    if (rl === 'admin' || rl === 'security' || additionalRoles.includes('security')) hubs = null;
     else if (d.allowAllHubs === true || d.allowedHubs === '*' || d.hubs === '*') hubs = null;
     else if (Array.isArray(d.allowedHubs) && d.allowedHubs.length) hubs = d.allowedHubs.slice(0, 10);
     else if (Array.isArray(d.hubs) && d.hubs.length) hubs = d.hubs.slice(0, 10);
@@ -3080,8 +3084,8 @@ function applyHubSelectVisibility(){
   }
 
   const exactlyOne = Array.isArray(ALLOWED_HUBS) && ALLOWED_HUBS.length === 1;
-  const roleNow = (window.__userRole || currentRole || '').toLowerCase();
-  const canLock = !(roleNow === 'admin' || roleNow === 'security');
+  // 🔑 admin, security або з додатковою роллю security можуть змінювати хаб
+  const canLock = !(userHasRole('admin') || userHasRole('security'));
   sel.disabled = exactlyOne && canLock;
 }
 
@@ -3093,16 +3097,21 @@ function withHubFilter(q, field = 'hub'){
   return q.where(field, 'in', ALLOWED_HUBS.slice(0, 10)); // Firestore in: до 10 значень
 }
 
+// 🔑 Перевірка ролі (основна або додаткова)
+function userHasRole(checkRole) {
+  const primary = (window.__userRole || currentRole || '').toLowerCase();
+  const additional = window.__userAdditionalRoles || [];
+  return primary === checkRole || additional.includes(checkRole);
+}
+
 // Хто може резервувати унікальні routeKey в колекції routeKeys (потребує прав у Rules)
 function userRoleLower(){ return (window.__userRole || currentRole || '').toLowerCase(); }
 function userCanReserveRouteKeys(){
-  const r = userRoleLower();
-  return r === 'admin' || r === 'security';
+  return userHasRole('admin') || userHasRole('security') || userHasRole('logist');
 }
 // Хто може виконувати остаточне (фізичне) видалення маршрутів
 function userCanHardDeleteRoutes(){
-  const r = userRoleLower();
-  return r === 'admin' || r === 'security';
+  return userHasRole('admin') || userHasRole('security') || userHasRole('logist');
 }
 
 /* ===================== Directory / helpers / UI ===================== */
@@ -5081,15 +5090,15 @@ function clearProposalOverlay(){
 }
 
 function updateProposalUIForData(data){
-  const role = String(window.__userRole || currentRole || '').toLowerCase();
   const p = data && data.proposal ? data.proposal : null;
   const has = !!(p && Array.isArray(p.points) && p.points.length >= 2);
   HAS_PROPOSAL = has;
   const wrap = document.getElementById('proposalWrapMain');
-  // Показуємо пропозицію для logist (перегляд/прийняття), security (перегляд своєї пропозиції) та admin (все)
-  if (wrap) wrap.style.display = (has && (role === 'logist' || role === 'security' || role === 'admin')) ? '' : 'none';
+  // 🔑 Показуємо пропозицію для logist, security (основна або додаткова роль) та admin
+  const canSeeProposal = userHasRole('admin') || userHasRole('logist') || userHasRole('security');
+  if (wrap) wrap.style.display = (has && canSeeProposal) ? '' : 'none';
   const btn = document.getElementById('btnShowProposal');
-  if (btn) btn.style.display = (has && (role === 'logist' || role === 'security' || role === 'admin')) ? '' : 'none';
+  if (btn) btn.style.display = (has && canSeeProposal) ? '' : 'none';
   const km = (typeof p?.distance_km === 'number') ? p.distance_km : NaN;
   const chip = document.getElementById('proposalKmChip');
   if (chip) chip.textContent = 'Пропозиція СБ: ' + (Number.isFinite(km) ? km.toFixed(3) + ' км' : '—');
@@ -6123,6 +6132,7 @@ roleUnsub = db.collection('users').doc(user.uid)
     const r = doc.exists ? (String(data.role || 'pending').toLowerCase()) : 'pending';
     window.__userRole = r;
     window.__userTestMode = data.testMode === true; // 🧪 live-оновлення testMode
+    window.__userAdditionalRoles = Array.isArray(data.additionalRoles) ? data.additionalRoles : []; // 🔑 live-оновлення додаткових ролей
     try { updateTestModeIndicator(); } catch(_) {}
     applyRoleUI(ALLOWED.has(r) ? r : 'guest'); // ✅ 'user' зберігається як read-only
   });

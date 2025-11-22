@@ -153,9 +153,12 @@
 
       // читаємо роль із users/{uid}, за потреби — fallback до roles/{uid}
       let role = 'pending';
+      let additionalRoles = [];
       try{
         const us = await db.collection('users').doc(u.uid).get();
-        role = us.exists ? (us.data().role || 'pending') : 'pending';
+        const userData = us.exists ? us.data() : {};
+        role = userData.role || 'pending';
+        additionalRoles = Array.isArray(userData.additionalRoles) ? userData.additionalRoles : []; // 🔑 додаткові ролі
         if (String(role).trim().toLowerCase() === 'pending') {
           const rs = await db.collection('roles').doc(u.uid).get();
           if (rs.exists && rs.data()?.role) role = String(rs.data().role);
@@ -163,14 +166,17 @@
       }catch(_){}
 
       window.__userRole = String(role).trim().toLowerCase();
+      window.__userAdditionalRoles = additionalRoles;
 
       if (String(role).trim().toLowerCase() === 'pending') {
         alert('Ваш акаунт очікує підтвердження адміністратором.');
         location.replace(loginURL); return;
       }
 
-      /* ✅ ДОЗВІЛ ЛИШЕ ДЛЯ security | admin */
-      if (!['security','admin'].includes(String(role).trim().toLowerCase())) {
+      /* ✅ ДОЗВІЛ ЛИШЕ ДЛЯ security | admin або з додатковою роллю security */
+      const hasAccess = ['security','admin'].includes(String(role).trim().toLowerCase()) || 
+                        additionalRoles.includes('security');
+      if (!hasAccess) {
         alert('Недостатньо прав для сторінки погодження.');
         location.replace(loginURL); return;
       }
@@ -267,6 +273,14 @@
   // === Firebase (вже ініт у head-guard) ===
   const db   = firebase.firestore();
   const auth = firebase.auth();
+  
+  // 🔑 Перевірка ролі (основна або додаткова)
+  function userHasRole(checkRole) {
+    const primary = (window.__userRole || '').toLowerCase();
+    const additional = window.__userAdditionalRoles || [];
+    return primary === checkRole || additional.includes(checkRole);
+  }
+
   async function getNormalizedRole(){
   try{
     const u = auth.currentUser;
@@ -1167,8 +1181,8 @@ function drawManualSegments(d){
     chip('chipStatus',   'Статус: ' + fmtStatus(d.approval?.status));
 	    // якщо вже є рішення — не показуємо дії
     const decided = ['approved','rejected'].includes(String(d.approval?.status||'').toLowerCase());
-    const roleObj = await getNormalizedRole();
-    const canDecide = (roleObj.role==='security' || roleObj.role==='admin') && !decided;
+    // 🔑 перевірка ролі (security або admin, основна або додаткова)
+    const canDecide = (userHasRole('security') || userHasRole('admin')) && !decided;
     document.getElementById('secButtons').style.display = canDecide ? 'flex' : 'none';
 
     const subInfo = d.approval?.submittedAt ? `Подано: ${d.approval.submittedAt} (${d.approval.submittedByEmail||d.approval.submittedByUid||''})` : '';
@@ -1227,8 +1241,8 @@ function drawManualSegments(d){
 
   // Approve / Reject actions (перестраховка на боці клієнта по ролях)
   async function applyDecision(kind, comment){
-    const userRole = String(window.__userRole || 'user').trim().toLowerCase();
-	const allowed = (userRole === 'security' || userRole === 'admin');
+    // 🔑 перевірка ролі (security або admin, основна або додаткова)
+	const allowed = userHasRole('security') || userHasRole('admin');
     if (!allowed){
       alert('Недостатньо прав для цієї дії.');
       return;
@@ -1438,7 +1452,8 @@ function drawManualSegments(d){
       || (`Хтось не місцевий і ${u.email || u.uid}`);
     hello.textContent = 'Увійшли як ' + dn;
 
-	const sec = (role === 'security' || role === 'admin');
+	// 🔑 перевірка ролі (security або admin, основна або додаткова)
+	const sec = userHasRole('security') || userHasRole('admin');
 	document.getElementById('secButtons').style.display = sec ? 'flex' : 'none';
 
     // bind buttons

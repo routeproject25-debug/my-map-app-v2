@@ -379,6 +379,7 @@ function renderUsers(){
   bindNameChangeHandlers();
   bindHubHandlers();
   bindTestModeHandlers(); // 🧪 перемикач тестового режиму
+  bindAdditionalRolesHandlers(); // 🔑 додаткові ролі
   bindDeleteHandlers();
 }
 
@@ -471,7 +472,7 @@ function userRowHTML(id, user){
       </div>
 
       <div class="row-actions">
-        <label>Роль:
+        <label>Основна роль:
           <select data-id="${id}" data-prev="${role}" class="role-select">
             <option value="pending"  ${role==="pending" ?"selected":""}>Очікує</option>
             <option value="user"     ${role==="user"    ?"selected":""}>User</option>
@@ -479,6 +480,12 @@ function userRowHTML(id, user){
             <option value="security" ${role==="security"?"selected":""}>Security</option>
             <option value="admin"    ${role==="admin"   ?"selected":""}>Admin</option>
           </select>
+        </label>
+
+        <label style="display:flex; align-items:center; gap:6px; margin-left:12px;">
+          <span style="font-size:13px; color:#64748b;">Додаткові ролі:</span>
+          <label style="margin-left:8px;"><input type="checkbox" class="additional-role-chk" data-id="${id}" data-role="logist" ${(user.additionalRoles || []).includes('logist') ? 'checked' : ''}> Logist</label>
+          <label style="margin-left:8px;"><input type="checkbox" class="additional-role-chk" data-id="${id}" data-role="security" ${(user.additionalRoles || []).includes('security') ? 'checked' : ''}> Security</label>
         </label>
 
         <label style="display:flex; align-items:center; gap:6px; margin-left:12px;" title="Користувач бачитиме лише тестові дані з директорії">
@@ -771,6 +778,51 @@ function bindTestModeHandlers(){
         alert('Помилка збереження testMode: ' + (err.message || err));
         e.target.checked = !testMode; // відкотити
         statusEl.textContent = '❌ Не вдалося оновити testMode.';
+      } finally {
+        e.target.disabled = false;
+      }
+    });
+  });
+}
+
+/* ================= Додаткові ролі ================= */
+function bindAdditionalRolesHandlers(){
+  document.querySelectorAll('#user-list .user-row .additional-role-chk').forEach((chk) => {
+    chk.addEventListener('change', async (e) => {
+      const uid = e.target.dataset.id;
+      const role = e.target.dataset.role;
+      const isChecked = e.target.checked;
+      
+      e.target.disabled = true;
+      statusEl.textContent = `Оновлення додаткових ролей для ${uid}…`;
+      
+      try {
+        // Читаємо поточні додаткові ролі
+        const docSnap = await db.collection('users').doc(uid).get();
+        const currentData = docSnap.data() || {};
+        let additionalRoles = Array.isArray(currentData.additionalRoles) ? [...currentData.additionalRoles] : [];
+        
+        // Додаємо або видаляємо роль
+        if (isChecked) {
+          if (!additionalRoles.includes(role)) {
+            additionalRoles.push(role);
+          }
+        } else {
+          additionalRoles = additionalRoles.filter(r => r !== role);
+        }
+        
+        await db.collection('users').doc(uid).set({
+          additionalRoles: additionalRoles,
+          additionalRolesUpdatedAt: new Date().toISOString(),
+          additionalRolesUpdatedBy: currentUser ? currentUser.uid : null
+        }, { merge: true });
+        
+        statusEl.textContent = `✅ Додаткові ролі оновлено: ${uid} → [${additionalRoles.join(', ')}]`;
+      } catch (err) {
+        console.error(err);
+        alert('Помилка збереження додаткових ролей: ' + (err.message || err));
+        e.target.checked = !isChecked; // відкотити
+        statusEl.textContent = '❌ Не вдалося оновити додаткові ролі.';
       } finally {
         e.target.disabled = false;
       }

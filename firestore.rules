@@ -26,10 +26,21 @@ service cloud.firestore {
         : null;
     }
 
-    function isAdmin()    { return role() == 'admin'; }
-    function isLogist()   { return role() == 'logist'; }
-    function isUser()     { return role() == 'user'; }
-    function isSecurity() { return role() == 'security'; }
+    // 🔑 Додаткові ролі: перевірка чи користувач має роль (основну або додаткову)
+    function additionalRoles() {
+      return exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        ? (me().data.additionalRoles is list ? me().data.additionalRoles : [])
+        : [];
+    }
+    
+    function hasRole(checkRole) {
+      return role() == checkRole || (checkRole in additionalRoles());
+    }
+
+    function isAdmin()    { return hasRole('admin'); }
+    function isLogist()   { return hasRole('logist'); }
+    function isUser()     { return hasRole('user'); }
+    function isSecurity() { return hasRole('security'); }
     function isWriter()   { return isAdmin() || isLogist(); } // створення/редагування маршрутів
 
     // ===== Доступ за хабами =====
