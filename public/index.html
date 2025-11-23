@@ -1284,45 +1284,29 @@ window.__canHideSplash = false;
 
 /* ===================== Статистика відвідування ===================== */
 // UI функція (глобальна, щоб викликати після встановлення ролі)
-window.setupStatsUI = function(){
-  const db = firebase.firestore();
-  const statsArea = document.getElementById('statsArea');
-  const statsBell = document.getElementById('statsBell');
-  const statsDropdown = document.getElementById('statsDropdown');
-  const statsRefresh = document.getElementById('statsRefresh');
+window.setupStatsUI = (function(){
+  let initialized = false;
   
-  if(!statsArea || !statsBell || !statsDropdown) return;
-  
-  // Показуємо тільки для адміністраторів
-  if(window.__userRole === 'admin'){
-    statsArea.style.display = 'flex';
-  }
-  
-  // Перемикання dropdown
-  statsBell.addEventListener('click', (e) => {
-    e.stopPropagation();
-    const isOpen = statsDropdown.style.display === 'block';
-    statsDropdown.style.display = isOpen ? 'none' : 'block';
-    if(!isOpen) loadStats();
-  });
-  
-  // Закриття при кліку поза
-  document.addEventListener('click', (e) => {
-    if(!statsArea.contains(e.target)){
-      statsDropdown.style.display = 'none';
+  return function(){
+    const db = firebase.firestore();
+    const statsArea = document.getElementById('statsArea');
+    const statsBell = document.getElementById('statsBell');
+    const statsDropdown = document.getElementById('statsDropdown');
+    const statsRefresh = document.getElementById('statsRefresh');
+    
+    if(!statsArea || !statsBell || !statsDropdown) return;
+    
+    // Показуємо тільки для адміністраторів
+    if(window.__userRole === 'admin'){
+      statsArea.style.display = 'flex';
     }
-  });
-  
-  // Кнопка оновлення
-  if(statsRefresh){
-    statsRefresh.addEventListener('click', (e) => {
-      e.stopPropagation();
-      loadStats();
-    });
-  }
-  
-  // Завантаження статистики
-  async function loadStats(){
+    
+    // Захист від повторної ініціалізації
+    if(initialized) return;
+    initialized = true;
+    
+    // Завантаження статистики
+    async function loadStats(){
     try{
       const now = new Date();
       const today = now.toISOString().split('T')[0];
@@ -1381,7 +1365,31 @@ window.setupStatsUI = function(){
       document.getElementById('statsTotal').textContent = '—';
     }
   }
-};
+  
+    // Перемикання dropdown
+    statsBell.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const isOpen = statsDropdown.style.display === 'block';
+      statsDropdown.style.display = isOpen ? 'none' : 'block';
+      if(!isOpen) loadStats();
+    });
+    
+    // Закриття при кліку поза
+    document.addEventListener('click', (e) => {
+      if(!statsArea.contains(e.target)){
+        statsDropdown.style.display = 'none';
+      }
+    });
+    
+    // Кнопка оновлення
+    if(statsRefresh){
+      statsRefresh.addEventListener('click', (e) => {
+        e.stopPropagation();
+        loadStats();
+      });
+    }
+  };
+})();
 
 (function(){
   const db = firebase.firestore();
