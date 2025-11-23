@@ -1218,6 +1218,9 @@ function setRoleVisual(role){
   setupAdminMenu(window.__userRole === 'admin');
   setRoleVisual(window.__userRole);
   setupMainMenu();
+  
+  // Показати статистику для адмінів (з кешу)
+  if(typeof setupStatsUI === 'function') setupStatsUI();
 
     // 2) тихо оновлюємо роль з сервера і, якщо не ок — редіректимо
     (async () => {
@@ -1233,6 +1236,9 @@ function setRoleVisual(role){
 
   setupAdminMenu(r === 'admin');
   setRoleVisual(r);
+  
+  // Показати статистику для адмінів (з сервера)
+  if(typeof setupStatsUI === 'function') setupStatsUI();
 
         // 🔑 перевірка основної ролі АБО додаткових ролей
         const additionalRolesArray = Array.isArray(data.additionalRoles) ? data.additionalRoles : [];
@@ -1277,6 +1283,106 @@ function hideSplash(){
 window.__canHideSplash = false;
 
 /* ===================== Статистика відвідування ===================== */
+// UI функція (глобальна, щоб викликати після встановлення ролі)
+window.setupStatsUI = function(){
+  const db = firebase.firestore();
+  const statsArea = document.getElementById('statsArea');
+  const statsBell = document.getElementById('statsBell');
+  const statsDropdown = document.getElementById('statsDropdown');
+  const statsRefresh = document.getElementById('statsRefresh');
+  
+  if(!statsArea || !statsBell || !statsDropdown) return;
+  
+  // Показуємо тільки для адміністраторів
+  if(window.__userRole === 'admin'){
+    statsArea.style.display = 'flex';
+  }
+  
+  // Перемикання dropdown
+  statsBell.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const isOpen = statsDropdown.style.display === 'block';
+    statsDropdown.style.display = isOpen ? 'none' : 'block';
+    if(!isOpen) loadStats();
+  });
+  
+  // Закриття при кліку поза
+  document.addEventListener('click', (e) => {
+    if(!statsArea.contains(e.target)){
+      statsDropdown.style.display = 'none';
+    }
+  });
+  
+  // Кнопка оновлення
+  if(statsRefresh){
+    statsRefresh.addEventListener('click', (e) => {
+      e.stopPropagation();
+      loadStats();
+    });
+  }
+  
+  // Завантаження статистики
+  async function loadStats(){
+    try{
+      const now = new Date();
+      const today = now.toISOString().split('T')[0];
+      const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+      
+      // Онлайн зараз (сесії з heartbeat за останні 2 хвилини)
+      const twoMinAgo = firebase.firestore.Timestamp.fromDate(
+        new Date(Date.now() - 2 * 60 * 1000)
+      );
+      
+      const onlineSnap = await db.collection('visitor_sessions')
+        .where('lastHeartbeat', '>=', twoMinAgo)
+        .get();
+      
+      // Фільтруємо тільки активні сесії (без endTime)
+      const onlineCount = onlineSnap.docs.filter(doc => !doc.data().endTime).length;
+      document.getElementById('statsOnline').textContent = onlineCount;
+      
+      // Сьогодні
+      const todaySnap = await db.collection('visitor_stats').doc(today).get();
+      if(todaySnap.exists){
+        const data = todaySnap.data();
+        document.getElementById('statsToday').textContent = data.totalVisits || 0;
+        document.getElementById('statsUniqueToday').textContent = 
+          (data.uniqueVisitors || []).length;
+      } else {
+        document.getElementById('statsToday').textContent = '0';
+        document.getElementById('statsUniqueToday').textContent = '0';
+      }
+      
+      // За тиждень
+      const weekSnap = await db.collection('visitor_stats')
+        .where('date', '>=', weekAgo.toISOString().split('T')[0])
+        .get();
+      
+      let weekTotal = 0;
+      weekSnap.forEach(doc => {
+        weekTotal += doc.data().totalVisits || 0;
+      });
+      document.getElementById('statsWeek').textContent = weekTotal;
+      
+      // Всього
+      const allSnap = await db.collection('visitor_stats').get();
+      let total = 0;
+      allSnap.forEach(doc => {
+        total += doc.data().totalVisits || 0;
+      });
+      document.getElementById('statsTotal').textContent = total;
+      
+    }catch(e){ 
+      console.warn('Stats load error:', e);
+      document.getElementById('statsOnline').textContent = '—';
+      document.getElementById('statsToday').textContent = '—';
+      document.getElementById('statsUniqueToday').textContent = '—';
+      document.getElementById('statsWeek').textContent = '—';
+      document.getElementById('statsTotal').textContent = '—';
+    }
+  }
+};
+
 (function(){
   const db = firebase.firestore();
   let sessionId = null;
@@ -1349,109 +1455,10 @@ window.__canHideSplash = false;
     }catch(_){}
   }
   
-  // UI для адміністраторів
-  function setupStatsUI(){
-    const statsArea = document.getElementById('statsArea');
-    const statsBell = document.getElementById('statsBell');
-    const statsDropdown = document.getElementById('statsDropdown');
-    const statsRefresh = document.getElementById('statsRefresh');
-    
-    if(!statsArea || !statsBell || !statsDropdown) return;
-    
-    // Показуємо тільки для адміністраторів
-    if(window.__userRole === 'admin'){
-      statsArea.style.display = 'flex';
-    }
-    
-    // Перемикання dropdown
-    statsBell.addEventListener('click', (e) => {
-      e.stopPropagation();
-      const isOpen = statsDropdown.style.display === 'block';
-      statsDropdown.style.display = isOpen ? 'none' : 'block';
-      if(!isOpen) loadStats();
-    });
-    
-    // Закриття при кліку поза
-    document.addEventListener('click', (e) => {
-      if(!statsArea.contains(e.target)){
-        statsDropdown.style.display = 'none';
-      }
-    });
-    
-    // Кнопка оновлення
-    if(statsRefresh){
-      statsRefresh.addEventListener('click', (e) => {
-        e.stopPropagation();
-        loadStats();
-      });
-    }
-  }
-  
-  // Завантаження статистики
-  async function loadStats(){
-    try{
-      const now = new Date();
-      const today = now.toISOString().split('T')[0];
-      const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-      
-      // Онлайн зараз (сесії з heartbeat за останні 2 хвилини)
-      const twoMinAgo = firebase.firestore.Timestamp.fromDate(
-        new Date(Date.now() - 2 * 60 * 1000)
-      );
-      
-      const onlineSnap = await db.collection('visitor_sessions')
-        .where('lastHeartbeat', '>=', twoMinAgo)
-        .get();
-      
-      // Фільтруємо тільки активні сесії (без endTime)
-      const onlineCount = onlineSnap.docs.filter(doc => !doc.data().endTime).length;
-      document.getElementById('statsOnline').textContent = onlineCount;
-      
-      // Сьогодні
-      const todaySnap = await db.collection('visitor_stats').doc(today).get();
-      if(todaySnap.exists){
-        const data = todaySnap.data();
-        document.getElementById('statsToday').textContent = data.totalVisits || 0;
-        document.getElementById('statsUniqueToday').textContent = 
-          (data.uniqueVisitors || []).length;
-      } else {
-        document.getElementById('statsToday').textContent = '0';
-        document.getElementById('statsUniqueToday').textContent = '0';
-      }
-      
-      // За тиждень
-      const weekSnap = await db.collection('visitor_stats')
-        .where('date', '>=', weekAgo.toISOString().split('T')[0])
-        .get();
-      
-      let weekTotal = 0;
-      weekSnap.forEach(doc => {
-        weekTotal += doc.data().totalVisits || 0;
-      });
-      document.getElementById('statsWeek').textContent = weekTotal;
-      
-      // Всього
-      const allSnap = await db.collection('visitor_stats').get();
-      let total = 0;
-      allSnap.forEach(doc => {
-        total += doc.data().totalVisits || 0;
-      });
-      document.getElementById('statsTotal').textContent = total;
-      
-    }catch(e){ 
-      console.warn('Stats load error:', e);
-      document.getElementById('statsOnline').textContent = '—';
-      document.getElementById('statsToday').textContent = '—';
-      document.getElementById('statsUniqueToday').textContent = '—';
-      document.getElementById('statsWeek').textContent = '—';
-      document.getElementById('statsTotal').textContent = '—';
-    }
-  }
-  
   // Запуск при завантаженні
   window.addEventListener('load', () => {
     startVisitorSession();
-    setupStatsUI();
+    // setupStatsUI викликається після встановлення ролі
   });
   
   // Завершення при закритті
