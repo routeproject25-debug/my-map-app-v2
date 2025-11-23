@@ -64,6 +64,21 @@
         { "fieldPath": "routeId", "order": "ASCENDING" },
         { "fieldPath": "ts", "order": "DESCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "visitor_sessions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "lastHeartbeat", "order": "DESCENDING" },
+        { "fieldPath": "endTime", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "visitor_stats",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "date", "order": "DESCENDING" }
+      ]
     }
   ],
   "fieldOverrides": []

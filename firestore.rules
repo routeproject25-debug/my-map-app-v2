@@ -340,6 +340,22 @@ service cloud.firestore {
       allow write: if isAdmin();
     }
 
+    // ===== Статистика відвідування =====
+    // Сесії відвідувачів - всі можуть створювати та оновлювати свої сесії
+    match /visitor_sessions/{sessionId} {
+      allow create: if authed();
+      allow update: if authed() && resource.data.userId == request.resource.data.userId;
+      allow read: if authed() && isAdmin();
+      allow delete: if false;
+    }
+    
+    // Денна статистика - автоматичне інкрементування
+    match /visitor_stats/{date} {
+      allow read: if authed() && isAdmin();
+      allow create, update: if authed();
+      allow delete: if false;
+    }
+
     // Fallback
     match /{document=**} {
       allow read, write: if false;

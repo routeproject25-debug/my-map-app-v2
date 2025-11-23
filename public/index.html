@@ -121,6 +121,62 @@
   }
   .notif-dismiss:hover{ background:#fee2e2; color:#ef4444; }
 
+  /* ===== Stats Area ===== */
+  #statsArea{ position:relative; display:flex; align-items:center; gap:6px; }
+  #statsBell{ 
+    position:relative; height:38px; padding:0 16px; border-radius:10px; 
+    border:none; background:rgba(255,255,255,0.95); color:#4f46e5; 
+    cursor:pointer; font-weight:600; transition: all 0.2s ease;
+    box-shadow: var(--shadow-sm);
+  }
+  #statsBell:hover{
+    background:#fff; transform: translateY(-2px);
+    box-shadow: var(--shadow-md);
+  }
+  #statsDropdown{ 
+    position:absolute; right:0; top:46px; width:320px;
+    background:#fff; color:#111; border:none; 
+    border-radius:16px; box-shadow: var(--shadow-lg); 
+    display:none; z-index:6000;
+    backdrop-filter: blur(10px);
+  }
+  #statsDropdown header{ 
+    display:flex; align-items:center; justify-content:space-between; 
+    padding:16px 18px; border-bottom:2px solid #f1f5f9; 
+    font-weight:700; font-size:15px; color:#1e293b;
+  }
+  .stats-content{
+    padding:12px;
+  }
+  .stat-item{
+    display:flex; align-items:center; gap:12px;
+    padding:12px; border-radius:12px;
+    transition: background 0.15s ease;
+    margin-bottom:8px;
+  }
+  .stat-item:hover{
+    background:linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+  }
+  .stat-item:last-child{ margin-bottom:0; }
+  .stat-icon{
+    width:40px; height:40px;
+    display:flex; align-items:center; justify-content:center;
+    background:linear-gradient(135deg, #e0e7ff 0%, #c7d2fe 100%);
+    border-radius:12px; font-size:20px;
+    box-shadow: var(--shadow-sm);
+  }
+  .stat-info{
+    flex:1;
+  }
+  .stat-label{
+    font-size:12px; color:#64748b; font-weight:600;
+    text-transform:uppercase; letter-spacing:0.5px;
+  }
+  .stat-value{
+    font-size:24px; font-weight:700; color:#1e293b;
+    font-variant-numeric: tabular-nums;
+  }
+
   #authBar{ display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
   #authBar input{
     height:38px; padding:8px 14px; border-radius:10px; 
@@ -708,6 +764,54 @@
     </div>
   </div>
 
+  <!-- Статистика відвідування (тільки для адміністраторів) -->
+  <div id="statsArea" class="right" style="display:none;">
+    <button id="statsBell" class="btn">📊 <span class="label">Статистика</span></button>
+    <div id="statsDropdown" role="region" aria-label="Статистика відвідування">
+      <header>
+        <span>📈 Статистика відвідування</span>
+        <button id="statsRefresh" class="btn xs" title="Оновити">🔄</button>
+      </header>
+      <div class="stats-content">
+        <div class="stat-item">
+          <div class="stat-icon">🟢</div>
+          <div class="stat-info">
+            <div class="stat-label">Онлайн зараз</div>
+            <div class="stat-value" id="statsOnline">—</div>
+          </div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-icon">📅</div>
+          <div class="stat-info">
+            <div class="stat-label">Сьогодні</div>
+            <div class="stat-value" id="statsToday">—</div>
+          </div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-icon">👥</div>
+          <div class="stat-info">
+            <div class="stat-label">Унікальних сьогодні</div>
+            <div class="stat-value" id="statsUniqueToday">—</div>
+          </div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-icon">📊</div>
+          <div class="stat-info">
+            <div class="stat-label">За тиждень</div>
+            <div class="stat-value" id="statsWeek">—</div>
+          </div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-icon">🌐</div>
+          <div class="stat-info">
+            <div class="stat-label">Всього</div>
+            <div class="stat-value" id="statsTotal">—</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <div id="authBar" class="right collapsed">
     <span id="authHello" class="chip">Гість</span>
     <span id="roleChip" class="chip">Роль: –</span>
@@ -1171,6 +1275,189 @@ function hideSplash(){
 }
 // Прапорець: коли можна ховати сплеш. Стає true після перевірки авторизації
 window.__canHideSplash = false;
+
+/* ===================== Статистика відвідування ===================== */
+(function(){
+  const db = firebase.firestore();
+  let sessionId = null;
+  let heartbeatInterval = null;
+  
+  // Генеруємо або отримуємо унікальний ID користувача
+  function getUserId(){
+    try{
+      let uid = localStorage.getItem('visitor_uid');
+      if(!uid){
+        uid = 'v_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+        localStorage.setItem('visitor_uid', uid);
+      }
+      return uid;
+    }catch(_){ return 'v_' + Date.now(); }
+  }
+  
+  // Стартуємо сесію відвідувача
+  async function startVisitorSession(){
+    try{
+      const userId = getUserId();
+      const now = firebase.firestore.Timestamp.now();
+      const today = new Date().toISOString().split('T')[0];
+      
+      // Створюємо сесію
+      const sessionRef = await db.collection('visitor_sessions').add({
+        userId: userId,
+        startTime: now,
+        lastHeartbeat: now,
+        page: window.location.pathname,
+        userAgent: navigator.userAgent.substring(0, 200),
+        date: today
+      });
+      
+      sessionId = sessionRef.id;
+      
+      // Оновлюємо денну статистику
+      const dayRef = db.collection('visitor_stats').doc(today);
+      await dayRef.set({
+        date: today,
+        totalVisits: firebase.firestore.FieldValue.increment(1),
+        uniqueVisitors: firebase.firestore.FieldValue.arrayUnion(userId),
+        lastUpdate: now
+      }, { merge: true });
+      
+      // Запускаємо heartbeat (кожні 30 секунд)
+      heartbeatInterval = setInterval(sendHeartbeat, 30000);
+      
+    }catch(e){ console.warn('Visitor session start error:', e); }
+  }
+  
+  // Відправляємо heartbeat
+  async function sendHeartbeat(){
+    if(!sessionId) return;
+    try{
+      await db.collection('visitor_sessions').doc(sessionId).update({
+        lastHeartbeat: firebase.firestore.Timestamp.now()
+      });
+    }catch(e){ console.warn('Heartbeat error:', e); }
+  }
+  
+  // Закінчуємо сесію
+  async function endVisitorSession(){
+    if(!sessionId) return;
+    try{
+      await db.collection('visitor_sessions').doc(sessionId).update({
+        endTime: firebase.firestore.Timestamp.now()
+      });
+      if(heartbeatInterval) clearInterval(heartbeatInterval);
+    }catch(_){}
+  }
+  
+  // UI для адміністраторів
+  function setupStatsUI(){
+    const statsArea = document.getElementById('statsArea');
+    const statsBell = document.getElementById('statsBell');
+    const statsDropdown = document.getElementById('statsDropdown');
+    const statsRefresh = document.getElementById('statsRefresh');
+    
+    if(!statsArea || !statsBell || !statsDropdown) return;
+    
+    // Показуємо тільки для адміністраторів
+    if(window.__userRole === 'admin'){
+      statsArea.style.display = 'flex';
+    }
+    
+    // Перемикання dropdown
+    statsBell.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const isOpen = statsDropdown.style.display === 'block';
+      statsDropdown.style.display = isOpen ? 'none' : 'block';
+      if(!isOpen) loadStats();
+    });
+    
+    // Закриття при кліку поза
+    document.addEventListener('click', (e) => {
+      if(!statsArea.contains(e.target)){
+        statsDropdown.style.display = 'none';
+      }
+    });
+    
+    // Кнопка оновлення
+    if(statsRefresh){
+      statsRefresh.addEventListener('click', (e) => {
+        e.stopPropagation();
+        loadStats();
+      });
+    }
+  }
+  
+  // Завантаження статистики
+  async function loadStats(){
+    try{
+      const now = new Date();
+      const today = now.toISOString().split('T')[0];
+      const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+      
+      // Онлайн зараз (сесії з heartbeat за останні 2 хвилини)
+      const twoMinAgo = firebase.firestore.Timestamp.fromDate(
+        new Date(Date.now() - 2 * 60 * 1000)
+      );
+      
+      const onlineSnap = await db.collection('visitor_sessions')
+        .where('lastHeartbeat', '>=', twoMinAgo)
+        .get();
+      
+      // Фільтруємо тільки активні сесії (без endTime)
+      const onlineCount = onlineSnap.docs.filter(doc => !doc.data().endTime).length;
+      document.getElementById('statsOnline').textContent = onlineCount;
+      
+      // Сьогодні
+      const todaySnap = await db.collection('visitor_stats').doc(today).get();
+      if(todaySnap.exists){
+        const data = todaySnap.data();
+        document.getElementById('statsToday').textContent = data.totalVisits || 0;
+        document.getElementById('statsUniqueToday').textContent = 
+          (data.uniqueVisitors || []).length;
+      } else {
+        document.getElementById('statsToday').textContent = '0';
+        document.getElementById('statsUniqueToday').textContent = '0';
+      }
+      
+      // За тиждень
+      const weekSnap = await db.collection('visitor_stats')
+        .where('date', '>=', weekAgo.toISOString().split('T')[0])
+        .get();
+      
+      let weekTotal = 0;
+      weekSnap.forEach(doc => {
+        weekTotal += doc.data().totalVisits || 0;
+      });
+      document.getElementById('statsWeek').textContent = weekTotal;
+      
+      // Всього
+      const allSnap = await db.collection('visitor_stats').get();
+      let total = 0;
+      allSnap.forEach(doc => {
+        total += doc.data().totalVisits || 0;
+      });
+      document.getElementById('statsTotal').textContent = total;
+      
+    }catch(e){ 
+      console.warn('Stats load error:', e);
+      document.getElementById('statsOnline').textContent = '—';
+      document.getElementById('statsToday').textContent = '—';
+      document.getElementById('statsUniqueToday').textContent = '—';
+      document.getElementById('statsWeek').textContent = '—';
+      document.getElementById('statsTotal').textContent = '—';
+    }
+  }
+  
+  // Запуск при завантаженні
+  window.addEventListener('load', () => {
+    startVisitorSession();
+    setupStatsUI();
+  });
+  
+  // Завершення при закритті
+  window.addEventListener('beforeunload', endVisitorSession);
+  window.addEventListener('pagehide', endVisitorSession);
+})();
 
 // Розміщення верхнього доку (правильна ширина як на макеті: від правого краю лівої панелі до правого краю екрану)
 function positionEntryDock(){
