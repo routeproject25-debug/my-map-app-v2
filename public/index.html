@@ -23,18 +23,44 @@
 <script src="/config/config.js"></script>
 
   <style>
-  :root { --nav-h:56px; --nav-real:56px; --card:#fff; --line:#e5e7eb; --muted:#6b7280; }
+  :root { 
+    --nav-h:60px; --nav-real:60px; 
+    --card:#ffffff; --line:#e0e7ff; --muted:#64748b;
+    --primary:#6366f1; --primary-dark:#4f46e5; --primary-light:#818cf8;
+    --success:#10b981; --warning:#f59e0b; --danger:#ef4444;
+    --bg-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    --shadow-sm: 0 2px 8px rgba(0,0,0,0.08);
+    --shadow-md: 0 4px 16px rgba(0,0,0,0.12);
+    --shadow-lg: 0 8px 32px rgba(0,0,0,0.16);
+  }
 
   *{box-sizing:border-box}
-  body{margin:0;padding:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+  body{
+    margin:0;padding:0;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+    background: #f8fafc;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
 
   header.topbar{
     position:sticky; top:0; z-index:5000; min-height:var(--nav-h);
-    display:flex; align-items:center; justify-content:space-between; gap:10px; padding:8px;
-    background:#2563eb; color:#fff;
+    display:flex; align-items:center; justify-content:space-between; gap:12px; padding:12px 16px;
+    background: var(--bg-gradient);
+    color:#fff;
+    box-shadow: var(--shadow-md);
+    backdrop-filter: blur(10px);
   }
-  header.topbar a{ color:#fff; text-decoration:none; margin-right:12px; white-space:nowrap; }
-  header .left, header .right{ display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+  header.topbar a{ 
+    color:#fff; text-decoration:none; margin-right:16px; white-space:nowrap;
+    font-weight:500; transition: all 0.2s ease;
+    padding: 6px 12px; border-radius: 8px;
+  }
+  header.topbar a:hover{
+    background: rgba(255,255,255,0.15);
+    transform: translateY(-1px);
+  }
+  header .left, header .right{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
   header .spacer{ flex:1 1 auto; }
   /* Перемикач між десктопними лінками та мобільним меню */
   .nav-link{ display:inline-block; }
@@ -44,33 +70,86 @@
 
   /* ===== Notifications ===== */
   #notifArea{ position:relative; display:flex; align-items:center; gap:6px; }
-  #notifBell{ position:relative; height:34px; padding:0 12px; border-radius:8px; border:1px solid rgba(255,255,255,.35); background:#fff; color:#111; cursor:pointer; }
-  #notifCount{ position:absolute; top:-6px; right:-6px; background:#ef4444; color:#fff; border-radius:999px; padding:2px 6px; font-size:12px; line-height:1; display:none; }
-  /* Dropdown авто-під ширину контенту (але не ширше вікна) */
-  #notifDropdown{ position:absolute; right:0; top:40px; width:max-content; min-width:320px; max-width:calc(100vw - 16px); background:#fff; color:#111; border:1px solid var(--line); border-radius:12px; box-shadow:0 6px 24px rgba(0,0,0,.18); display:none; z-index:6000; }
-  #notifDropdown header{ display:flex; align-items:center; justify-content:space-between; padding:10px 12px; border-bottom:1px solid var(--line); font-weight:600; }
-  #notifList{ list-style:none; margin:0; padding:0; max-height:50vh; overflow-y:auto; overflow-x:hidden; }
-  #notifList li{ display:grid; grid-template-columns:1fr auto; align-items:center; gap:8px; padding:10px 12px; border-bottom:1px solid #f1f5f9; }
-  #notifList li:last-child{ border-bottom:none; }
-  .notif-msg{ font-size:14px; white-space:nowrap; }
-  .notif-msg a{ color:inherit; text-decoration:none; white-space:nowrap; }
-  .notif-time{ font-size:12px; color:#6b7280; }
-  .notif-dismiss{ background:transparent; border:none; color:#6b7280; cursor:pointer; font-size:16px; line-height:1; padding:0 4px; }
-
-  #authBar{ display:flex; align-items:center; gap:6px; flex-wrap:wrap; }
-  #authBar input{
-    height:34px; padding:6px 10px; border-radius:8px; border:1px solid rgba(255,255,255,.35);
-    background:rgba(255,255,255,.15); color:#fff; outline:none; width:180px;
+  #notifBell{ 
+    position:relative; height:38px; padding:0 16px; border-radius:10px; 
+    border:none; background:rgba(255,255,255,0.95); color:#4f46e5; 
+    cursor:pointer; font-weight:600; transition: all 0.2s ease;
+    box-shadow: var(--shadow-sm);
   }
-  #authBar input::placeholder{ color:rgba(255,255,255,.85) }
-  #authBar input[type="password"]{ width:120px }
+  #notifBell:hover{
+    background:#fff; transform: translateY(-2px);
+    box-shadow: var(--shadow-md);
+  }
+  #notifCount{ 
+    position:absolute; top:-6px; right:-6px; background:#ef4444; 
+    color:#fff; border-radius:999px; padding:3px 7px; font-size:11px; 
+    line-height:1; display:none; font-weight:700;
+    box-shadow: 0 2px 8px rgba(239,68,68,0.4);
+  }
+  /* Dropdown авто-під ширину контенту (але не ширше вікна) */
+  #notifDropdown{ 
+    position:absolute; right:0; top:46px; width:max-content; 
+    min-width:360px; max-width:calc(100vw - 16px); 
+    background:#fff; color:#111; border:none; 
+    border-radius:16px; box-shadow: var(--shadow-lg); 
+    display:none; z-index:6000;
+    backdrop-filter: blur(10px);
+  }
+  #notifDropdown header{ 
+    display:flex; align-items:center; justify-content:space-between; 
+    padding:16px 18px; border-bottom:2px solid #f1f5f9; 
+    font-weight:700; font-size:15px; color:#1e293b;
+  }
+  #notifList{ 
+    list-style:none; margin:0; padding:8px 0; 
+    max-height:50vh; overflow-y:auto; overflow-x:hidden; 
+  }
+  #notifList li{ 
+    display:grid; grid-template-columns:1fr auto; align-items:center; 
+    gap:12px; padding:14px 18px; border-bottom:1px solid #f8fafc;
+    transition: background 0.15s ease;
+  }
+  #notifList li:hover{ background:#f8fafc; }
+  #notifList li:last-child{ border-bottom:none; }
+  .notif-msg{ font-size:14px; white-space:nowrap; color:#334155; }
+  .notif-msg a{ color:inherit; text-decoration:none; white-space:nowrap; }
+  .notif-time{ font-size:12px; color:#94a3b8; font-weight:500; }
+  .notif-dismiss{ 
+    background:transparent; border:none; color:#94a3b8; 
+    cursor:pointer; font-size:18px; line-height:1; padding:4px 8px;
+    border-radius:6px; transition: all 0.15s ease;
+  }
+  .notif-dismiss:hover{ background:#fee2e2; color:#ef4444; }
+
+  #authBar{ display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+  #authBar input{
+    height:38px; padding:8px 14px; border-radius:10px; 
+    border:2px solid rgba(255,255,255,.25);
+    background:rgba(255,255,255,.2); color:#fff; outline:none; 
+    width:190px; font-weight:500; transition: all 0.2s ease;
+  }
+  #authBar input:focus{
+    background:rgba(255,255,255,.3); 
+    border-color:rgba(255,255,255,.5);
+    box-shadow: 0 0 0 3px rgba(255,255,255,.15);
+  }
+  #authBar input::placeholder{ color:rgba(255,255,255,.9); }
+  #authBar input[type="password"]{ width:130px; }
   #authBar .chip{
-    font-size:12px; background:rgba(255,255,255,.15); border:1px solid rgba(255,255,255,.3);
-    border-radius:999px; padding:4px 10px; white-space:nowrap;
+    font-size:13px; background:rgba(255,255,255,.25); 
+    border:1px solid rgba(255,255,255,.35);
+    border-radius:999px; padding:6px 14px; white-space:nowrap;
+    font-weight:600; backdrop-filter: blur(8px);
   }
   #authBar .btn{
-    height:34px; padding:0 12px; border-radius:8px; border:1px solid rgba(255,255,255,.35);
-    background:#fff; color:#111; cursor:pointer; touch-action:manipulation;
+    height:38px; padding:0 18px; border-radius:10px; border:none;
+    background:rgba(255,255,255,0.95); color:#4f46e5; 
+    cursor:pointer; touch-action:manipulation; font-weight:600;
+    transition: all 0.2s ease; box-shadow: var(--shadow-sm);
+  }
+  #authBar .btn:hover{
+    background:#fff; transform: translateY(-1px);
+    box-shadow: var(--shadow-md);
   }
 
   #mobileAuthToggle{ display:none; }
@@ -93,17 +172,29 @@
   #map{position:absolute; top:var(--nav-real); bottom:0; width:100%}
 
   #controls{
-    position:absolute; z-index:3000; top:calc(var(--nav-real) + 8px); left:8px;
-    background:var(--card); border:1px solid var(--line); border-radius:12px;
-    box-shadow:0 1px 8px rgba(0,0,0,.12); padding:12px;
-    width:280px; max-width:280px; max-height:90vh; overflow-y:auto; overflow-x:hidden;
+    position:absolute; z-index:3000; top:calc(var(--nav-real) + 12px); left:12px;
+    background:rgba(255,255,255,0.98); border:none; border-radius:20px;
+    box-shadow: var(--shadow-lg); padding:20px;
+    width:300px; max-width:300px; max-height:90vh; overflow-y:auto; overflow-x:hidden;
+    backdrop-filter: blur(12px);
   }
   .controls-hidden #controls{ display:none }
+  #controls::-webkit-scrollbar { width: 6px; }
+  #controls::-webkit-scrollbar-track { background: #f1f5f9; border-radius: 10px; }
+  #controls::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
+  #controls::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
 
   #controls .row>*{min-width:0}
   #controls input[type=text], #controls select, #controls textarea{
-    width:100%; max-width:100%; padding:9px 11px; font-size:14px;
-    border:1px solid var(--line); border-radius:10px; outline:none;
+    width:100%; max-width:100%; padding:11px 14px; font-size:14px;
+    border:2px solid #e2e8f0; border-radius:12px; outline:none;
+    background:#fff; transition: all 0.2s ease; font-weight:500;
+  }
+  #controls input[type=text]:focus, #controls select:focus, #controls textarea:focus{
+    border-color:#6366f1; box-shadow: 0 0 0 3px rgba(99,102,241,0.1);
+  }
+  #controls input[type=text]:hover, #controls select:hover, #controls textarea:hover{
+    border-color:#cbd5e1;
   }
   /* Фіксуємо поведінку випадаючого списку: робимо текст опцій компактнішим */
   #remoteRoutes{ width:100%; }
@@ -115,11 +206,26 @@
   @media(max-width:420px){ .row{grid-template-columns:1fr} }
 
   .btn{
-    cursor:pointer;border:1px solid var(--line);background:#fff;border-radius:10px;
-    padding:8px 12px;font-size:14px; line-height:1.2; touch-action:manipulation;
+    cursor:pointer; border:none; background:#fff; border-radius:10px;
+    padding:10px 16px; font-size:14px; line-height:1.4; 
+    touch-action:manipulation; font-weight:600;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    box-shadow: var(--shadow-sm);
+    color: #334155;
   }
-  .btn.xs{ padding:8px 12px; font-size:14px }
-  .btn.active{background:#e6f4ea;border-color:#22c55e}
+  .btn:hover{
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-md);
+  }
+  .btn:active{
+    transform: translateY(0);
+    box-shadow: var(--shadow-sm);
+  }
+  .btn.xs{ padding:10px 14px; font-size:13px; }
+  .btn.active{
+    background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+    color:#fff; box-shadow: 0 4px 16px rgba(16,185,129,0.3);
+  }
 
   /* Лівий інструмент‑стовпчик: вирівнюємо тексти вліво і додаємо підпис шорткатів праворуч */
   #panel-create .tools-left .btn{ display:flex; align-items:center; gap:8px; justify-content:flex-start; text-align:left }
@@ -141,9 +247,13 @@
     .km-chip{ font-size:13px; padding:6px 10px; }
   }
 
-  .km-chip{margin-top:2px;font-size:12.5px;color:#111;background:#f3f4f6;
-           border:1px solid var(--line);border-radius:999px;display:inline-block;
-           padding:4px 10px;width:max-content}
+  .km-chip{
+    margin-top:2px; font-size:13px; color:#1e293b; 
+    background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+    border:2px solid #e2e8f0; border-radius:999px; display:inline-block;
+    padding:6px 14px; width:max-content; font-weight:600;
+    box-shadow: var(--shadow-sm);
+  }
 
   .section{border-top:1px dashed var(--line);padding-top:8px;margin-top:8px}
   details>summary{cursor:pointer;font-weight:700;margin:4px 0}
@@ -155,12 +265,32 @@
   #contextMenu div{padding:6px 10px;cursor:pointer}
   #contextMenu div:hover{background:#f3f4f6}
 
-  .modal{position:fixed; inset:0; background:rgba(0,0,0,.35); display:none; align-items:center; justify-content:center; z-index:4000}
+  .modal{
+    position:fixed; inset:0; background:rgba(15,23,42,.5); 
+    display:none; align-items:center; justify-content:center; z-index:4000;
+    backdrop-filter: blur(8px);
+  }
   .modal.show{display:flex}
-  .modal-box{background:#fff; border:1px solid var(--line); border-radius:12px; padding:14px; width:min(440px,92vw); box-shadow:0 10px 30px rgba(0,0,0,.2)}
-  .modal-title{font-weight:700; margin-bottom:6px}
-  .modal-body{color:#374151; font-size:14px; margin-bottom:10px; white-space:pre-line}
-  .modal-actions{display:flex; gap:8px; flex-wrap:wrap; justify-content:flex-end}
+  .modal-box{
+    background:#fff; border:none; border-radius:24px; 
+    padding:24px; width:min(480px,92vw); 
+    box-shadow: 0 20px 60px rgba(0,0,0,.3);
+    animation: modalSlideIn 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  @keyframes modalSlideIn {
+    from { transform: translateY(-20px); opacity: 0; }
+    to { transform: translateY(0); opacity: 1; }
+  }
+  .modal-title{
+    font-weight:700; margin-bottom:12px; font-size:20px; color:#1e293b;
+  }
+  .modal-body{
+    color:#475569; font-size:15px; margin-bottom:20px; 
+    white-space:pre-line; line-height:1.6;
+  }
+  .modal-actions{
+    display:flex; gap:12px; flex-wrap:wrap; justify-content:flex-end;
+  }
   .modal-actions .btn{min-width:140px}
 
   .mapboxgl-canvas{z-index:0!important}
@@ -169,24 +299,32 @@
   /* Стилі для дока перемикання стилю карти (нижній лівий кут) */
   .style-dock{
     position:fixed;
-    left:8px; bottom:8px; z-index:3500;
-    display:flex; align-items:center; gap:6px;
-    background:var(--card); border:1px solid var(--line);
-    border-radius:12px; padding:6px 8px;
-    box-shadow:0 2px 12px rgba(0,0,0,.12);
+    left:12px; bottom:12px; z-index:3500;
+    display:flex; align-items:center; gap:8px;
+    background:rgba(255,255,255,0.98); border:none;
+    border-radius:20px; padding:10px 14px;
+    box-shadow: var(--shadow-lg);
+    backdrop-filter: blur(12px);
   }
   .style-dock select{
-    border:1px solid var(--line); border-radius:10px;
-    padding:6px 8px; font-size:13px; background:#fff; color:#111;
+    border:2px solid #e2e8f0; border-radius:12px;
+    padding:8px 12px; font-size:13px; background:#fff; color:#334155;
+    font-weight:600; transition: all 0.2s ease;
+  }
+  .style-dock select:focus{
+    border-color:#6366f1; box-shadow: 0 0 0 3px rgba(99,102,241,0.1);
   }
   .style-dock input[type="text"]{
-    border:1px solid var(--line); border-radius:10px;
-    padding:6px 8px; font-size:13px; background:#fff; color:#111;
-    width:180px;
+    border:2px solid #e2e8f0; border-radius:12px;
+    padding:8px 12px; font-size:13px; background:#fff; color:#334155;
+    width:200px; font-weight:500; transition: all 0.2s ease;
+  }
+  .style-dock input[type="text"]:focus{
+    border-color:#6366f1; box-shadow: 0 0 0 3px rgba(99,102,241,0.1);
   }
   .style-dock .mapbox-brand{
-    font-size:11px; color:#6b7280; border-left:1px dashed var(--line);
-    padding-left:8px;
+    font-size:11px; color:#94a3b8; border-left:2px solid #e2e8f0;
+    padding-left:12px; font-weight:600;
   }
   /* Мобільна компактність нижнього лівого доку (стиль/пошук) і верхнього хедера */
   @media(max-width:1024px){
@@ -230,16 +368,19 @@
   body.force-compact #authHello, body.force-compact #roleChip{ display:none !important; }
   
   #splash{
-  position:fixed; inset:0; display:grid; place-items:center;
-  background:#fff; z-index:9999; transition:opacity .25s ease;
-  font-size:14px; color:#111; gap:12px;
-}
-#splash.hide{ opacity:0; pointer-events:none }
-.spinner{
-  width:40px; height:40px; border:3px solid #e5e7eb;
-  border-top-color:#2563eb; border-radius:50%; animation:spin 1s linear infinite;
-}
-@keyframes spin { to { transform:rotate(360deg) } }
+    position:fixed; inset:0; display:grid; place-items:center;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    z-index:9999; transition:opacity .3s ease;
+    font-size:16px; color:#fff; gap:20px; font-weight:600;
+  }
+  #splash.hide{ opacity:0; pointer-events:none }
+  .spinner{
+    width:50px; height:50px; border:4px solid rgba(255,255,255,0.2);
+    border-top-color:#fff; border-radius:50%; 
+    animation:spin 0.8s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.15);
+  }
+  @keyframes spin { to { transform:rotate(360deg) } }
 /* ==== Панелі керування ==== */
 #controls .panel{ display:none; }
 #controls .panel.active{ display:block; }
@@ -256,26 +397,43 @@
   gap:6px;
 }
 
-.status-chip{
-  background:#f3f4f6;
-  color:#111;
-  border:1px solid var(--line);
-  border-radius:999px;
-  padding:6px 12px;
-  font-size:12.5px;
-  box-shadow:0 1px 8px rgba(0,0,0,.08);
-  width:max-content;
-  max-width:46vw;
-  overflow:hidden;
-  text-overflow:ellipsis;
-  white-space:nowrap;
+  .status-chip{
+    background:rgba(255,255,255,0.98);
+    color:#1e293b;
+    border:none;
+    border-radius:16px;
+    padding:10px 18px;
+    font-size:13px;
+    box-shadow: var(--shadow-md);
+    width:max-content;
+    max-width:46vw;
+    overflow:hidden;
+    text-overflow:ellipsis;
+    white-space:nowrap;
+    font-weight:600;
+    backdrop-filter: blur(12px);
+    transition: all 0.2s ease;
+  }
+  .status-chip:hover{
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-lg);
+  }/* кольори статусів */
+#statusChip.status-chip[data-status="pending"]{ 
+  background: linear-gradient(135deg, #fef3c7 0%, #fcd34d 100%); 
+  box-shadow: 0 4px 16px rgba(245,158,11,0.3);
 }
-
-/* кольори статусів */
-#statusChip.status-chip[data-status="pending"]{ background:#fff7ed; border-color:#f59e0b; }
-#statusChip.status-chip[data-status="approved"]{ background:#e6f4ea; border-color:#22c55e; }
-#statusChip.status-chip[data-status="rejected"]{ background:#fee2e2; border-color:#ef4444; }
-#statusChip.status-chip[data-status="draft"]{ background:#eef2ff; border-color:#c7d2fe; }
+#statusChip.status-chip[data-status="approved"]{ 
+  background: linear-gradient(135deg, #d1fae5 0%, #6ee7b7 100%); 
+  box-shadow: 0 4px 16px rgba(16,185,129,0.3);
+}
+#statusChip.status-chip[data-status="rejected"]{ 
+  background: linear-gradient(135deg, #fee2e2 0%, #fca5a5 100%); 
+  box-shadow: 0 4px 16px rgba(239,68,68,0.3);
+}
+#statusChip.status-chip[data-status="draft"]{ 
+  background: linear-gradient(135deg, #e0e7ff 0%, #c7d2fe 100%); 
+  box-shadow: 0 4px 16px rgba(99,102,241,0.2);
+}
 #statusChip.status-chip[data-active="true"]::after{ content:" 🟩"; }
 #statusChip.status-chip[data-active="false"]::after{ content:" 🟥"; }
 /* неактивний варіант — тьмяніший фон та сіра рамка */
@@ -295,21 +453,30 @@
 /* Док-перемикач панелей (праворуч внизу) */
 #panelDock{
   position:fixed;
-  right:8px; bottom:8px;
+  right:12px; bottom:12px;
   z-index:3500;
-  display:flex; gap:6px; flex-wrap:wrap;
-  background:var(--card);
-  border:1px solid var(--line);
-  border-radius:12px;
-  padding:6px;
-  box-shadow:0 2px 12px rgba(0,0,0,.12);
+  display:flex; gap:8px; flex-wrap:wrap;
+  background:rgba(255,255,255,0.98);
+  border:none;
+  border-radius:20px;
+  padding:10px;
+  box-shadow: var(--shadow-lg);
+  backdrop-filter: blur(12px);
 }
 #panelDock .dock-btn{
-  cursor:pointer; border:1px solid var(--line); background:#fff;
-  border-radius:10px; padding:8px 10px; font-size:13px; display:inline-flex; align-items:center; gap:4px;
+  cursor:pointer; border:none; background:#f8fafc;
+  border-radius:12px; padding:12px 16px; font-size:14px; 
+  display:inline-flex; align-items:center; gap:6px;
+  font-weight:600; color:#64748b;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+#panelDock .dock-btn:hover{
+  background:#f1f5f9; transform: translateY(-2px);
 }
 #panelDock .dock-btn.active{
-  background:#e6f4ea; border-color:#22c55e;
+  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+  color:#fff;
+  box-shadow: 0 4px 12px rgba(16,185,129,0.3);
 }
 
 /* дрібні адаптивні правки */
@@ -399,11 +566,12 @@
 
   /* ===== Верхній док для введення даних (виділено окремо) ===== */
   .entry-dock{
-    position:fixed; left:8px; right:8px; top:calc(var(--nav-real) + 8px);
+    position:fixed; left:12px; right:12px; top:calc(var(--nav-real) + 12px);
     z-index:3400;
-    background:var(--card); border:1px solid var(--line); border-radius:12px;
-    box-shadow:0 2px 12px rgba(0,0,0,.12);
-    padding:6px;
+    background:rgba(255,255,255,0.98); border:none; border-radius:20px;
+    box-shadow: var(--shadow-lg);
+    padding:12px;
+    backdrop-filter: blur(12px);
   }
   .entry-dock .entry-toggle{
     cursor:pointer; border:1px solid var(--line); background:#fff; color:#111;
