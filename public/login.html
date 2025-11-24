@@ -25,23 +25,23 @@
     }
     *{ box-sizing:border-box }
     html,body{ height:100% }
-    body{ margin:0; font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif; background:#111827; }
+    body{ margin:0; font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif; background:#111827; position:relative; }
     /* Фон-ізображення: мінімальна анімація появи */
     body::before{
-      content:""; position:fixed; inset:0; z-index:-2;
-      background:var(--login-bg) center/cover no-repeat fixed;
-      opacity:0; transform: scale(1.04); will-change: transform, opacity;
-      animation: login-bg-fade 5000ms ease-out forwards; /* Лишається лише плавна поява */
+      content:""; position:fixed; inset:0; z-index:0;
+      background:var(--login-bg) center/cover no-repeat;
+      opacity:0;
+      animation: login-bg-fade 1200ms ease-out forwards;
     }
     @media (prefers-reduced-motion: reduce){
-      body::before{ animation: none; }
+      body::before{ animation: none; opacity: 1; }
     }
     
     /* Легке затемнення для контрасту */
-    body::after{ content:""; position:fixed; inset:0; z-index:-1; background:linear-gradient(to bottom right, rgba(0,0,0,var(--login-overlay)), rgba(0,0,0,calc(var(--login-overlay) + .08))); }
+    body::after{ content:""; position:fixed; inset:0; z-index:1; background:linear-gradient(to bottom right, rgba(0,0,0,var(--login-overlay)), rgba(0,0,0,calc(var(--login-overlay) + .08))); pointer-events: none; }
 
-    @keyframes login-bg-fade{ from{ opacity:0; transform:scale(1.06); } to{ opacity:1; transform:scale(1); } }
-    .wrap{ min-height:100%; padding:var(--pad) }
+    @keyframes login-bg-fade{ from{ opacity:0; } to{ opacity:1; } }
+    .wrap{ min-height:100%; padding:var(--pad); position:relative; z-index:2; }
     /* Панель авторизації — зліва угорі + легка поява */
     .card{
       position:fixed; top:var(--pad); left:var(--pad); width:min(440px,94vw);
@@ -50,6 +50,7 @@
       backdrop-filter: blur(8px); padding:24px; transform-origin:left top;
       opacity:0; transform: translateX(-10px);
       animation: panel-in 600ms cubic-bezier(.2,.7,.2,1) forwards;
+      z-index:10;
     }
     @keyframes panel-in{ to{ opacity:1; transform:none; } }
     @media (max-width:640px){ .card{ left:var(--pad); right:var(--pad); top:var(--pad); width:auto; } }
