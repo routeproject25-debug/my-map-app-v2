@@ -668,7 +668,7 @@ body.map-open #bottomScroller{
           </div>
         </div>
 
-        <div class="row" style="margin-top:12px;">
+        <div id="testModeRow" class="row" style="margin-top:12px;display:none;">
           <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
             <input id="testModeFilter" type="checkbox" style="width:auto;cursor:pointer;">
             <span style="font-size:14px;font-weight:500;">🧪 Тільки тестові маршрути (isTest = true)</span>
@@ -1501,6 +1501,12 @@ auth?.onAuthStateChanged(async (u) => {
   authRoleBadge.textContent = `Роль: ${currentRole}`;
   authRoleBadge.style.display = '';
   setBusy(false);
+
+  // 🔑 Показуємо чекбокс "Тільки тестові маршрути" тільки для адміна
+  if (userHasRole('admin')) {
+    const testModeRow = document.getElementById('testModeRow');
+    if (testModeRow) testModeRow.style.display = '';
+  }
 
   const syncRoleAndRerender = () => {
   const r = String(window.__userRole || '').toLowerCase();
