@@ -3670,12 +3670,16 @@ const COLPICKER_STATE_KEY = 'export.colpickerHidden.v1';
 function applyColpickerState(){
   const hidden = localStorage.getItem(COLPICKER_STATE_KEY) === '1';
   COLPICKER.classList.toggle('is-hidden', hidden);
+  const btn = document.getElementById('btnToggleSidebar');
+  if(btn) btn.textContent = hidden ? '☰ Поля таблиці ▸' : '☰ Поля таблиці ▾';
 }
 applyColpickerState();
 
 document.getElementById('btnToggleSidebar')?.addEventListener('click', () => {
   const hidden = COLPICKER.classList.toggle('is-hidden');
   localStorage.setItem(COLPICKER_STATE_KEY, hidden ? '1' : '0');
+  const btn = document.getElementById('btnToggleSidebar');
+  if(btn) btn.textContent = hidden ? '☰ Поля таблиці ▸' : '☰ Поля таблиці ▾';
 });
 
 /* ==== Тогл «Фільтри» як секції (показати/сховати) ==== */
@@ -3685,12 +3689,16 @@ const FILTERS_STATE_KEY = 'export.filtersHidden.v1';
 function applyFiltersState(){
   const hidden = localStorage.getItem(FILTERS_STATE_KEY) === '1';
   FILTERS.classList.toggle('is-hidden', hidden);
+  const btn = document.getElementById('btnToggleFilters');
+  if(btn) btn.textContent = hidden ? '☰ Фільтри ▸' : '☰ Фільтри ▾';
 }
 applyFiltersState();
 
 document.getElementById('btnToggleFilters')?.addEventListener('click', () => {
   const hidden = FILTERS.classList.toggle('is-hidden');
   localStorage.setItem(FILTERS_STATE_KEY, hidden ? '1' : '0');
+  const btn = document.getElementById('btnToggleFilters');
+  if(btn) btn.textContent = hidden ? '☰ Фільтри ▸' : '☰ Фільтри ▾';
 });
 // (6) Чисте вимкнення live-підписки при виході/перезавантаженні сторінки
 window.addEventListener('beforeunload', () => {
