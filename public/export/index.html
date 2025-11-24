@@ -199,15 +199,40 @@
 
 .card { overflow:hidden; }  /* щоб внутрішні елементи не «вигризали» горизонтальний скрол */
 
-/* Адаптивна шапка з заголовком та кнопками */
-@media (max-width: 1200px){
-  header.top h1 { font-size: 16px !important; }
+/* Хедер: зліва назва, справа кнопки */
+.topbar.header-grid{
+  display:grid;
+  grid-template-columns: 1fr auto;  /* назва займає все зліва, кнопки — свої розміри */
+  align-items:start;                /* кнопки й назва притиснуті до верху */
+  gap:16px;
+  margin-bottom:12px;               /* відступ під хедером */
 }
 
+/* Назва: одна лінія зверху зліва */
+.page-title{
+  margin:0;                         /* без додаткових відступів */
+  font-size:20px;
+  font-weight:600;
+  line-height:1.25;
+  white-space:nowrap;               /* 1 рядок */
+  overflow:hidden;                  /* захист від переповнення */
+  text-overflow:ellipsis;
+}
+
+/* Кнопки вгорі праворуч */
+.header-actions{
+  display:flex;
+  justify-content:flex-end;         /* ПРАВОРУЧ */
+  align-items:flex-start;           /* вище під верх */
+  gap:8px;
+  flex-wrap:wrap;
+}
+
+/* Адаптив */
 @media (max-width: 980px){
-  header.top > div { flex-direction: column; align-items: flex-start !important; }
-  header.top nav { flex-wrap: wrap; }
-  header.top h1 { font-size: 16px !important; }
+  .topbar.header-grid{ grid-template-columns: 1fr; }
+  .page-title{ min-height:auto; }
+  .header-actions{ justify-content:flex-start; }
 }
 
 /* Щоб короткі колонки не стискались зовсім */
@@ -563,6 +588,16 @@ body.map-open #bottomScroller{
 </header>
 
   <div class="wrap">
+    <div class="topbar header-grid">
+  <h1 class="page-title">Експорт маршрутів (Firestore → Excel)</h1>
+
+  <div class="header-actions">
+    <a class="btn" href="/index.html">← До карти</a>
+    <button id="btnToggleFilters" class="btn coltoggle">☰ Фільтри</button>
+    <button id="btnToggleSidebar" class="btn coltoggle">☰ Поля таблиці</button>
+  </div>
+</div>
+
 <div class="layout">
   <aside id="columnPicker" class="colpicker"></aside>
 
@@ -3670,16 +3705,12 @@ const COLPICKER_STATE_KEY = 'export.colpickerHidden.v1';
 function applyColpickerState(){
   const hidden = localStorage.getItem(COLPICKER_STATE_KEY) === '1';
   COLPICKER.classList.toggle('is-hidden', hidden);
-  const btn = document.getElementById('btnToggleSidebar');
-  if(btn) btn.textContent = hidden ? '☰ Поля таблиці ▸' : '☰ Поля таблиці ▾';
 }
 applyColpickerState();
 
 document.getElementById('btnToggleSidebar')?.addEventListener('click', () => {
   const hidden = COLPICKER.classList.toggle('is-hidden');
   localStorage.setItem(COLPICKER_STATE_KEY, hidden ? '1' : '0');
-  const btn = document.getElementById('btnToggleSidebar');
-  if(btn) btn.textContent = hidden ? '☰ Поля таблиці ▸' : '☰ Поля таблиці ▾';
 });
 
 /* ==== Тогл «Фільтри» як секції (показати/сховати) ==== */
@@ -3689,16 +3720,12 @@ const FILTERS_STATE_KEY = 'export.filtersHidden.v1';
 function applyFiltersState(){
   const hidden = localStorage.getItem(FILTERS_STATE_KEY) === '1';
   FILTERS.classList.toggle('is-hidden', hidden);
-  const btn = document.getElementById('btnToggleFilters');
-  if(btn) btn.textContent = hidden ? '☰ Фільтри ▸' : '☰ Фільтри ▾';
 }
 applyFiltersState();
 
 document.getElementById('btnToggleFilters')?.addEventListener('click', () => {
   const hidden = FILTERS.classList.toggle('is-hidden');
   localStorage.setItem(FILTERS_STATE_KEY, hidden ? '1' : '0');
-  const btn = document.getElementById('btnToggleFilters');
-  if(btn) btn.textContent = hidden ? '☰ Фільтри ▸' : '☰ Фільтри ▾';
 });
 // (6) Чисте вимкнення live-підписки при виході/перезавантаженні сторінки
 window.addEventListener('beforeunload', () => {
