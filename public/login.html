@@ -106,7 +106,10 @@
         <a id="backLink" href="/index.html" class="a-btn">Повернутися на карту</a>
       </div>
 
-      <p class="muted" style="margin-top:10px">Питання доступу — до адміністратора.</p>
+      <p class="muted" style="margin-top:10px">
+        Питання доступу — до адміністратора. 
+        <span id="signOutLink" style="display:none; cursor:pointer; text-decoration:underline; color:#2563eb;">Вийти з системи</span>
+      </p>
     </div>
   </div>
 
@@ -165,18 +168,38 @@ async function ensureUserAndRole(user) {
 
   // читаємо users з сервера (свіжі дані)
   let snap;
-  try { snap = await usersRef.get({ source: 'server' }); }
-  catch { snap = await usersRef.get(); }
+  try { 
+    snap = await usersRef.get({ source: 'server' }); 
+  } catch(e) { 
+    // Якщо помилка доступу (user видалений з Auth, але сесія жива) — виходимо
+    if (e.code === 'permission-denied' || e.code === 'unauthenticated') {
+      console.warn('[ensureUserAndRole] Помилка доступу до Firestore, виходимо:', e.code);
+      await auth.signOut();
+      showMsg('Сесія застаріла. Увійди знову.', true);
+      throw new Error('auth-session-expired');
+    }
+    snap = await usersRef.get(); 
+  }
 
   let role = 'pending';
   let additionalRoles = [];
   if (!snap.exists) {
-    await usersRef.set({
-      email: user.email || '',
-      displayName: user.displayName || '',
-      role: 'pending',
-      createdAt: firebase.firestore.FieldValue.serverTimestamp()
-    });
+    try {
+      await usersRef.set({
+        email: user.email || '',
+        displayName: user.displayName || '',
+        role: 'pending',
+        createdAt: firebase.firestore.FieldValue.serverTimestamp()
+      });
+    } catch(e) {
+      if (e.code === 'permission-denied') {
+        console.warn('[ensureUserAndRole] Не можу створити запис користувача:', e.code);
+        await auth.signOut();
+        showMsg('Помилка доступу. Увійди знову.', true);
+        throw new Error('auth-session-expired');
+      }
+      throw e;
+    }
   } else {
     const data = snap.data();
     role = data.role || 'pending';
@@ -319,6 +342,8 @@ auth.onAuthStateChanged(async (u) => {
     role = result.role;
     additionalRoles = result.additionalRoles;
   }catch(e){
+    // Якщо сесія застаріла — ensureUserAndRole вже викликав signOut
+    if (e.message === 'auth-session-expired') return;
     showMsg(humanizeError(e), true);
     return;
   }
@@ -348,7 +373,29 @@ auth.onAuthStateChanged(async (u) => {
       const addRoles = Array.isArray(data.additionalRoles) ? data.additionalRoles : [];
       if (r !== 'pending' && isAllowed(r, addRoles, nextPath)) goNext();
     });
+
+  // Показуємо кнопку виходу, якщо користувач залогінений
+  const signOutLink = document.getElementById('signOutLink');
+  if (signOutLink) signOutLink.style.display = 'inline';
 });
+
+/* ==== Вихід з системи ==== */
+const signOutLink = document.getElementById('signOutLink');
+if (signOutLink) {
+  signOutLink.onclick = async () => {
+    try {
+      await auth.signOut();
+      showMsg('Вихід виконано успішно.');
+      signOutLink.style.display = 'none';
+      // Очищаємо поля
+      $("email").value = '';
+      $("pass").value = '';
+    } catch(e) {
+      showMsg('Помилка виходу: ' + e.message, true);
+    }
+  };
+}
+
 /* ==== Клавіші Enter ==== */
 $("btnLogin").onclick = doLogin;
 $("email").addEventListener("keydown", e => { if (e.key === "Enter") doLogin(); });

@@ -30,13 +30,36 @@
 
   // 3) Перевірка аутентифікації + редирект на /login.html
   const auth = firebase.auth();
-  auth.onAuthStateChanged(u => {
+  const db = firebase.firestore();
+  
+  auth.onAuthStateChanged(async (u) => {
     const gate = document.getElementById('authGate');
     if (!u) {
       const here = location.pathname + location.search + location.hash;
       location.replace('/login.html?next=' + encodeURIComponent(here));
       return;
     }
+
+    // Перевіряємо, чи існує користувач у Firestore
+    try {
+      const userDoc = await db.collection('users').doc(u.uid).get({ source: 'server' });
+      if (!userDoc.exists) {
+        console.warn('[auth-guard] Користувач не існує в Firestore, виходимо');
+        await auth.signOut();
+        const here = location.pathname + location.search + location.hash;
+        location.replace('/login.html?next=' + encodeURIComponent(here));
+        return;
+      }
+    } catch(e) {
+      if (e.code === 'permission-denied' || e.code === 'unauthenticated') {
+        console.warn('[auth-guard] Помилка доступу до Firestore, виходимо:', e.code);
+        await auth.signOut();
+        const here = location.pathname + location.search + location.hash;
+        location.replace('/login.html?next=' + encodeURIComponent(here));
+        return;
+      }
+    }
+
     if (gate) gate.remove();
 
     // Глобальний logout для кнопок «Вийти»
