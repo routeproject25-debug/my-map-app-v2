@@ -18,31 +18,23 @@
   <style>
     :root{
       --card:#fff; --line:#e5e7eb; --pad:clamp(12px,2vw,24px);
-      /* Фон встановлюється динамічно через JS (випадкова картинка) */
+      /* Заміни шлях нижче на свій файл фону (наприклад: /img/login-wheat.jpg) */
       --login-bg:url("/img/login-bg.jpg");
       /* інтенсивність затемнення зверху (0.0–0.6) */
       --login-overlay: 0.24;
     }
     *{ box-sizing:border-box }
     html,body{ height:100% }
-    body{ 
-      margin:0; 
-      font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif; 
-      background:#111827; 
-      position:relative;
-    }
-    /* Фон-ізображення */
+    body{ margin:0; font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif; background:#111827; }
+    /* Фон-ізображення: мінімальна анімація появи */
     body::before{
-      content:""; 
-      position:fixed; 
-      inset:0; 
-      z-index:-2;
-      background-image:var(--login-bg);
-      background-position:center;
-      background-size:cover;
-      background-repeat:no-repeat;
-      background-attachment:fixed;
-      opacity:1;
+      content:""; position:fixed; inset:0; z-index:-2;
+      background:var(--login-bg) center/cover no-repeat fixed;
+      opacity:0; transform: scale(1.04); will-change: transform, opacity;
+      animation: login-bg-fade 5000ms ease-out forwards; /* Лишається лише плавна поява */
+    }
+    @media (prefers-reduced-motion: reduce){
+      body::before{ animation: none; }
     }
     
     /* Легке затемнення для контрасту */
@@ -379,19 +371,6 @@ try{
     if (!navigator.onLine){ console.warn('[Login Debug] offline at load'); }
   }
 }catch(_){}
-
-/* ==== Випадковий фон ==== */
-(function(){
-  const backgrounds = [
-    '/img/login-bg.jpg',
-    '/img/login-bg-1.jpg'
-    // Додавай нові: '/img/login-bg-2.jpg' тощо
-  ];
-  const randomBg = backgrounds[Math.floor(Math.random() * backgrounds.length)];
-  console.log('[Login BG] Встановлюю фон:', randomBg);
-  document.documentElement.style.setProperty('--login-bg', `url("${randomBg}")`);
-  console.log('[Login BG] CSS змінна --login-bg:', getComputedStyle(document.documentElement).getPropertyValue('--login-bg'));
-})();
 </script>
 </body>
 </html>
