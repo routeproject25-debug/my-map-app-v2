@@ -199,40 +199,15 @@
 
 .card { overflow:hidden; }  /* щоб внутрішні елементи не «вигризали» горизонтальний скрол */
 
-/* Хедер: зліва назва, справа кнопки */
-.topbar.header-grid{
-  display:grid;
-  grid-template-columns: 1fr auto;  /* назва займає все зліва, кнопки — свої розміри */
-  align-items:start;                /* кнопки й назва притиснуті до верху */
-  gap:16px;
-  margin-bottom:12px;               /* відступ під хедером */
+/* Адаптивна шапка з заголовком та кнопками */
+@media (max-width: 1200px){
+  header.top h1 { font-size: 16px !important; }
 }
 
-/* Назва: одна лінія зверху зліва */
-.page-title{
-  margin:0;                         /* без додаткових відступів */
-  font-size:20px;
-  font-weight:600;
-  line-height:1.25;
-  white-space:nowrap;               /* 1 рядок */
-  overflow:hidden;                  /* захист від переповнення */
-  text-overflow:ellipsis;
-}
-
-/* Кнопки вгорі праворуч */
-.header-actions{
-  display:flex;
-  justify-content:flex-end;         /* ПРАВОРУЧ */
-  align-items:flex-start;           /* вище під верх */
-  gap:8px;
-  flex-wrap:wrap;
-}
-
-/* Адаптив */
 @media (max-width: 980px){
-  .topbar.header-grid{ grid-template-columns: 1fr; }
-  .page-title{ min-height:auto; }
-  .header-actions{ justify-content:flex-start; }
+  header.top > div { flex-direction: column; align-items: flex-start !important; }
+  header.top nav { flex-wrap: wrap; }
+  header.top h1 { font-size: 16px !important; }
 }
 
 /* Щоб короткі колонки не стискались зовсім */
@@ -588,16 +563,6 @@ body.map-open #bottomScroller{
 </header>
 
   <div class="wrap">
-    <div class="topbar header-grid">
-  <h1 class="page-title">Експорт маршрутів (Firestore → Excel)</h1>
-
-  <div class="header-actions">
-    <a class="btn" href="/index.html">← До карти</a>
-    <button id="btnToggleFilters" class="btn coltoggle">☰ Фільтри</button>
-    <button id="btnToggleSidebar" class="btn coltoggle">☰ Поля таблиці</button>
-  </div>
-</div>
-
 <div class="layout">
   <aside id="columnPicker" class="colpicker"></aside>
 
