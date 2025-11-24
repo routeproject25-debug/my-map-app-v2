@@ -75,7 +75,7 @@
   </style>
 </head>
 <body>
-  <!-- Випадковий фон - встановлюється одразу після <body> -->
+  <!-- Випадковий фон - встановлюється напряму на body::before -->
   <script>
     (function(){
       const backgrounds = [
@@ -84,7 +84,15 @@
         // Додавай нові: '/img/login-bg-2.jpg' тощо
       ];
       const randomBg = backgrounds[Math.floor(Math.random() * backgrounds.length)];
-      document.documentElement.style.setProperty('--login-bg', `url("${randomBg}")`);
+      
+      // Створюємо стиль напряму в DOM
+      const style = document.createElement('style');
+      style.textContent = `
+        body::before {
+          background: url("${randomBg}") center/cover no-repeat fixed !important;
+        }
+      `;
+      document.head.appendChild(style);
     })();
   </script>
   
