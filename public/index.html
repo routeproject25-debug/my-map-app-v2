@@ -844,15 +844,6 @@
 
     <input id="authEmail" type="text" placeholder="email (наприкл. user@demo.fake)" autocomplete="username">
     <input id="authPass"  type="password" placeholder="пароль" autocomplete="current-password">
-    </div>
-  </div>
-
-  <div id="authBar" class="right collapsed">
-    <span id="authHello" class="chip">Гість</span>
-    <span id="roleChip" class="chip">Роль: –</span>
-
-    <input id="authEmail" type="text" placeholder="email (наприкл. user@demo.fake)" autocomplete="username">
-    <input id="authPass"  type="password" placeholder="пароль" autocomplete="current-password">
     <button id="authLogin"  class="btn">Увійти</button>
     <button id="authLogout" class="btn" style="display:none">Вийти</button>
   </div>
@@ -1450,6 +1441,12 @@ window.setupStatsUI = (function(){
       let html = '';
       let titleText = '';
       
+      // Функція для скорочення довгих імен
+      const truncate = (str, maxLen = 30) => {
+        if(!str) return 'невідомий';
+        return str.length > maxLen ? str.substring(0, maxLen) + '...' : str;
+      };
+      
       if(type === 'online') {
         titleText = '🟢 Онлайн зараз (' + statsData.online.length + ')';
         if(statsData.online.length === 0) {
@@ -1458,8 +1455,9 @@ window.setupStatsUI = (function(){
           html = '<div style="display:flex; flex-direction:column; gap:8px;">';
           statsData.online.forEach(s => {
             const duration = Math.floor((new Date() - s.startTime) / 1000 / 60);
+            const userName = truncate(s.userId);
             html += `<div style="padding:10px; background:#f8fafc; border-radius:8px; border-left:3px solid #10b981;">
-              <div style="font-weight:600; color:#1e293b; margin-bottom:4px;">👤 ${s.userId}</div>
+              <div style="font-weight:600; color:#1e293b; margin-bottom:4px;" title="${s.userId}">👤 ${userName}</div>
               <div style="font-size:12px; color:#64748b;">📄 ${s.page}</div>
               <div style="font-size:12px; color:#64748b;">⏱️ Активний: ${duration} хв</div>
             </div>`;
@@ -1475,8 +1473,9 @@ window.setupStatsUI = (function(){
           statsData.today.forEach(s => {
             const startTime = s.startTime.toLocaleTimeString('uk-UA', {hour: '2-digit', minute: '2-digit'});
             const endTime = s.endTime ? s.endTime.toLocaleTimeString('uk-UA', {hour: '2-digit', minute: '2-digit'}) : 'активний';
+            const userName = truncate(s.userId);
             html += `<div style="padding:10px; background:#f8fafc; border-radius:8px; border-left:3px solid #6366f1;">
-              <div style="font-weight:600; color:#1e293b; margin-bottom:4px;">👤 ${s.userId}</div>
+              <div style="font-weight:600; color:#1e293b; margin-bottom:4px;" title="${s.userId}">👤 ${userName}</div>
               <div style="font-size:12px; color:#64748b;">📄 ${s.page}</div>
               <div style="font-size:12px; color:#64748b;">🕐 ${startTime} → ${endTime}</div>
             </div>`;
@@ -1490,8 +1489,9 @@ window.setupStatsUI = (function(){
         } else {
           html = '<div style="display:flex; flex-direction:column; gap:8px;">';
           statsData.unique.forEach((u, idx) => {
+            const userName = truncate(u.userId);
             html += `<div style="padding:10px; background:#f8fafc; border-radius:8px; border-left:3px solid #f59e0b;">
-              <div style="font-weight:600; color:#1e293b;">👤 ${u.userId}</div>
+              <div style="font-weight:600; color:#1e293b;" title="${u.userId}">👤 ${userName}</div>
             </div>`;
           });
           html += '</div>';
@@ -1565,31 +1565,49 @@ window.setupStatsUI = (function(){
   // Генеруємо або отримуємо унікальний ID користувача
   function getUserId(){
     try{
+      // Якщо користувач авторизований - використовуємо його дані
+      const currentUser = firebase.auth().currentUser;
+      if(currentUser){
+        // Пріоритет: displayName -> email -> uid
+        return currentUser.displayName || currentUser.email || currentUser.uid;
+      }
+      
+      // Для неавторизованих - генеруємо анонімний ID
       let uid = localStorage.getItem('visitor_uid');
       if(!uid){
-        uid = 'v_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+        uid = 'Гість_' + Date.now().toString(36);
         localStorage.setItem('visitor_uid', uid);
       }
       return uid;
-    }catch(_){ return 'v_' + Date.now(); }
+    }catch(_){ return 'Гість_' + Date.now(); }
   }
   
   // Стартуємо сесію відвідувача
   async function startVisitorSession(){
     try{
+      // Чекаємо на auth перед створенням сесії
+      const currentUser = firebase.auth().currentUser;
       const userId = getUserId();
       const now = firebase.firestore.Timestamp.now();
       const today = new Date().toISOString().split('T')[0];
       
-      // Створюємо сесію
-      const sessionRef = await db.collection('visitor_sessions').add({
+      // Створюємо сесію з додатковою інформацією для авторизованих
+      const sessionData = {
         userId: userId,
         startTime: now,
         lastHeartbeat: now,
         page: window.location.pathname,
         userAgent: navigator.userAgent.substring(0, 200),
         date: today
-      });
+      };
+      
+      // Додаємо firebaseUid для авторизованих користувачів
+      if(currentUser){
+        sessionData.firebaseUid = currentUser.uid;
+        sessionData.email = currentUser.email;
+      }
+      
+      const sessionRef = await db.collection('visitor_sessions').add(sessionData);
       
       sessionId = sessionRef.id;
       
@@ -1629,10 +1647,10 @@ window.setupStatsUI = (function(){
     }catch(_){}
   }
   
-  // Запуск при завантаженні
-  window.addEventListener('load', () => {
+  // Запуск при завантаженні - чекаємо на auth
+  firebase.auth().onAuthStateChanged(() => {
+    // Викликаємо startVisitorSession після того як auth встановлено
     startVisitorSession();
-    // setupStatsUI викликається після встановлення ролі
   });
   
   // Завершення при закритті
