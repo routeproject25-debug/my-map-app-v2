@@ -165,6 +165,7 @@ async function ensureUserAndRole(user) {
   catch { snap = await usersRef.get(); }
 
   let role = 'pending';
+  let additionalRoles = [];
   if (!snap.exists) {
     await usersRef.set({
       email: user.email || '',
@@ -173,7 +174,9 @@ async function ensureUserAndRole(user) {
       createdAt: firebase.firestore.FieldValue.serverTimestamp()
     });
   } else {
-    role = snap.data().role || 'pending';
+    const data = snap.data();
+    role = data.role || 'pending';
+    additionalRoles = Array.isArray(data.additionalRoles) ? data.additionalRoles : [];
   }
 
   // м'яке дзеркалення у roles — ігноруємо  PERMISSION_DENIED
@@ -184,7 +187,7 @@ async function ensureUserAndRole(user) {
     }, { merge: true });
   } catch (_) { /* ок, ролі може керувати лише адмін/CF */ }
 
-  return role;
+  return { role, additionalRoles };
 }
 
 /* ==== Email/пароль ==== */
@@ -221,8 +224,8 @@ $("googleSignIn").onclick = async () => {
   provider.setCustomParameters({ prompt: 'select_account' });
   try {
     const cred = await auth.signInWithPopup(provider);
-    const role = await ensureUserAndRole(cred.user);
-    showMsg(role === 'pending'
+    const result = await ensureUserAndRole(cred.user);
+    showMsg(result.role === 'pending'
       ? '✅ Акаунт створено/оновлено. ⏳ Очікує підтвердження адміністратором.'
       : 'Готово, перевіряю доступ…');
   } catch (e) {
@@ -238,10 +241,7 @@ $("googleSignIn").onclick = async () => {
   }
 };
 
-// Повернення після redirect
-auth.getRedirectResult()
-  .then(async (res) => { if (res && res.user){ await ensureUserAndRole(res.user); showMsg('Готово, перевіряю доступ…'); } })
-  .catch(e => { console.error('[GoogleSignIn] Помилка redirect:', { code: e?.code, message: e?.message, full: e }); showMsg(humanizeError(e) + (e?.code ? ` (код: ${e.code})` : ''), true); });
+// Повернення після redirect (оновлена версія вже не потребує змін - ensureUserAndRole оновлено)
 
 /* ==== Live-guard ролі + редірект ==== */
 let unsubscribeRole = null;
@@ -274,14 +274,29 @@ function requiredRolesForPath(pathname){
   return null;
 }
 
-function isAllowed(role, pathname){
+function isAllowed(role, additionalRoles, pathname){
   const need = requiredRolesForPath(pathname);
-  return !need || need.has(String(role||'').toLowerCase());
+  if (!need) return true;
+  
+  const roleLower = String(role||'').toLowerCase();
+  // Перевіряємо основну роль
+  if (need.has(roleLower)) return true;
+  
+  // Перевіряємо додаткові ролі
+  if (Array.isArray(additionalRoles)) {
+    for (const r of additionalRoles) {
+      if (need.has(String(r||'').toLowerCase())) return true;
+    }
+  }
+  
+  return false;
 }
-function fallbackFor(role){
+function fallbackFor(role, additionalRoles){
   role = String(role||'').toLowerCase();
-  if (role === 'admin' || role === 'logist' || role === 'user') return '/index.html';
-  if (role === 'security')                                      return '/review.html';
+  const allRoles = [role, ...(Array.isArray(additionalRoles) ? additionalRoles.map(r => String(r||'').toLowerCase()) : [])];
+  
+  if (allRoles.includes('admin') || allRoles.includes('logist') || allRoles.includes('user')) return '/index.html';
+  if (allRoles.includes('security')) return '/review.html';
   return '/login.html';
 }
 
@@ -294,8 +309,11 @@ auth.onAuthStateChanged(async (u) => {
   const nextPath = new URL(next, location.origin).pathname;
 
   let role = 'pending';
+  let additionalRoles = [];
   try{
-    role = await ensureUserAndRole(u);
+    const result = await ensureUserAndRole(u);
+    role = result.role;
+    additionalRoles = result.additionalRoles;
   }catch(e){
     showMsg(humanizeError(e), true);
     return;
@@ -306,11 +324,11 @@ auth.onAuthStateChanged(async (u) => {
     showMsg('⏳ Ваш акаунт очікує підтвердження адміністратором.');
   } else {
     // роль видана — перевіряємо доступ до "next"
-    if (isAllowed(role, nextPath)){
+    if (isAllowed(role, additionalRoles, nextPath)){
       goNext(); // все ок
       return;
     } else {
-      const fb = fallbackFor(role);
+      const fb = fallbackFor(role, additionalRoles);
       backLinkEl.href = fb;
       showMsg('✅ Вхід виконано. Але у вас немає прав для цієї сторінки. Оберіть доступну сторінку вище.');
     }
@@ -320,8 +338,11 @@ auth.onAuthStateChanged(async (u) => {
   unsubscribeRole?.();
   unsubscribeRole = db.collection('users').doc(u.uid)
     .onSnapshot({ includeMetadataChanges:true }, (doc) => {
-      const r = doc.exists ? (doc.data().role || 'pending') : 'pending';
-      if (r !== 'pending' && isAllowed(r, nextPath)) goNext();
+      if (!doc.exists) return;
+      const data = doc.data();
+      const r = data.role || 'pending';
+      const addRoles = Array.isArray(data.additionalRoles) ? data.additionalRoles : [];
+      if (r !== 'pending' && isAllowed(r, addRoles, nextPath)) goNext();
     });
 });
 /* ==== Клавіші Enter ==== */
