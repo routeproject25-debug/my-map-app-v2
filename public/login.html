@@ -15,19 +15,6 @@
   <!-- Спільні стилі -->
   <link rel="stylesheet" href="/styles/common.css">
 
-  <!-- Випадковий фон - виконується до CSS -->
-  <script>
-    (function(){
-      const backgrounds = [
-        '/img/login-bg.jpg',
-        '/img/login-bg-1.jpg'
-        // Додавай нові: '/img/login-bg-2.jpg' тощо
-      ];
-      const randomBg = backgrounds[Math.floor(Math.random() * backgrounds.length)];
-      document.documentElement.style.setProperty('--login-bg', `url("${randomBg}")`);
-    })();
-  </script>
-
   <style>
     :root{
       --card:#fff; --line:#e5e7eb; --pad:clamp(12px,2vw,24px);
@@ -88,6 +75,19 @@
   </style>
 </head>
 <body>
+  <!-- Випадковий фон - встановлюється одразу після <body> -->
+  <script>
+    (function(){
+      const backgrounds = [
+        '/img/login-bg.jpg',
+        '/img/login-bg-1.jpg'
+        // Додавай нові: '/img/login-bg-2.jpg' тощо
+      ];
+      const randomBg = backgrounds[Math.floor(Math.random() * backgrounds.length)];
+      document.documentElement.style.setProperty('--login-bg', `url("${randomBg}")`);
+    })();
+  </script>
+  
   <div class="wrap">
     <div class="card">
       <div class="brand">
