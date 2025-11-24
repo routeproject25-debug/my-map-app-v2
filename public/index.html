@@ -1227,18 +1227,23 @@ function setRoleVisual(role){
     }
 
     // 1) швидко беремо роль із кешу (якщо є) — лише users/{uid}
-    let role = null;
+    let role = 'guest'; // за замовчуванням guest
     try {
       const snap = await db.collection('users').doc(u.uid).get({ source: 'cache' });
       const data = snap.data() || {};
-      role = snap.exists ? String(data.role ?? 'pending').trim().toLowerCase() : null;
+      if (snap.exists && data.role) {
+        role = String(data.role).trim().toLowerCase();
+      }
       window.__userTestMode = data.testMode === true; // 🧪 тестовий режим з кешу
       window.__userAdditionalRoles = Array.isArray(data.additionalRoles) ? data.additionalRoles : []; // 🔑 додаткові ролі
       console.log('[role][cache] uid:', u.uid, 'role:', role, 'testMode:', window.__userTestMode, 'additionalRoles:', window.__userAdditionalRoles, 'data:', data);
       try { updateTestModeIndicator(); } catch(_) {}
-    } catch (e) { console.warn('[role][cache] error:', e?.message||e); }
+    } catch (e) { 
+      console.warn('[role][cache] error:', e?.message||e); 
+      // Якщо кеш не доступний, залишаємо 'guest' до завантаження з сервера
+    }
 
-  window.__userRole = role || 'guest';
+  window.__userRole = role;
 
   // Показ/приховання адмін-лінків «на зараз» + роль-емодзі
   setupAdminMenu(window.__userRole === 'admin');
@@ -6811,12 +6816,12 @@ auth?.onAuthStateChanged(async (user) => {
 
     // роль із guard або напряму з сервера (щоб не “залипало” на guest)
     let role = window.__userRole || 'pending';
-if (!['admin','logist','user'].includes(role)) {
+if (!['admin','logist','user','security'].includes(role)) {
   role = await fetchRoleFromServer(user);
   window.__userRole = role;
 }
-// ✅ показуємо реальну роль, у т.ч. user (read-only)
-applyRoleUI(['admin','logist','user'].includes(role) ? role : 'guest');
+// ✅ показуємо реальну роль, включаючи security
+applyRoleUI(['admin','logist','user','security'].includes(role) ? role : 'guest');
 // ⬇️ підвантажуємо дозволені хаби для користувача
 let displayNameFromFirestore = '';
 try {
@@ -6875,7 +6880,7 @@ try{ subscribeToGlobalNotifications(); }catch(_){ }
 
     // live-оновлення ролі (підписка на users/{uid})
     if (roleUnsub) try{ roleUnsub(); }catch{}
-    const ALLOWED = new Set(['admin','logist','user']);
+    const ALLOWED = new Set(['admin','logist','user','security']);
 
 roleUnsub = db.collection('users').doc(user.uid)
   .onSnapshot((doc) => {
