@@ -1363,7 +1363,7 @@ window.setupStatsUI = (function(){
       statsData.online = onlineSessions.map(doc => {
         const d = doc.data();
         return {
-          userId: d.userId || 'невідомий',
+          userId: beautifyUserId(d.userId, d.email, d.firebaseUid),
           page: d.page || '/',
           startTime: d.startTime?.toDate() || new Date(),
           lastHeartbeat: d.lastHeartbeat?.toDate() || new Date()
@@ -1382,7 +1382,7 @@ window.setupStatsUI = (function(){
       statsData.today = todaySessionsSnap.docs.map(doc => {
         const d = doc.data();
         return {
-          userId: d.userId || 'невідомий',
+          userId: beautifyUserId(d.userId, d.email, d.firebaseUid),
           page: d.page || '/',
           startTime: d.startTime?.toDate() || new Date(),
           endTime: d.endTime?.toDate() || null
@@ -1431,6 +1431,23 @@ window.setupStatsUI = (function(){
       document.getElementById('statsTotal').textContent = '—';
     }
   }
+  
+    // Функція для покращення відображення userId (перетворює технічні ID на читабельні імена)
+    function beautifyUserId(userId, email, firebaseUid) {
+      // Якщо userId виглядає як технічний код (v_... або Гість_...)
+      if (!userId || userId === 'невідомий') {
+        return email || firebaseUid || 'Гість';
+      }
+      
+      // Перевіряємо чи це старий формат технічного ID
+      if (/^(v_|Гість_)\d+/.test(userId)) {
+        // Пробуємо замінити на email або firebaseUid
+        return email || firebaseUid || userId;
+      }
+      
+      // Якщо userId вже нормальний - повертаємо як є
+      return userId;
+    }
   
     // Показ деталей у popover
     function showStatsDetails(type) {
