@@ -1502,10 +1502,59 @@ window.setupStatsUI = (function(){
       content.innerHTML = html;
       popover.style.display = 'block';
       
-      // Позиціонуємо popover по центру екрану
+      // Позиціонуємо popover з урахуванням меж екрану
+      // Спочатку встановлюємо по центру
       popover.style.left = '50%';
       popover.style.top = '50%';
       popover.style.transform = 'translate(-50%, -50%)';
+      
+      // Після рендеру перевіряємо, чи popover виходить за межі екрану
+      requestAnimationFrame(() => {
+        const rect = popover.getBoundingClientRect();
+        const viewportWidth = window.innerWidth;
+        const viewportHeight = window.innerHeight;
+        const margin = 16; // відступ від країв екрану
+        
+        let adjustedLeft = '50%';
+        let adjustedTop = '50%';
+        let transform = 'translate(-50%, -50%)';
+        
+        // Якщо виходить за праву межу
+        if (rect.right > viewportWidth - margin) {
+          adjustedLeft = (viewportWidth - rect.width - margin) + 'px';
+          transform = 'translate(0, -50%)';
+        }
+        
+        // Якщо виходить за ліву межу
+        if (rect.left < margin) {
+          adjustedLeft = margin + 'px';
+          transform = 'translate(0, -50%)';
+        }
+        
+        // Якщо виходить за нижню межу
+        if (rect.bottom > viewportHeight - margin) {
+          adjustedTop = (viewportHeight - rect.height - margin) + 'px';
+          if (transform === 'translate(-50%, -50%)') {
+            transform = 'translate(-50%, 0)';
+          } else {
+            transform = 'translate(0, 0)';
+          }
+        }
+        
+        // Якщо виходить за верхню межу
+        if (rect.top < margin) {
+          adjustedTop = margin + 'px';
+          if (transform === 'translate(-50%, -50%)') {
+            transform = 'translate(-50%, 0)';
+          } else {
+            transform = 'translate(0, 0)';
+          }
+        }
+        
+        popover.style.left = adjustedLeft;
+        popover.style.top = adjustedTop;
+        popover.style.transform = transform;
+      });
     }
     
     // Закриття popover
