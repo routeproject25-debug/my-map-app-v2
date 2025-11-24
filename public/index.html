@@ -176,6 +176,23 @@
     font-size:24px; font-weight:700; color:#1e293b;
     font-variant-numeric: tabular-nums;
   }
+  .stat-clickable{
+    cursor:pointer;
+    position:relative;
+  }
+  .stat-clickable:hover{
+    background:linear-gradient(135deg, #eef2ff 0%, #e0e7ff 100%);
+    transform: translateX(2px);
+  }
+  .stat-clickable .stat-label::after{
+    content: '';
+    display:inline-block;
+    margin-left:4px;
+  }
+  #statsDetailsPopover::-webkit-scrollbar { width: 6px; }
+  #statsDetailsPopover::-webkit-scrollbar-track { background: #f1f5f9; border-radius: 10px; }
+  #statsDetailsPopover::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
+  #statsDetailsPopover::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
 
   #authBar{ display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
   #authBar input{
@@ -773,24 +790,24 @@
         <button id="statsRefresh" class="btn xs" title="Оновити">🔄</button>
       </header>
       <div class="stats-content">
-        <div class="stat-item">
+        <div class="stat-item stat-clickable" data-type="online" title="Натисніть для деталей">
           <div class="stat-icon">🟢</div>
           <div class="stat-info">
-            <div class="stat-label">Онлайн зараз</div>
+            <div class="stat-label">Онлайн зараз 👁️</div>
             <div class="stat-value" id="statsOnline">—</div>
           </div>
         </div>
-        <div class="stat-item">
+        <div class="stat-item stat-clickable" data-type="today" title="Натисніть для деталей">
           <div class="stat-icon">📅</div>
           <div class="stat-info">
-            <div class="stat-label">Сьогодні</div>
+            <div class="stat-label">Сьогодні 👁️</div>
             <div class="stat-value" id="statsToday">—</div>
           </div>
         </div>
-        <div class="stat-item">
+        <div class="stat-item stat-clickable" data-type="unique" title="Натисніть для деталей">
           <div class="stat-icon">👥</div>
           <div class="stat-info">
-            <div class="stat-label">Унікальних сьогодні</div>
+            <div class="stat-label">Унікальних сьогодні 👁️</div>
             <div class="stat-value" id="statsUniqueToday">—</div>
           </div>
         </div>
@@ -809,6 +826,24 @@
           </div>
         </div>
       </div>
+    </div>
+  </div>
+
+  <!-- Popover для деталей статистики -->
+  <div id="statsDetailsPopover" style="display:none; position:fixed; z-index:7000; background:#fff; border-radius:16px; box-shadow:0 8px 32px rgba(0,0,0,0.16); padding:16px; max-width:400px; max-height:60vh; overflow-y:auto;">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; border-bottom:2px solid #f1f5f9; padding-bottom:8px;">
+      <h3 style="margin:0; font-size:15px; font-weight:700; color:#1e293b;" id="popoverTitle">Деталі</h3>
+      <button id="closePopover" style="background:transparent; border:none; font-size:20px; cursor:pointer; color:#64748b; padding:0; width:24px; height:24px; display:flex; align-items:center; justify-content:center; border-radius:6px; transition:all 0.15s;" onmouseover="this.style.background='#fee2e2'; this.style.color='#ef4444'" onmouseout="this.style.background='transparent'; this.style.color='#64748b'">×</button>
+    </div>
+    <div id="popoverContent" style="font-size:13px; color:#475569;"></div>
+  </div>
+
+  <div id="authBar" class="right collapsed">
+    <span id="authHello" class="chip">Гість</span>
+    <span id="roleChip" class="chip">Роль: –</span>
+
+    <input id="authEmail" type="text" placeholder="email (наприкл. user@demo.fake)" autocomplete="username">
+    <input id="authPass"  type="password" placeholder="пароль" autocomplete="current-password">
     </div>
   </div>
 
@@ -1305,6 +1340,13 @@ window.setupStatsUI = (function(){
     if(initialized) return;
     initialized = true;
     
+    // Зберігаємо дані для popover
+    let statsData = {
+      online: [],
+      today: [],
+      unique: []
+    };
+    
     // Завантаження статистики
     async function loadStats(){
     try{
@@ -1321,20 +1363,53 @@ window.setupStatsUI = (function(){
         .where('lastHeartbeat', '>=', twoMinAgo)
         .get();
       
-      // Фільтруємо тільки активні сесії (без endTime)
-      const onlineCount = onlineSnap.docs.filter(doc => !doc.data().endTime).length;
+      // Фільтруємо тільки активні сесії (без endTime) та зберігаємо деталі
+      const onlineSessions = onlineSnap.docs.filter(doc => !doc.data().endTime);
+      const onlineCount = onlineSessions.length;
       document.getElementById('statsOnline').textContent = onlineCount;
       
-      // Сьогодні
+      // Зберігаємо деталі онлайн користувачів
+      statsData.online = onlineSessions.map(doc => {
+        const d = doc.data();
+        return {
+          userId: d.userId || 'невідомий',
+          page: d.page || '/',
+          startTime: d.startTime?.toDate() || new Date(),
+          lastHeartbeat: d.lastHeartbeat?.toDate() || new Date()
+        };
+      });
+      
+      // Сьогодні - завантажуємо всі сесії за день
+      const todaySessionsSnap = await db.collection('visitor_sessions')
+        .where('date', '==', today)
+        .get();
+      
+      const todayCount = todaySessionsSnap.size;
+      document.getElementById('statsToday').textContent = todayCount;
+      
+      // Зберігаємо деталі сьогоднішніх сесій
+      statsData.today = todaySessionsSnap.docs.map(doc => {
+        const d = doc.data();
+        return {
+          userId: d.userId || 'невідомий',
+          page: d.page || '/',
+          startTime: d.startTime?.toDate() || new Date(),
+          endTime: d.endTime?.toDate() || null
+        };
+      });
+      
+      // Унікальні користувачі сьогодні
       const todaySnap = await db.collection('visitor_stats').doc(today).get();
       if(todaySnap.exists){
         const data = todaySnap.data();
-        document.getElementById('statsToday').textContent = data.totalVisits || 0;
-        document.getElementById('statsUniqueToday').textContent = 
-          (data.uniqueVisitors || []).length;
+        const uniqueVisitors = data.uniqueVisitors || [];
+        document.getElementById('statsUniqueToday').textContent = uniqueVisitors.length;
+        
+        // Зберігаємо унікальних користувачів
+        statsData.unique = uniqueVisitors.map(uid => ({ userId: uid }));
       } else {
-        document.getElementById('statsToday').textContent = '0';
         document.getElementById('statsUniqueToday').textContent = '0';
+        statsData.unique = [];
       }
       
       // За тиждень
@@ -1365,6 +1440,97 @@ window.setupStatsUI = (function(){
       document.getElementById('statsTotal').textContent = '—';
     }
   }
+  
+    // Показ деталей у popover
+    function showStatsDetails(type) {
+      const popover = document.getElementById('statsDetailsPopover');
+      const title = document.getElementById('popoverTitle');
+      const content = document.getElementById('popoverContent');
+      
+      let html = '';
+      let titleText = '';
+      
+      if(type === 'online') {
+        titleText = '🟢 Онлайн зараз (' + statsData.online.length + ')';
+        if(statsData.online.length === 0) {
+          html = '<p style="color:#94a3b8;">Немає активних користувачів</p>';
+        } else {
+          html = '<div style="display:flex; flex-direction:column; gap:8px;">';
+          statsData.online.forEach(s => {
+            const duration = Math.floor((new Date() - s.startTime) / 1000 / 60);
+            html += `<div style="padding:10px; background:#f8fafc; border-radius:8px; border-left:3px solid #10b981;">
+              <div style="font-weight:600; color:#1e293b; margin-bottom:4px;">👤 ${s.userId}</div>
+              <div style="font-size:12px; color:#64748b;">📄 ${s.page}</div>
+              <div style="font-size:12px; color:#64748b;">⏱️ Активний: ${duration} хв</div>
+            </div>`;
+          });
+          html += '</div>';
+        }
+      } else if(type === 'today') {
+        titleText = '📅 Візити сьогодні (' + statsData.today.length + ')';
+        if(statsData.today.length === 0) {
+          html = '<p style="color:#94a3b8;">Немає візитів сьогодні</p>';
+        } else {
+          html = '<div style="display:flex; flex-direction:column; gap:8px;">';
+          statsData.today.forEach(s => {
+            const startTime = s.startTime.toLocaleTimeString('uk-UA', {hour: '2-digit', minute: '2-digit'});
+            const endTime = s.endTime ? s.endTime.toLocaleTimeString('uk-UA', {hour: '2-digit', minute: '2-digit'}) : 'активний';
+            html += `<div style="padding:10px; background:#f8fafc; border-radius:8px; border-left:3px solid #6366f1;">
+              <div style="font-weight:600; color:#1e293b; margin-bottom:4px;">👤 ${s.userId}</div>
+              <div style="font-size:12px; color:#64748b;">📄 ${s.page}</div>
+              <div style="font-size:12px; color:#64748b;">🕐 ${startTime} → ${endTime}</div>
+            </div>`;
+          });
+          html += '</div>';
+        }
+      } else if(type === 'unique') {
+        titleText = '👥 Унікальні користувачі (' + statsData.unique.length + ')';
+        if(statsData.unique.length === 0) {
+          html = '<p style="color:#94a3b8;">Немає унікальних користувачів</p>';
+        } else {
+          html = '<div style="display:flex; flex-direction:column; gap:8px;">';
+          statsData.unique.forEach((u, idx) => {
+            html += `<div style="padding:10px; background:#f8fafc; border-radius:8px; border-left:3px solid #f59e0b;">
+              <div style="font-weight:600; color:#1e293b;">👤 ${u.userId}</div>
+            </div>`;
+          });
+          html += '</div>';
+        }
+      }
+      
+      title.textContent = titleText;
+      content.innerHTML = html;
+      popover.style.display = 'block';
+      
+      // Позиціонуємо popover по центру екрану
+      popover.style.left = '50%';
+      popover.style.top = '50%';
+      popover.style.transform = 'translate(-50%, -50%)';
+    }
+    
+    // Закриття popover
+    function closePopover() {
+      document.getElementById('statsDetailsPopover').style.display = 'none';
+    }
+    
+    document.getElementById('closePopover').addEventListener('click', closePopover);
+    
+    // Клік на stat-item для показу деталей
+    document.querySelectorAll('.stat-clickable').forEach(item => {
+      item.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const type = item.getAttribute('data-type');
+        showStatsDetails(type);
+      });
+    });
+    
+    // Закриття popover при кліку поза ним
+    document.addEventListener('click', (e) => {
+      const popover = document.getElementById('statsDetailsPopover');
+      if(popover.style.display === 'block' && !popover.contains(e.target)) {
+        closePopover();
+      }
+    });
   
     // Перемикання dropdown
     statsBell.addEventListener('click', (e) => {
