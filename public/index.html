@@ -3866,7 +3866,8 @@ function userHasRole(checkRole) {
 // Хто може резервувати унікальні routeKey в колекції routeKeys (потребує прав у Rules)
 function userRoleLower(){ return (window.__userRole || currentRole || '').toLowerCase(); }
 function userCanReserveRouteKeys(){
-  return userHasRole('admin') || userHasRole('security') || userHasRole('logist');
+  // Резервування routeKeys дозволяємо тільки admin/security (логісти не мають прав на колекцію routeKeys)
+  return userHasRole('admin') || userHasRole('security');
 }
 // Хто може виконувати остаточне (фізичне) видалення маршрутів
 function userCanHardDeleteRoutes(){
@@ -4814,13 +4815,14 @@ async function saveToDB() {
           await clientWriteRouteLog(docId, 'updated', { routeKey: routeKeySaved, distance_km: payload.distance_km, approvalStatus: savedApproval?.status || null, changes, summary, summaryShort, via:'client' });
         }catch(_){ }
       } catch (txErr) {
-        // Fallback для адміна: якщо ключ не зарезервувався, все одно збережемо без нього
+        // Fallback для адміна: якщо не вийшло зарезервувати ключ (наприклад, брак прав/конфлікт),
+        // все одно збережемо з локально згенерованим routeKey, щоб маршрут не залишився без коду.
         console.warn('Транзакція (routeKeys) не вдалася:', txErr?.code || txErr, txErr?.message);
-        await db.collection('routes').doc(docId).set(
-          { ...payload, ...indexFields },
-          { merge: true }
-        );
-        alert('⚠️ Збережено маршрут БЕЗ коду (routeKey).\nПричина: ' + (txErr?.message || txErr));
+        const localKey = (payload.routeKey && String(payload.routeKey)) || (prefix + '-' + randomDigits(10));
+        const updateObj = { ...payload, ...indexFields, routeKey: localKey };
+        await db.collection('routes').doc(docId).set(updateObj, { merge: true });
+        routeKeySaved = localKey;
+        alert('⚠️ Збережено маршрут (fallback) з локальним кодом: ' + localKey + '\nПричина: ' + (txErr?.message || txErr));
       }
     } else {
       // Логісти та інші: не торкаємось routeKeys (часто немає прав). Генеруємо локальний routeKey.
