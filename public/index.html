@@ -4617,6 +4617,8 @@ async function saveToDB() {
 
   const from = dirByCode[fromCode] || {};
   const to   = dirByCode[toCode]   || {};
+  const unitFrom = (from.unit || '').trim();
+  const unitTo   = (to.unit   || '').trim();
     const fromLabel = makeDirLabelByCode(fromCode);
     const toLabel   = makeDirLabelByCode(toCode);
   // Стабільна прив'язка за НАЗВОЮ: зберігаємо чисті назви (без юнітів/компаній)
@@ -4669,6 +4671,8 @@ async function saveToDB() {
   fromLabel, toLabel,
   fromName: fromNamePlain,
   toName:   toNamePlain,
+  unitFrom: unitFrom || '',
+  unitTo:   unitTo   || '',
   points: toObjPoints(points),
   startRuler: toObjPoints(startRuler),
   endRuler: toObjPoints(endRuler),

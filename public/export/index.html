@@ -2267,6 +2267,16 @@ function parseSnap(snap){
     const statusValue = computeApprovalStatus(d);
     const statusLabel = toStatusLabelRaw(statusValue);
 
+    const unitFromRaw = (d.unitFrom || d.fromUnit || d.unitFrom || d.fromUnitName || d.unitFromName || extractUnitFromLabel(d.fromLabel) || unitByCode(d.fromCode) || '').trim();
+    const unitToRaw   = (d.unitTo   || d.toUnit   || d.unitTo   || d.toUnitName   || d.unitToName   || extractUnitFromLabel(d.toLabel)   || unitByCode(d.toCode)   || '').trim();
+    const purposeRaw  = String(d.purpose || d.routePurpose || '').trim();
+    const pNorm = purposeRaw.toLowerCase().replace(/[\s.]/g,'');
+    const unitByPurpose = (pNorm.includes('зерно'))
+      ? unitFromRaw
+      : (pNorm === 'од' || pNorm.startsWith('од'))
+        ? unitToRaw
+        : (unitFromRaw || unitToRaw);
+
 
     const rejectComment =
       (d?.approval && 'comment' in d.approval ? (d.approval.comment || '') : '') ||
@@ -2292,8 +2302,8 @@ function parseSnap(snap){
   fromName: (d.fromName || shortByLabel(d.fromLabel) || nameByCode(d.fromCode) || ''),
   toName:   (d.toName   || shortByLabel(d.toLabel)   || nameByCode(d.toCode)   || ''),
   // Підрозділ: спершу беремо з документа (якщо є), потім витягуємо з Label, далі — з довідника
-  fromUnit: (d.fromUnit || d.unitFrom || d.fromUnitName || d.unitFromName || extractUnitFromLabel(d.fromLabel) || unitByCode(d.fromCode) || ''),
-  toUnit:   (d.toUnit   || d.unitTo   || d.toUnitName   || d.unitToName   || extractUnitFromLabel(d.toLabel) || unitByCode(d.toCode)   || ''),
+  fromUnit: unitByPurpose,
+  toUnit:   unitToRaw,
       viaNames: viaArr.join(' • '),
       distance_km: (typeof d.distance_km==='number')? d.distance_km : NaN,
       type: d.routeType||'',
