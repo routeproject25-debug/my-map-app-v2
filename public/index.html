@@ -4920,8 +4920,9 @@ async function saveToDB() {
     if (code === 'permission-denied' || /insufficient permissions/i.test(msg)){
       try{
         // Якщо локальний updateObj відсутній у цій області, відправляємо мінімальний набір
-        // (routeKey сервер згенерує за потреби)
-        const dataForFn = { ...payload, ...indexFields };
+        // Завжди відправляємо routeKey: якщо ще не збережено — генеруємо локальний
+        const fallbackKey = routeKeySaved || payload.routeKey || (prefix + '-' + randomDigits(10));
+        const dataForFn = { ...payload, ...indexFields, routeKey: fallbackKey };
         if (!dataForFn.updatedAt) dataForFn.updatedAt = new Date().toISOString();
         await saveRouteViaFunction(docId, dataForFn);
         setApprovalUI(savedApproval);
