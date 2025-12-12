@@ -725,8 +725,12 @@ body.map-open #bottomScroller{
       <col>                           <!-- До -->
       <col class="col-via">          <!-- Проміжні -->
             <col><col><col><col>            <!-- Відстань, Тип, Призначення, Логіст -->
-            <col class="col-status"><col class="col-comment"> <!-- Статус, Причина -->
-            <col>             <!-- Оновлено -->
+            <col class="col-status"> <!-- Статус -->
+            <col>                     <!-- Тест -->
+            <col>                     <!-- Дата Створення -->
+            <col>                     <!-- Дата Зміни -->
+            <col>                     <!-- Дата Погодження -->
+            <col class="col-comment"> <!-- Причина -->
             <col class="col-key"> <!-- Код маршруту -->
             <col class="col-id">  <!-- ID -->
             <col>                 <!-- Карта -->
@@ -750,6 +754,7 @@ body.map-open #bottomScroller{
     <th class="sortable" data-sort="purpose"       data-colkey="purpose">Призначення <span class="s">↕</span></th>
     <th class="sortable" data-sort="logisticName"  data-colkey="logist">Логіст <span class="s">↕</span></th>
     <th class="sortable" data-sort="statusLabel"   data-colkey="status">Статус погодження <span class="s">↕</span></th>
+    <th class="sortable" data-sort="isTest"        data-colkey="testMode">Тест <span class="s">↕</span></th>
     <th class="sortable" data-sort="createdAtRaw"  data-colkey="created">Дата Створення <span class="s">↕</span></th>
     <th class="sortable" data-sort="updatedAtRaw"  data-colkey="changed">Дата Зміни <span class="s">↕</span></th>
     <th class="sortable" data-sort="decisionAtRaw" data-colkey="decided">Дата Погодження <span class="s">↕</span></th>
@@ -796,6 +801,7 @@ body.map-open #bottomScroller{
         <option>Очікує</option>
       </select>
     </th>
+    <th></th>
     <th>
       <div class="range">
         <input id="f_createdFrom" type="date" placeholder="від">
@@ -2965,6 +2971,7 @@ function exportToExcel(rows, versionDate=null){
       case 'purpose':    return r.purpose || '';
       case 'logist':     return r.logisticName || '';
       case 'status':     return r.statusLabel || '';
+      case 'testMode':   return r.isTest ? 'Так' : '';
       case 'created':    return r.createdAt || '';
       case 'changed':    return r.updatedAt || '';
       case 'decided':    return r.decisionAt || '';
