@@ -4212,14 +4212,19 @@ async function loadLogists(allowServer=true){
   }
 }
 function getLogistIdByInput(inputId){
-  const name = (document.getElementById(inputId).value || '').trim();
-  if(!name) return null;
+  const el = document.getElementById(inputId);
+  if (!el) return null;
+  const name = (el.value || '').trim();
+  // Якщо ми завантажили маршрут з БД/експорту і ще не встигли підтягнути довідник логістів,
+  // підстраховуємось logisticId, який збережений прямо в DOM.
+  if (!name) return (el.dataset && el.dataset.logistId) ? el.dataset.logistId : null;
   if (logistIdByName[name]) return logistIdByName[name];
   const n = _norm(name);
   for (const [label, id] of Object.entries(logistIdByName)){ if (_norm(label) === n) return id; }
   const candidates = Object.entries(logistIdByName).filter(([label])=> _norm(label).includes(n));
   if (candidates.length === 1) return candidates[0][1];
-  return null;
+  // останній шанс: якщо name не резолвиться через мапу, але в dataset є ID — використовуємо його
+  return (el.dataset && el.dataset.logistId) ? el.dataset.logistId : null;
 }
 function getLogistNameById(id){ return (logistById[id]?.name) || ''; }
 
@@ -4476,6 +4481,9 @@ const arrFrom = (pts) => {
 
       document.getElementById('logistInput').value =
         routeData.logisticName || (routeData.logisticId ? getLogistNameById(routeData.logisticId) : '');
+
+      // Зберегти logisticId поруч із полем, щоб можна було зберегти до завантаження списку логістів
+      try{ document.getElementById('logistInput').dataset.logistId = String(routeData.logisticId || ''); }catch(_){ }
 
 
       // Відновити маркери лінійок одразу після завантаження
@@ -5446,6 +5454,9 @@ async function loadFromDB() {
 
     document.getElementById('logistInput').value =
       data.logisticName || (data.logisticId ? getLogistNameById(data.logisticId) : '');
+
+    // Зберегти logisticId поруч із полем, щоб можна було зберегти до завантаження списку логістів
+    try{ document.getElementById('logistInput').dataset.logistId = String(data.logisticId || ''); }catch(_){ }
 
     // Завантажити createdAt, якщо є
     const createdAtInput = document.getElementById('routeCreatedAt');
@@ -6492,8 +6503,14 @@ async function applyRouteDataToUI(rid, data, opts = {}){
   document.getElementById('routeName').value = formatRouteTitle(data);
   setApprovalUI(data.approval);
 
-  document.getElementById('logistInput').value =
-    data.logisticName || (data.logisticId ? getLogistNameById(data.logisticId) : '');
+  {
+    const li = document.getElementById('logistInput');
+    if (li) {
+      li.value = data.logisticName || (data.logisticId ? getLogistNameById(data.logisticId) : '');
+      // 👇 важливо: дає можливість зберегти без очікування завантаження списку логістів
+      li.dataset.logistId = String(data.logisticId || '');
+    }
+  }
 
   // Завантажити createdAt, якщо є
   const createdAtInput = document.getElementById('routeCreatedAt');
@@ -7071,6 +7088,12 @@ document.getElementById('logistInput').addEventListener('focus', function(){
   const isLogged = !!(auth && auth.currentUser);
   loadLogists(isLogged);
   try { this.dispatchEvent(new KeyboardEvent('keydown', {key:'ArrowDown'})); } catch {}
+});
+
+// Якщо користувач вручну змінює текст — прибираємо зафіксований logisticId.
+// Далі ID має резолвитися через список (logistIdByName) або буде порожнім.
+document.getElementById('logistInput').addEventListener('input', function(){
+  try { this.dataset.logistId = ''; } catch(_) {}
 });
 
 // одне місце, яке оновлює назву маршруту + підсвітку
