@@ -1364,14 +1364,60 @@ let allowAllHubs = false; // ← прапор «всі хаби»
 /* === 2.2 Кеш ролі/хабів перед переходом на головну (index.html) === */
 function cacheRoleAndHubs(){
   try{
-    sessionStorage.setItem('role.cache.v1', JSON.stringify({
+    const payload = JSON.stringify({
       uid:  String(currentUser?.uid || ''),
       role: String(window.__userRole ?? currentRole ?? ''),
       hubs: Array.isArray(window.__userHubs) ? window.__userHubs : (allowedHubs || []),
       all:  !!(window.__userAllHubs ?? allowAllHubs),
       ts:   Date.now()
-    }));
+    });
+    // sessionStorage може не переноситися у нову вкладку у всіх браузерах/режимах,
+    // тому дублюємо в localStorage (короткий TTL контролюється на /index).
+    try { sessionStorage.setItem('role.cache.v1', payload); } catch(_){ }
+    try { localStorage.setItem('role.cache.v1', payload); } catch(_){ }
   }catch(_){}
+}
+
+// Кеш маршруту для швидкого відкриття на /index.html?rid=...
+function cacheRouteForOpen(rid){
+  try{
+    if (!rid) return;
+    const row = (Array.isArray(allRows) ? allRows : []).find(r => String(r?.id||'') === String(rid));
+    if (!row) return;
+    const d = row.raw || {};
+    const data = {
+      // мінімально необхідне для швидкого рендеру/редагування на головній
+      fromCode: d.fromCode || row.fromCode || '',
+      toCode:   d.toCode   || row.toCode   || '',
+      fromLabel: d.fromLabel || row.fromName || '',
+      toLabel:   d.toLabel   || row.toName   || '',
+      fromName: row.fromName || d.fromName || '',
+      toName:   row.toName   || d.toName   || '',
+      hub: d.hub || row.hub || '',
+      routeType: d.routeType || row.type || 'Основний',
+      purpose: (d.purpose || d.routePurpose || row.purpose || ''),
+      intermediateText: d.intermediateText || '',
+      logisticId: d.logisticId || row.logisticId || '',
+      logisticName: d.logisticName || row.logisticName || '',
+      createdAt: d.createdAt || null,
+      updatedAt: d.updatedAt || null,
+      distance_km: (typeof d.distance_km === 'number') ? d.distance_km : row.distance_km,
+      routeKey: d.routeKey || row.routeKey || '',
+      name: d.name || '',
+      approval: d.approval || null,
+      proposal: d.proposal || null,
+      points: d.points || [],
+      startRuler: d.startRuler || [],
+      endRuler: d.endRuler || []
+    };
+    const payload = {
+      uid: String(currentUser?.uid || ''),
+      rid: String(rid),
+      ts: Date.now(),
+      data
+    };
+    try { localStorage.setItem('open.route.cache.v1', JSON.stringify(payload)); } catch(_){ }
+  }catch(_){ }
 }
 
 /* Перехоплюємо будь-які кліки по посиланнях на головну,
@@ -1386,6 +1432,14 @@ document.addEventListener('click', (e) => {
 
   e.preventDefault();
   cacheRoleAndHubs();
+
+  // Якщо це лінк виду /index.html?rid=... — закешуємо сам маршрут,
+  // щоб у новій вкладці він з'явився миттєво без очікування Firestore.
+  try{
+    const url = new URL(a.href, location.origin);
+    const rid = url.searchParams.get('rid');
+    if (rid) cacheRouteForOpen(rid);
+  }catch(_){ }
 
   if (a.target === '_blank') {
     window.open(a.href, '_blank');

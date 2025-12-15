@@ -1224,9 +1224,15 @@ function setRoleVisual(role){
   // НЕ ховаємо документ – показуємо одразу.
   auth.onAuthStateChanged(async (u) => {
     if (!u) { location.replace(loginURL); return; }
-        // дочекатися, щоб кеш реально підготувався
+    // Не блокуємо UI довгим очікуванням persistence.
+    // У деяких мережах/вкладках enablePersistence може «висіти» десятки секунд.
     if (window.__PERSISTENCE_PROMISE) {
-      try { await window.__PERSISTENCE_PROMISE; } catch(_) {}
+      try {
+        await Promise.race([
+          window.__PERSISTENCE_PROMISE,
+          new Promise((resolve) => setTimeout(resolve, 350))
+        ]);
+      } catch(_) {}
     }
 
     // 1) швидко беремо роль із кешу (якщо є) — лише users/{uid}
@@ -2085,7 +2091,7 @@ let readOnly    = true;
 // Миттєво підняти роль/хаби з попередньої сторінки (якщо вони є в sessionStorage)
 (function(){
   try{
-    const raw = sessionStorage.getItem('role.cache.v1');
+    const raw = sessionStorage.getItem('role.cache.v1') || localStorage.getItem('role.cache.v1');
     if (!raw) return;
     const { uid, role, hubs, all, ts } = JSON.parse(raw) || {};
     // 2 хв — достатньо, щоб «дожити» до справжнього фетчу з Firestore
@@ -6458,77 +6464,111 @@ routeSearch.addEventListener('focus', () => {
 });
 
 /* Load by ?rid= */
+function _readOpenRouteCache(){
+  try{
+    const raw = localStorage.getItem('open.route.cache.v1');
+    if (!raw) return null;
+    return JSON.parse(raw) || null;
+  }catch(_){ return null; }
+}
+
+async function applyRouteDataToUI(rid, data, opts = {}){
+  const options = opts || {};
+  if (!data || typeof data !== 'object') return;
+  if (!userAllowsHub(data.hub || '')) {
+    alert('⛔ У вас немає доступу до хабу цього маршруту: ' + (data.hub || '—'));
+    return;
+  }
+
+  // Підставляємо поля стабільно навіть без довідника
+  document.getElementById('fromName').value =
+    getNameByCode(data.fromCode) || parseNameFromLabel(data.fromLabel) || String(data.fromName || '').trim() || '';
+  document.getElementById('toName').value   =
+    getNameByCode(data.toCode)   || parseNameFromLabel(data.toLabel)   || String(data.toName   || '').trim() || '';
+  document.getElementById('routeType').value = data.routeType || 'Основний';
+  document.getElementById('routePurpose').value = data.purpose || 'Зерно';
+  document.getElementById('intermediateText').value = data.intermediateText || '';
+  document.getElementById('hubSelect').value = data.hub || '';
+  document.getElementById('routeName').value = formatRouteTitle(data);
+  setApprovalUI(data.approval);
+
+  document.getElementById('logistInput').value =
+    data.logisticName || (data.logisticId ? getLogistNameById(data.logisticId) : '');
+
+  // Завантажити createdAt, якщо є
+  const createdAtInput = document.getElementById('routeCreatedAt');
+  if (createdAtInput && data.createdAt) {
+    try {
+      const dt = new Date(data.createdAt);
+      const year = dt.getFullYear();
+      const month = String(dt.getMonth() + 1).padStart(2, '0');
+      const day = String(dt.getDate()).padStart(2, '0');
+      const hours = String(dt.getHours()).padStart(2, '0');
+      const minutes = String(dt.getMinutes()).padStart(2, '0');
+      createdAtInput.value = `${year}-${month}-${day}T${hours}:${minutes}`;
+      __createdAtManuallyEdited = true;
+    } catch(_) {}
+  } else if (createdAtInput && !data.createdAt) {
+    // Якщо немає createdAt в документі, встановимо updatedAt або поточний час
+    try {
+      const fallback = data.updatedAt ? new Date(data.updatedAt) : new Date();
+      const year = fallback.getFullYear();
+      const month = String(fallback.getMonth() + 1).padStart(2, '0');
+      const day = String(fallback.getDate()).padStart(2, '0');
+      const hours = String(fallback.getHours()).padStart(2, '0');
+      const minutes = String(fallback.getMinutes()).padStart(2, '0');
+      createdAtInput.value = `${year}-${month}-${day}T${hours}:${minutes}`;
+      __createdAtManuallyEdited = true;
+    } catch(_) {}
+  }
+
+  points     = fromObjPoints(data.points || []);
+  startRuler = fromObjPoints(data.startRuler || []);
+  endRuler   = fromObjPoints(data.endRuler || []);
+
+  // гарантуємо відповідності назва ↔ код у локальному кеші
+  try { registerDirEntry(data.fromCode, data.fromLabel || document.getElementById('fromName').value); } catch(_) {}
+  try { registerDirEntry(data.toCode,   data.toLabel   || document.getElementById('toName').value); } catch(_) {}
+
+  // Одразу відобразити маркери лінійок, якщо вони є в документі
+  rebuildMarkers(); rebuildRulerMarkers(); drawRulers(); updateRoute();
+  if (points.length) {
+    const b = new mapboxgl.LngLatBounds(points[0], points[0]);
+    for (const p of points) b.extend(p);
+    map.fitBounds(b, { padding: 40 });
+  }
+
+  // ✅ ВАЖЛИВО: зробити маршрут «обраним» у селекті і запам'ятати його як останній
+  try { ensureRouteOptionSelected(rid, data); } catch(_) {}
+  try { updateProposalUIForData(data); } catch(_) {}
+  try { subscribeToRouteLive(rid); } catch(_) {}
+
+  if (!options.silentRouteKeyAlert && data.routeKey) alert('Код маршруту: ' + data.routeKey);
+}
+
+async function tryLoadRouteFromOpenCache(rid, uid){
+  try{
+    const cache = _readOpenRouteCache();
+    if (!cache) return false;
+    if (String(cache.rid||'') !== String(rid||'')) return false;
+    // TTL: 15 хв
+    if (!cache.ts || (Date.now() - cache.ts) > 15*60*1000) return false;
+    if (cache.uid && uid && String(cache.uid) !== String(uid)) return false;
+    if (!cache.data) return false;
+
+    await applyRouteDataToUI(rid, cache.data, { silentRouteKeyAlert: true });
+    // одноразовий кеш — прибираємо, щоб не підхоплювати випадково потім
+    try { localStorage.removeItem('open.route.cache.v1'); } catch(_){ }
+    return true;
+  }catch(_){ return false; }
+}
+
 async function loadRouteById(rid) {
   try {
     const snap = await db.collection('routes').doc(rid).get();
     if (!snap.exists) { alert('Маршрут з таким ID не знайдено: ' + rid); return; }
     const data = snap.data();
-    if (!userAllowsHub(data.hub || '')) {
-  alert('⛔ У вас немає доступу до хабу цього маршруту: ' + (data.hub || '—'));
-  return;
-}
-    document.getElementById('fromName').value = getNameByCode(data.fromCode) || parseNameFromLabel(data.fromLabel) || '';
-    document.getElementById('toName').value   = getNameByCode(data.toCode)   || parseNameFromLabel(data.toLabel)   || '';
-    document.getElementById('routeType').value = data.routeType || 'Основний';
-    document.getElementById('routePurpose').value = data.purpose || 'Зерно';
-    document.getElementById('intermediateText').value = data.intermediateText || '';
-	document.getElementById('hubSelect').value = data.hub || '';
-    document.getElementById('routeName').value = formatRouteTitle(data);
-	setApprovalUI(data.approval);
-
-    document.getElementById('logistInput').value =
-      data.logisticName || (data.logisticId ? getLogistNameById(data.logisticId) : '');
-
-    // Завантажити createdAt, якщо є
-    const createdAtInput = document.getElementById('routeCreatedAt');
-    if (createdAtInput && data.createdAt) {
-      try {
-        const dt = new Date(data.createdAt);
-        const year = dt.getFullYear();
-        const month = String(dt.getMonth() + 1).padStart(2, '0');
-        const day = String(dt.getDate()).padStart(2, '0');
-        const hours = String(dt.getHours()).padStart(2, '0');
-        const minutes = String(dt.getMinutes()).padStart(2, '0');
-        createdAtInput.value = `${year}-${month}-${day}T${hours}:${minutes}`;
-        // Встановити прапорець, що дата була "вручну" встановлена (з БД)
-        __createdAtManuallyEdited = true;
-      } catch(_) {
-        // Якщо помилка парсингу, залишаємо порожнім
-      }
-    } else if (createdAtInput && !data.createdAt) {
-      // Якщо немає createdAt в документі, встановимо updatedAt або поточний час
-      try {
-        const fallback = data.updatedAt ? new Date(data.updatedAt) : new Date();
-        const year = fallback.getFullYear();
-        const month = String(fallback.getMonth() + 1).padStart(2, '0');
-        const day = String(fallback.getDate()).padStart(2, '0');
-        const hours = String(fallback.getHours()).padStart(2, '0');
-        const minutes = String(fallback.getMinutes()).padStart(2, '0');
-        createdAtInput.value = `${year}-${month}-${day}T${hours}:${minutes}`;
-        __createdAtManuallyEdited = true;
-      } catch(_) {}
-    }
-
-    points     = fromObjPoints(data.points || []);
-    startRuler = fromObjPoints(data.startRuler || []);
-    endRuler   = fromObjPoints(data.endRuler || []);
-    registerDirEntry(data.fromCode, data.fromLabel || document.getElementById('fromName').value);
-    registerDirEntry(data.toCode,   data.toLabel   || document.getElementById('toName').value);
-    // Одразу відобразити маркери лінійок, якщо вони є в документі
-    rebuildMarkers(); rebuildRulerMarkers(); drawRulers(); updateRoute();
-    if (points.length) {
-      const b = new mapboxgl.LngLatBounds(points[0], points[0]);
-      for (const p of points) b.extend(p);
-      map.fitBounds(b, { padding: 40 });
-    }
-    // ✅ ВАЖЛИВО: зробити маршрут «обраним» у селекті і запам'ятати його як останній,
-    // щоб кнопки "На погодження" та "Посилання" працювали без повторного завантаження
-    try { ensureRouteOptionSelected(rid, data); } catch(_) {}
-  // Оновити UI пропозиції (якщо є), щоб логіст міг одразу переглянути/прийняти/відхилити
-    try { updateProposalUIForData(data); } catch(_) {}
-  // 🔴 Live-підписка на зміни маршруту (статус/пропозиція) — для онлайн оновлення
-  try { subscribeToRouteLive(rid); } catch(_) {}
-    if (data.routeKey) alert('Код маршруту: ' + data.routeKey);
+    await applyRouteDataToUI(rid, data);
   } catch (e) {
     console.error('loadRouteById error:', e);
     alert('Не вдалося завантажити маршрут: ' + (e?.message || e));
@@ -6840,50 +6880,70 @@ auth?.onAuthStateChanged(async (user) => {
     }
     requestAnimationFrame(updateLayoutHeights);
 
-    // роль із guard або напряму з сервера (щоб не “залипало” на guest)
-    let role = window.__userRole || 'pending';
-if (!['admin','logist','user','security'].includes(role)) {
-  role = await fetchRoleFromServer(user);
-  window.__userRole = role;
-}
-// ✅ показуємо реальну роль, включаючи security
-applyRoleUI(['admin','logist','user','security'].includes(role) ? role : 'guest');
-// ⬇️ підвантажуємо дозволені хаби для користувача
-let displayNameFromFirestore = '';
-try {
-  const result = await getAllowedHubsForUser(user.uid, window.__userRole || role || 'user');
-  ALLOWED_HUBS = result.hubs;
-  displayNameFromFirestore = result.displayName || '';
-  window.__userTestMode = result.testMode === true; // 🧪 тестовий режим
-} catch (_) {
-  ALLOWED_HUBS = [];
-}
-// Оновлюємо привітання з displayName з Firestore
-{
-  const dn = displayNameFromFirestore
-    || (user && typeof user.displayName === 'string' && user.displayName.trim())
-    || (`Хтось не місцевий і ${user.email || user.uid}`);
-  authHello.textContent = 'Увійшли як ' + dn;
-}
-applyHubSelectVisibility();
+    // Показати акаунт одразу (без очікування Firestore), далі замінимо на displayName.
+    try{
+      const dnFast = (user && typeof user.displayName === 'string' && user.displayName.trim())
+        || (user && user.email)
+        || user.uid;
+      authHello.textContent = 'Увійшли як ' + dnFast;
+    }catch(_){ }
 
-// 🚀 Якщо сторінка відкрита з /export через ?rid=..., вантажимо маршрут одразу після того,
-// як відомі дозволені хаби (щоб не чекати довідник/список маршрутів).
-try{
-  const qp = new URLSearchParams(location.search);
-  const rid = (window.__pendingRidToLoad || qp.get('rid') || '').trim();
-  const showProp = (window.__pendingShowProposal ?? qp.get('showProposal'));
-  const wantProp = String(showProp||'').toLowerCase();
-  if (rid && !window.__ridAutoLoaded) {
-    // Якщо кеш ролі був від іншого uid — не довіряємо і не використовуємо його як сигнал готовності.
-    // Тут ми вже маємо реального user.uid, тож ок.
-    window.__ridAutoLoaded = true;
-    await loadRouteById(rid);
-    if (wantProp === '1' || wantProp === 'true') {
-      try{ setProposalVisibility(true); }catch(_){ }
+    // роль із guard/кешу показуємо одразу; серверне уточнення робимо у фоні
+    let role = window.__userRole || 'pending';
+    const roleAllowed = ['admin','logist','user','security'].includes(role);
+    applyRoleUI(roleAllowed ? role : 'guest');
+
+    if (!roleAllowed) {
+      fetchRoleFromServer(user)
+        .then((r) => {
+          window.__userRole = r;
+          applyRoleUI(['admin','logist','user','security'].includes(r) ? r : 'guest');
+        })
+        .catch(() => {});
     }
-  }
-}catch(e){ console.warn('auto-load rid skipped:', e?.message||e); }
+
+    // 🚀 Якщо сторінка відкрита з /export через ?rid=..., вантажимо маршрут ОДРАЗУ,
+    // не чекаючи повільного getAllowedHubsForUser / довідників.
+    let ridPromise = null;
+    try{
+      const qp = new URLSearchParams(location.search);
+      const rid = (window.__pendingRidToLoad || qp.get('rid') || '').trim();
+      const showProp = (window.__pendingShowProposal ?? qp.get('showProposal'));
+      const wantProp = String(showProp||'').toLowerCase();
+      if (rid && !window.__ridAutoLoaded) {
+        window.__ridAutoLoaded = true;
+        ridPromise = (async () => {
+          const loaded = await tryLoadRouteFromOpenCache(rid, user.uid);
+          if (!loaded) await loadRouteById(rid);
+          if (wantProp === '1' || wantProp === 'true') {
+            try{ setProposalVisibility(true); }catch(_){ }
+          }
+        })();
+      }
+    }catch(e){ console.warn('auto-load rid skipped:', e?.message||e); }
+
+    // ⬇️ підвантажуємо дозволені хаби для користувача (паралельно, не блокує відкриття rid)
+    let displayNameFromFirestore = '';
+    try {
+      const result = await getAllowedHubsForUser(user.uid, window.__userRole || role || 'user');
+      ALLOWED_HUBS = result.hubs;
+      displayNameFromFirestore = result.displayName || '';
+      window.__userTestMode = result.testMode === true; // 🧪 тестовий режим
+    } catch (_) {
+      ALLOWED_HUBS = [];
+    }
+
+    // Оновлюємо привітання з displayName з Firestore
+    {
+      const dn = displayNameFromFirestore
+        || (user && typeof user.displayName === 'string' && user.displayName.trim())
+        || (`Хтось не місцевий і ${user.email || user.uid}`);
+      authHello.textContent = 'Увійшли як ' + dn;
+    }
+    applyHubSelectVisibility();
+
+    // якщо route завантажується — не обов'язково чекати, але підстрахуємось щоб послідовність була стабільна
+    try { await ridPromise; } catch(_) {}
 // Якщо нема доступу до жодного хабу — залочити UI і показати банер
 if (hasNoHubs()) {
   (function lockUiForNoHub(){
