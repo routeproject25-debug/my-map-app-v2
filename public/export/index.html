@@ -1365,6 +1365,7 @@ let allowAllHubs = false; // ← прапор «всі хаби»
 function cacheRoleAndHubs(){
   try{
     sessionStorage.setItem('role.cache.v1', JSON.stringify({
+      uid:  String(currentUser?.uid || ''),
       role: String(window.__userRole ?? currentRole ?? ''),
       hubs: Array.isArray(window.__userHubs) ? window.__userHubs : (allowedHubs || []),
       all:  !!(window.__userAllHubs ?? allowAllHubs),

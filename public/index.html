@@ -2087,14 +2087,20 @@ let readOnly    = true;
   try{
     const raw = sessionStorage.getItem('role.cache.v1');
     if (!raw) return;
-    const { role, hubs, all, ts } = JSON.parse(raw) || {};
+    const { uid, role, hubs, all, ts } = JSON.parse(raw) || {};
     // 2 хв — достатньо, щоб «дожити» до справжнього фетчу з Firestore
     if (!ts || (Date.now() - ts) > 2*60*1000) return;
 
+    // Якщо в кеші є uid — використовуємо його лише після співпадіння з реальним юзером.
+    // (Firebase auth ще може не встигнути відновитись на момент виконання цього блоку)
+    if (uid) window.__roleCacheUid = String(uid);
+
     // просто прогріваємо змінні; applyRoleUI викличеться нижче в onAuthStateChanged
     window.__userRole = role || 'guest';
-    if (all === true)        window.ALLOWED_HUBS = null; // null = всі хаби
-    else if (Array.isArray(hubs)) window.ALLOWED_HUBS = hubs;
+    // ⚠️ ALLOWED_HUBS оголошено через let нижче і не є window-полем.
+    // Тому тут складаємо prefetched значення у window.*, а застосуємо їх після оголошення ALLOWED_HUBS.
+    if (all === true)        window.__prefetchAllHubs = true;
+    else if (Array.isArray(hubs)) window.__prefetchAllowedHubs = hubs;
   }catch(_){}
 })();
 
@@ -3778,6 +3784,16 @@ try {
 //   ALLOWED_HUBS === []     → ЖОДНОГО хабу не дозволено
 //   ALLOWED_HUBS === ['X','Y'] → дозволено перелік
 let ALLOWED_HUBS = null;
+
+// ✅ Підхопити хаби з role.cache.v1 (якщо були прогріті раніше).
+// Це важливо, бо global `let` не підв'язаний до window і його не можна було виставити вище.
+try{
+  if (window.__prefetchAllHubs === true) {
+    ALLOWED_HUBS = null;
+  } else if (Array.isArray(window.__prefetchAllowedHubs)) {
+    ALLOWED_HUBS = window.__prefetchAllowedHubs;
+  }
+}catch(_){ }
 
 function isAllHubs(){ return ALLOWED_HUBS === null; }
 function hasNoHubs(){ return Array.isArray(ALLOWED_HUBS) && ALLOWED_HUBS.length === 0; }
@@ -6850,6 +6866,24 @@ try {
   authHello.textContent = 'Увійшли як ' + dn;
 }
 applyHubSelectVisibility();
+
+// 🚀 Якщо сторінка відкрита з /export через ?rid=..., вантажимо маршрут одразу після того,
+// як відомі дозволені хаби (щоб не чекати довідник/список маршрутів).
+try{
+  const qp = new URLSearchParams(location.search);
+  const rid = (window.__pendingRidToLoad || qp.get('rid') || '').trim();
+  const showProp = (window.__pendingShowProposal ?? qp.get('showProposal'));
+  const wantProp = String(showProp||'').toLowerCase();
+  if (rid && !window.__ridAutoLoaded) {
+    // Якщо кеш ролі був від іншого uid — не довіряємо і не використовуємо його як сигнал готовності.
+    // Тут ми вже маємо реального user.uid, тож ок.
+    window.__ridAutoLoaded = true;
+    await loadRouteById(rid);
+    if (wantProp === '1' || wantProp === 'true') {
+      try{ setProposalVisibility(true); }catch(_){ }
+    }
+  }
+}catch(e){ console.warn('auto-load rid skipped:', e?.message||e); }
 // Якщо нема доступу до жодного хабу — залочити UI і показати банер
 if (hasNoHubs()) {
   (function lockUiForNoHub(){
@@ -6955,19 +6989,19 @@ window.addEventListener('load', async () => {
     });
   }
   
-  if (!DIR_LOADED_ONCE) {      // тільки кеш, без повного fetch
-    await loadDirectory(false);
-    DIR_LOADED_ONCE = true;
-  }
-  const rid = new URLSearchParams(location.search).get('rid');
-  const showProp = new URLSearchParams(location.search).get('showProposal');
+  const qp = new URLSearchParams(location.search);
+  const rid = (qp.get('rid') || '').trim();
+  const showProp = qp.get('showProposal');
   if (rid) {
-    // Для логіста ensureRoutesLoaded може впасти на правалах (широкий запит без фільтру по хабах)
-    // Не блокуємо відкриття маршруту за прямим ID — пробуємо завантажити його попри помилку списку
-    try { await ensureRoutesLoaded(); } catch (e) { console.warn('ensureRoutesLoaded skipped:', e?.message||e); }
-    await loadRouteById(rid);
-    if (String(showProp||'').toLowerCase() === '1' || String(showProp||'').toLowerCase() === 'true'){
-      try{ setProposalVisibility(true); }catch(_){ }
+    // Не вантажимо довідник/список маршрутів до того, як auth+хаби готові.
+    // Це прибирає «довге підтягання» після переходу з /export.
+    window.__pendingRidToLoad = rid;
+    window.__pendingShowProposal = showProp;
+  } else {
+    // Нема rid — можна прогріти довідник із кешу одразу.
+    if (!DIR_LOADED_ONCE) {
+      await loadDirectory(false);
+      DIR_LOADED_ONCE = true;
     }
   }
   requestAnimationFrame(updateLayoutHeights);
