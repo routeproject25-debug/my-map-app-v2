@@ -702,6 +702,30 @@ body.map-open #bottomScroller{
         <div class="chip" id="statAvg">Середня: —</div>
       </div>
 
+      <div class="stats" id="growthInfo" style="display:none; margin-bottom:8px;">
+        <div class="chip" id="growthCur">Створено (період): —</div>
+        <div class="chip" id="growthPrev">Створено (попер. період): —</div>
+        <div class="chip" id="growthDelta">Приріст: —</div>
+        <div class="chip" id="growthNote" style="display:none;">—</div>
+      </div>
+
+      <div id="growthBreakdowns" style="display:none; margin-bottom:10px;">
+        <div class="row cols-3">
+          <div class="card" style="padding:10px;">
+            <div style="font-weight:600; margin-bottom:6px;">ВП</div>
+            <div class="muted" id="growthUnitsList">—</div>
+          </div>
+          <div class="card" style="padding:10px;">
+            <div style="font-weight:600; margin-bottom:6px;">Від</div>
+            <div class="muted" id="growthFromList">—</div>
+          </div>
+          <div class="card" style="padding:10px;">
+            <div style="font-weight:600; margin-bottom:6px;">До</div>
+            <div class="muted" id="growthToList">—</div>
+          </div>
+        </div>
+      </div>
+
       <!-- Пагінація / дії -->
       <div class="bar" id="moreBox" style="gap:6px; display:none; margin:6px 0 10px;">
         <button id="btnMore" class="btn sm">+ Завантажити ще</button>
@@ -2747,6 +2771,144 @@ function updateStats(rows){
   statsBox.style.display='';
 }
 
+function _toMs(v){
+  if (v === undefined || v === null) return null;
+  if (typeof v === 'number' && Number.isFinite(v)) return v;
+  if (v instanceof Date) return v.getTime();
+  if (typeof v === 'string'){
+    const t = Date.parse(v);
+    return Number.isFinite(t) ? t : null;
+  }
+  try{
+    if (v instanceof firebase.firestore.Timestamp) return v.toDate().getTime();
+  }catch(_){ }
+  if (v && typeof v.toDate === 'function'){
+    try{ const d = v.toDate(); if (d instanceof Date) return d.getTime(); }catch(_){ }
+  }
+  if (v && typeof v.seconds === 'number') return Math.round(v.seconds * 1000);
+  return null;
+}
+
+function _fmtSigned(n){
+  const x = Number(n);
+  if (!Number.isFinite(x)) return '—';
+  if (x > 0) return `+${x}`;
+  return String(x);
+}
+
+function _renderGrowthList(map, limit){
+  const items = Array.from(map.values());
+  items.sort((a,b)=>{
+    const dc = (b.cur - a.cur);
+    if (dc !== 0) return dc;
+    const dd = ((b.cur - b.prev) - (a.cur - a.prev));
+    if (dd !== 0) return dd;
+    return String(a.label||'').localeCompare(String(b.label||''),'uk');
+  });
+  const top = items.slice(0, limit);
+  if (!top.length) return '—';
+  return top.map(x=>{
+    const delta = (x.cur - x.prev);
+    const deltaTxt = _fmtSigned(delta);
+    return `<div>${escapeHtml(x.label)} — <strong>${x.cur}</strong> (${escapeHtml(deltaTxt)})</div>`;
+  }).join('');
+}
+
+function updateGrowthStats(rows){
+  const box = document.getElementById('growthInfo');
+  const breakdowns = document.getElementById('growthBreakdowns');
+  const noteEl = document.getElementById('growthNote');
+  if (!box || !breakdowns) return;
+
+  const df = document.getElementById('dateFrom')?.value || '';
+  const dt = document.getElementById('dateTo')?.value || '';
+  if (!df || !dt || !rows.length){
+    box.style.display = 'none';
+    breakdowns.style.display = 'none';
+    if (noteEl) noteEl.style.display = 'none';
+    return;
+  }
+
+  const startMs = Date.parse(dayStartISO(df));
+  const endMs   = Date.parse(dayEndISO(dt));
+  if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs < startMs){
+    box.style.display = 'none';
+    breakdowns.style.display = 'none';
+    if (noteEl) noteEl.style.display = 'none';
+    return;
+  }
+
+  const lenMs = (endMs - startMs) + 1;
+  const prevEndMs = startMs - 1;
+  const prevStartMs = prevEndMs - lenMs + 1;
+
+  let cur = 0, prev = 0;
+  const byUnit = new Map();
+  const byFrom = new Map();
+  const byTo   = new Map();
+
+  const bump = (m, key, label, isCur) => {
+    if (!key) return;
+    const item = m.get(key) || { label: label || key, cur: 0, prev: 0 };
+    if (isCur) item.cur += 1;
+    else item.prev += 1;
+    m.set(key, item);
+  };
+
+  for (const r of rows){
+    const t = _toMs(r?.createdAtRaw);
+    if (!t) continue;
+    const inCur  = t >= startMs && t <= endMs;
+    const inPrev = t >= prevStartMs && t <= prevEndMs;
+    if (!inCur && !inPrev) continue;
+
+    if (inCur) cur += 1;
+    if (inPrev) prev += 1;
+
+    const unit = String(r?.fromUnit || '').trim() || '—';
+    const fromCode = String(r?.fromCode || '').trim();
+    const toCode = String(r?.toCode || '').trim();
+    const fromLabel = (fromCode ? `${fromCode} • ` : '') + String(r?.fromName || '').trim();
+    const toLabel   = (toCode   ? `${toCode} • `   : '') + String(r?.toName   || '').trim();
+
+    if (inCur){
+      bump(byUnit, unit, unit, true);
+      bump(byFrom, fromCode || fromLabel, fromLabel || fromCode || '—', true);
+      bump(byTo,   toCode   || toLabel,   toLabel   || toCode   || '—', true);
+    }
+    if (inPrev){
+      bump(byUnit, unit, unit, false);
+      bump(byFrom, fromCode || fromLabel, fromLabel || fromCode || '—', false);
+      bump(byTo,   toCode   || toLabel,   toLabel   || toCode   || '—', false);
+    }
+  }
+
+  const delta = cur - prev;
+  const pct = prev > 0 ? ((delta / prev) * 100) : null;
+  const pctTxt = (pct === null) ? '' : ` (${_fmtSigned(Math.round(pct))}%)`;
+
+  document.getElementById('growthCur').textContent  = `Створено (період): ${cur}`;
+  document.getElementById('growthPrev').textContent = `Створено (попер. період): ${prev}`;
+  document.getElementById('growthDelta').textContent = `Приріст: ${_fmtSigned(delta)}${pctTxt}`;
+
+  // Нотатка про неповні дані, якщо є ще сторінки у Firestore
+  if (noteEl){
+    if (_hasMore){
+      noteEl.textContent = '⚠️ Є ще сторінки — статистика по завантажених записах';
+      noteEl.style.display = '';
+    } else {
+      noteEl.style.display = 'none';
+    }
+  }
+
+  document.getElementById('growthUnitsList').innerHTML = _renderGrowthList(byUnit, 8);
+  document.getElementById('growthFromList').innerHTML  = _renderGrowthList(byFrom, 8);
+  document.getElementById('growthToList').innerHTML    = _renderGrowthList(byTo, 8);
+
+  box.style.display = '';
+  breakdowns.style.display = '';
+}
+
 /* ---------- Навігатор ---------- */
 async function buildNavigatePayloadById(routeId, prettyName){
   const ref = db.collection('routes').doc(routeId);
@@ -3014,6 +3176,7 @@ function renderTable(rows){
 
   document.getElementById('countInfo').textContent = `Записів (після фільтру): ${rows.length}`;
   updateStats(rows);
+  updateGrowthStats(rows);
 
   // keep selection highlight if current row is still visible
   if (_selectedId){
