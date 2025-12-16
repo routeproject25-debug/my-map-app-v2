@@ -690,7 +690,7 @@ body.map-open #bottomScroller{
       </div>
     </div>
 
-   <div class="card results-card">
+  <div class="card results-card" id="resultsCard">
       <div class="bar" style="justify-content:space-between; margin-bottom:8px;">
         <strong>Результати</strong>
         <span class="muted" id="countInfo">Натисніть «Попередній перегляд»</span>
@@ -3286,6 +3286,7 @@ btnPreview.addEventListener('click', async ()=>{
     setBusy(true);
     await loadFirstPage(true);   // ← було false
     reRender();
+    try{ document.getElementById('resultsCard')?.scrollIntoView({ behavior:'smooth', block:'start' }); }catch(_){ }
   }catch(e){ handleFirestoreError(e); }
   finally{ setBusy(false); }
 });
@@ -3295,6 +3296,7 @@ btnMore.addEventListener('click', async ()=>{
     setBusy(true);
     await loadNextPage();
     reRender();
+    try{ document.getElementById('resultsCard')?.scrollIntoView({ behavior:'smooth', block:'start' }); }catch(_){ }
   }catch(e){ handleFirestoreError(e); }
   finally{ setBusy(false); }
 });
@@ -3311,6 +3313,7 @@ btnAll.addEventListener('click', async ()=>{
     } else {
       while(_hasMore && allRows.length < MAX_ROWS){ await loadNextPage(); }
       reRender();
+      try{ document.getElementById('resultsCard')?.scrollIntoView({ behavior:'smooth', block:'start' }); }catch(_){ }
       if (_hasMore) alert(`Досягнуто ліміт ${MAX_ROWS.toLocaleString()} рядків. Звузьте фільтри або експортуйте частинами.`);
     }
   }catch(e){ handleFirestoreError(e); }
