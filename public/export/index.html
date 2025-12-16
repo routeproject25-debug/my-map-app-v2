@@ -679,6 +679,7 @@ body.map-open #bottomScroller{
           <button id="btnPreview" class="btn" disabled>👁️ Попередній перегляд</button>
           <button id="btnExport" class="btn primary" disabled>📥 Експорт у Excel</button>
           <button id="btnRefresh" class="btn" disabled>🔄 Оновити базу</button>
+          <button id="btnToResults" class="btn">↓ Результати</button>
           <button id="btnExportJson" class="btn">JSON (видимі)</button>
           <button id="btnExportJsonAll" class="btn ghost" title="Довантажить усі сторінки і збереже в JSON">JSON (усі сторінки)</button>
           <button id="btnExportKml" class="btn">KML (видимі)</button>
@@ -2822,10 +2823,21 @@ function updateGrowthStats(rows){
 
   const df = document.getElementById('dateFrom')?.value || '';
   const dt = document.getElementById('dateTo')?.value || '';
-  if (!df || !dt || !rows.length){
+  if (!rows.length){
     box.style.display = 'none';
     breakdowns.style.display = 'none';
     if (noteEl) noteEl.style.display = 'none';
+    return;
+  }
+
+  if (!df || !dt){
+    // Підказка, щоб користувач бачив, де саме з'явиться статистика
+    document.getElementById('growthCur').textContent  = 'Приріст: оберіть Дата з / Дата по';
+    document.getElementById('growthPrev').textContent = 'Створено (період): —';
+    document.getElementById('growthDelta').textContent = 'Порівняння: —';
+    if (noteEl) noteEl.style.display = 'none';
+    breakdowns.style.display = 'none';
+    box.style.display = '';
     return;
   }
 
@@ -3999,6 +4011,11 @@ applyFiltersState();
 document.getElementById('btnToggleFilters')?.addEventListener('click', () => {
   const hidden = FILTERS.classList.toggle('is-hidden');
   localStorage.setItem(FILTERS_STATE_KEY, hidden ? '1' : '0');
+});
+
+// Швидкий перехід до секції "Результати"
+document.getElementById('btnToResults')?.addEventListener('click', () => {
+  try{ document.getElementById('resultsCard')?.scrollIntoView({ behavior:'smooth', block:'start' }); }catch(_){ }
 });
 // (6) Чисте вимкнення live-підписки при виході/перезавантаженні сторінки
 window.addEventListener('beforeunload', () => {
