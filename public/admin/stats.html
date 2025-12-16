@@ -1,0 +1,377 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+  <meta charset="utf-8" />
+  <title>📈 Статистика відвідувань</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <!-- Firebase (compat) -->
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+
+  <!-- App config -->
+  <script src="/config/config.js"></script>
+
+  <!-- Design system -->
+  <link rel="stylesheet" href="/styles/common.css">
+
+  <!-- Header component -->
+  <script src="/styles/header.js"></script>
+
+  <!-- Charts -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+
+  <style>
+    html { visibility: hidden; }
+
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(160px, 1fr));
+      gap: var(--spacing-lg);
+    }
+
+    @media (max-width: 1100px) {
+      .stats-grid { grid-template-columns: repeat(2, minmax(160px, 1fr)); }
+    }
+
+    @media (max-width: 520px) {
+      .stats-grid { grid-template-columns: 1fr; }
+    }
+
+    .stat-card {
+      padding: var(--spacing-lg);
+    }
+
+    .stat-label {
+      font-size: var(--font-size-xs);
+      color: var(--text-secondary);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      font-weight: 700;
+    }
+
+    .stat-value {
+      font-size: var(--font-size-3xl);
+      font-weight: 800;
+      margin-top: var(--spacing-xs);
+      font-variant-numeric: tabular-nums;
+    }
+
+    .chart-wrap {
+      height: 340px;
+    }
+
+    @media (max-width: 768px) {
+      .chart-wrap { height: 300px; }
+    }
+
+    .toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: var(--spacing-md);
+      flex-wrap: wrap;
+    }
+
+    .muted {
+      color: var(--text-secondary);
+      font-size: var(--font-size-sm);
+    }
+
+    .error {
+      display: none;
+    }
+  </style>
+</head>
+<body>
+  <div class="app-container app-container--narrow">
+    <div class="card">
+      <div class="card__header">
+        <div>
+          <h1 class="card__title" style="margin:0">📈 Статистика відвідувань</h1>
+          <div class="card__subtitle" id="subtitle">Останні 30 днів</div>
+        </div>
+        <div class="toolbar">
+          <button class="btn btn--secondary" id="btnRefresh" type="button">🔄 Оновити</button>
+        </div>
+      </div>
+
+      <div class="stats-grid" style="margin-bottom: var(--spacing-lg)">
+        <div class="card stat-card" style="margin:0">
+          <div class="stat-label">Онлайн зараз</div>
+          <div class="stat-value" id="mOnline">—</div>
+        </div>
+        <div class="card stat-card" style="margin:0">
+          <div class="stat-label">Сьогодні</div>
+          <div class="stat-value" id="mToday">—</div>
+        </div>
+        <div class="card stat-card" style="margin:0">
+          <div class="stat-label">Унікальних сьогодні</div>
+          <div class="stat-value" id="mUniqueToday">—</div>
+        </div>
+        <div class="card stat-card" style="margin:0">
+          <div class="stat-label">За 7 днів</div>
+          <div class="stat-value" id="mWeek">—</div>
+        </div>
+        <div class="card stat-card" style="margin:0">
+          <div class="stat-label">Всього</div>
+          <div class="stat-value" id="mTotal">—</div>
+        </div>
+      </div>
+
+      <div class="error alert alert--danger" id="errorBox"></div>
+
+      <div class="card" style="margin:0">
+        <div class="card__header">
+          <div>
+            <h2 class="card__title" style="margin:0; font-size: var(--font-size-xl)">Візити по днях</h2>
+            <div class="card__subtitle">Денні значення з visitor_stats.totalVisits</div>
+          </div>
+        </div>
+        <div class="chart-wrap">
+          <canvas id="chartVisits"></canvas>
+        </div>
+      </div>
+
+      <div class="card" style="margin-top: var(--spacing-lg)">
+        <div class="card__header">
+          <div>
+            <h2 class="card__title" style="margin:0; font-size: var(--font-size-xl)">Унікальні відвідувачі по днях</h2>
+            <div class="card__subtitle">Денні значення з visitor_stats.uniqueVisitors.length</div>
+          </div>
+        </div>
+        <div class="chart-wrap">
+          <canvas id="chartUnique"></canvas>
+        </div>
+      </div>
+
+      <div class="muted" style="margin-top: var(--spacing-md)">
+        Примітка: статистика базується на поточній схемі Firestore (visitor_stats/visitor_sessions).
+      </div>
+    </div>
+  </div>
+
+  <script>
+    (function () {
+      const css = getComputedStyle(document.documentElement);
+      const COLORS = {
+        primary: css.getPropertyValue('--primary').trim() || '#6366f1',
+        success: css.getPropertyValue('--success').trim() || '#10b981',
+        warning: css.getPropertyValue('--warning').trim() || '#f59e0b',
+        muted: css.getPropertyValue('--muted').trim() || '#64748b'
+      };
+
+      let visitsChart = null;
+      let uniqueChart = null;
+
+      function showError(message) {
+        const box = document.getElementById('errorBox');
+        if (!box) return;
+        box.textContent = message;
+        box.style.display = 'block';
+      }
+
+      function setMetric(id, value) {
+        const el = document.getElementById(id);
+        if (el) el.textContent = String(value);
+      }
+
+      function ensureFirebaseInit() {
+        const cfg = window.APP_CONFIG && window.APP_CONFIG.firebase;
+        if (!cfg) throw new Error('APP_CONFIG.firebase не знайдено. Перевір /config/config.js');
+        if (!firebase.apps || !firebase.apps.length) firebase.initializeApp(cfg);
+        return {
+          auth: firebase.auth(),
+          db: firebase.firestore()
+        };
+      }
+
+      async function getUserRole(db, uid) {
+        const snap = await db.collection('users').doc(uid).get({ source: 'server' });
+        if (!snap.exists) return { role: 'pending', additionalRoles: [] };
+        const data = snap.data() || {};
+        return {
+          role: String(data.role || 'pending').toLowerCase(),
+          additionalRoles: Array.isArray(data.additionalRoles)
+            ? data.additionalRoles.map(r => String(r || '').toLowerCase()).filter(Boolean)
+            : []
+        };
+      }
+
+      function buildLineChart(canvas, labels, values, colour, label) {
+        const ctx = canvas.getContext('2d');
+        return new Chart(ctx, {
+          type: 'line',
+          data: {
+            labels,
+            datasets: [{
+              label,
+              data: values,
+              borderColor: colour,
+              backgroundColor: 'transparent',
+              pointRadius: 2,
+              pointHoverRadius: 4,
+              tension: 0.25
+            }]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            interaction: { mode: 'index', intersect: false },
+            plugins: {
+              legend: { display: false },
+              tooltip: {
+                callbacks: {
+                  label: (ctx) => `${ctx.parsed.y}`
+                }
+              }
+            },
+            scales: {
+              x: {
+                ticks: {
+                  maxRotation: 0,
+                  autoSkip: true
+                }
+              },
+              y: {
+                beginAtZero: true,
+                ticks: { precision: 0 }
+              }
+            }
+          }
+        });
+      }
+
+      async function loadAndRender({ db }) {
+        const now = new Date();
+        const today = now.toISOString().split('T')[0];
+        const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+
+        // Онлайн зараз (heartbeat за останні 2 хвилини)
+        const twoMinAgo = firebase.firestore.Timestamp.fromDate(
+          new Date(Date.now() - 2 * 60 * 1000)
+        );
+
+        const onlineSnap = await db.collection('visitor_sessions')
+          .where('lastHeartbeat', '>=', twoMinAgo)
+          .get();
+
+        const onlineSessions = onlineSnap.docs.filter(doc => !doc.data().endTime);
+        setMetric('mOnline', onlineSessions.length);
+
+        // Сьогодні (всі сесії за день)
+        const todaySessionsSnap = await db.collection('visitor_sessions')
+          .where('date', '==', today)
+          .get();
+        setMetric('mToday', todaySessionsSnap.size);
+
+        // Унікальні сьогодні
+        const todayStatsSnap = await db.collection('visitor_stats').doc(today).get();
+        if (todayStatsSnap.exists) {
+          const d = todayStatsSnap.data() || {};
+          const unique = Array.isArray(d.uniqueVisitors) ? d.uniqueVisitors : [];
+          setMetric('mUniqueToday', unique.length);
+        } else {
+          setMetric('mUniqueToday', 0);
+        }
+
+        // За тиждень
+        const weekSnap = await db.collection('visitor_stats')
+          .where('date', '>=', weekAgo.toISOString().split('T')[0])
+          .get();
+        let weekTotal = 0;
+        weekSnap.forEach(doc => { weekTotal += (doc.data().totalVisits || 0); });
+        setMetric('mWeek', weekTotal);
+
+        // Всього
+        const allSnap = await db.collection('visitor_stats').get();
+        let total = 0;
+        allSnap.forEach(doc => { total += (doc.data().totalVisits || 0); });
+        setMetric('mTotal', total);
+
+        // Останні 30 днів для графіків (по ID документів YYYY-MM-DD)
+        const statsSnap = await db.collection('visitor_stats')
+          .orderBy(firebase.firestore.FieldPath.documentId(), 'desc')
+          .limit(30)
+          .get();
+
+        const rows = statsSnap.docs
+          .map(doc => ({
+            date: doc.id,
+            total: doc.data().totalVisits || 0,
+            unique: Array.isArray(doc.data().uniqueVisitors) ? doc.data().uniqueVisitors.length : 0
+          }))
+          .sort((a, b) => a.date.localeCompare(b.date));
+
+        const labels = rows.map(r => r.date);
+        const totals = rows.map(r => r.total);
+        const uniques = rows.map(r => r.unique);
+
+        const visitsCanvas = document.getElementById('chartVisits');
+        const uniqueCanvas = document.getElementById('chartUnique');
+
+        if (!visitsCanvas || !uniqueCanvas) return;
+
+        visitsChart?.destroy();
+        uniqueChart?.destroy();
+
+        visitsChart = buildLineChart(visitsCanvas, labels, totals, COLORS.primary, 'Візити');
+        uniqueChart = buildLineChart(uniqueCanvas, labels, uniques, COLORS.success, 'Унікальні');
+      }
+
+      async function main() {
+        let services;
+        try {
+          services = ensureFirebaseInit();
+        } catch (e) {
+          showError(e.message || String(e));
+          document.documentElement.style.visibility = 'visible';
+          return;
+        }
+
+        services.auth.onAuthStateChanged(async (u) => {
+          if (!u) {
+            const here = location.pathname + location.search + location.hash;
+            location.replace('/login.html?next=' + encodeURIComponent(here));
+            return;
+          }
+
+          try {
+            const { role, additionalRoles } = await getUserRole(services.db, u.uid);
+            if (role !== 'admin') {
+              location.replace('/index.html');
+              return;
+            }
+
+            window.__userRole = role;
+            window.__userAdditionalRoles = additionalRoles;
+
+            // header
+            try { initAppHeader('stats'); } catch (_) {}
+
+            document.documentElement.style.visibility = 'visible';
+
+            await loadAndRender(services);
+
+            const btn = document.getElementById('btnRefresh');
+            if (btn) {
+              btn.addEventListener('click', async () => {
+                btn.disabled = true;
+                try { await loadAndRender(services); }
+                catch (e) { showError('Помилка завантаження статистики: ' + (e?.message || e)); }
+                finally { btn.disabled = false; }
+              });
+            }
+          } catch (e) {
+            showError('Помилка доступу до статистики: ' + (e?.message || e));
+            document.documentElement.style.visibility = 'visible';
+          }
+        });
+      }
+
+      main();
+    })();
+  </script>
+</body>
+</html>

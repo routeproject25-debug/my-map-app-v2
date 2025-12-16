@@ -9,6 +9,7 @@ function generateAppHeader(currentPage = '') {
     { id: 'map', url: '/index.html', label: '🗺️ Карта', icon: '🗺️' },
     { id: 'export', url: '/export/', label: '📤 Експорт', icon: '📤' },
     { id: 'calculator', url: '/calculator.html', label: '💰 Калькулятор', icon: '💰' },
+    { id: 'stats', url: '/admin/stats.html', label: '📈 Статистика', icon: '📈', roles: ['admin'] },
     { id: 'review', url: '/review.html', label: '👮 Перегляд', icon: '👮', roles: ['admin', 'security'] }
   ];
   
