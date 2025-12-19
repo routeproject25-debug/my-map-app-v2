@@ -3500,8 +3500,18 @@ function downloadMapPng(){
       const w = img.naturalWidth || baseCanvas.width;
       const h = img.naturalHeight || baseCanvas.height;
       const can = document.createElement('canvas');
-      can.width = w; can.height = h;
+      // Підвищення якості: експортуємо у більшій роздільності (масштабування canvas).
+      // Це не змінює UI/мапу на екрані, лише робить файл більшим і чіткішим для перегляду/друку.
+      const targetScale = 2; // 2× — збалансовано між якістю та розміром файлу
+      const maxCanvasDim = 8192; // безпечне обмеження для більшості браузерів
+      const safeScale = Math.max(1, Math.min(targetScale, maxCanvasDim / w, maxCanvasDim / h));
+      can.width = Math.round(w * safeScale);
+      can.height = Math.round(h * safeScale);
       const ctx = can.getContext('2d');
+      ctx.imageSmoothingEnabled = true;
+      try{ ctx.imageSmoothingQuality = 'high'; }catch(_){ }
+      // Малюємо в базових координатах (w×h), але на canvas більшого розміру.
+      ctx.setTransform(safeScale, 0, 0, safeScale, 0, 0);
       ctx.drawImage(img, 0, 0, w, h);
 
       // Дані для підпису
