@@ -243,33 +243,10 @@
         });
       }
 
-      function toISODate(d) {
-        return d.toISOString().split('T')[0];
-      }
-
-      function addDays(d, days) {
-        const copy = new Date(d.getTime());
-        copy.setDate(copy.getDate() + days);
-        return copy;
-      }
-
-      async function fetchVisitorStatsByDates(db, dates) {
-        const refs = dates.map(date => db.collection('visitor_stats').doc(date));
-        const snaps = await Promise.all(refs.map(r => r.get()));
-        return snaps.map((snap, i) => {
-          if (!snap.exists) return { date: dates[i], total: 0, unique: 0 };
-          const data = snap.data() || {};
-          return {
-            date: snap.id,
-            total: data.totalVisits || 0,
-            unique: Array.isArray(data.uniqueVisitors) ? data.uniqueVisitors.length : 0
-          };
-        });
-      }
-
       async function loadAndRender({ db }) {
         const now = new Date();
-        const today = toISODate(now);
+        const today = now.toISOString().split('T')[0];
+        const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
 
         // Онлайн зараз (heartbeat за останні 2 хвилини)
         const twoMinAgo = firebase.firestore.Timestamp.fromDate(
@@ -300,9 +277,11 @@
         }
 
         // За тиждень
-        const last7Dates = Array.from({ length: 7 }, (_, i) => toISODate(addDays(now, -i))).reverse();
-        const weekRows = await fetchVisitorStatsByDates(db, last7Dates);
-        const weekTotal = weekRows.reduce((sum, r) => sum + (r.total || 0), 0);
+        const weekSnap = await db.collection('visitor_stats')
+          .where('date', '>=', weekAgo.toISOString().split('T')[0])
+          .get();
+        let weekTotal = 0;
+        weekSnap.forEach(doc => { weekTotal += (doc.data().totalVisits || 0); });
         setMetric('mWeek', weekTotal);
 
         // Всього
@@ -311,9 +290,19 @@
         allSnap.forEach(doc => { total += (doc.data().totalVisits || 0); });
         setMetric('mTotal', total);
 
-        // Останні 30 днів для графіків — без orderBy/where (щоб не вимагати індексів)
-        const last30Dates = Array.from({ length: 30 }, (_, i) => toISODate(addDays(now, -i))).reverse();
-        const rows = await fetchVisitorStatsByDates(db, last30Dates);
+        // Останні 30 днів для графіків (по ID документів YYYY-MM-DD)
+        const statsSnap = await db.collection('visitor_stats')
+          .orderBy(firebase.firestore.FieldPath.documentId(), 'desc')
+          .limit(30)
+          .get();
+
+        const rows = statsSnap.docs
+          .map(doc => ({
+            date: doc.id,
+            total: doc.data().totalVisits || 0,
+            unique: Array.isArray(doc.data().uniqueVisitors) ? doc.data().uniqueVisitors.length : 0
+          }))
+          .sort((a, b) => a.date.localeCompare(b.date));
 
         const labels = rows.map(r => r.date);
         const totals = rows.map(r => r.total);

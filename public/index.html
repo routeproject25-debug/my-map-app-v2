@@ -3509,6 +3509,7 @@ function downloadMapPng(){
       const from = getVal('fromName');
       const to   = getVal('toName');
       const routeName = (from && to) ? `${from} → ${to}` : (getVal('routeName') || 'Маршрут');
+      const intermediateText = getVal('intermediateText');
       const distText = (()=>{
         const t = (document.getElementById('distanceTop')?.textContent || '').trim();
         return t ? `${Number(t).toFixed(2)} км` : '';
@@ -3522,11 +3523,40 @@ function downloadMapPng(){
       ctx.save();
       ctx.textBaseline = 'top';
 
+      // Обрізання рядків під ширину зображення (щоб текст не виходив за межі PNG)
+      const maxTextW = Math.max(0, w - (margin * 2) - (padX * 2));
+      const fitText = (text, maxWidth) => {
+        if (!text) return '';
+        if (ctx.measureText(text).width <= maxWidth) return text;
+        const ell = '…';
+        let lo = 0, hi = text.length;
+        while (lo < hi){
+          const mid = Math.ceil((lo + hi) / 2);
+          const candidate = text.slice(0, mid).trimEnd() + ell;
+          if (ctx.measureText(candidate).width <= maxWidth) lo = mid;
+          else hi = mid - 1;
+        }
+        const out = text.slice(0, lo).trimEnd();
+        return out ? (out + ell) : ell;
+      };
+
       // Обчислення розмірів коробки
-      ctx.font = titleFont; const titleW = ctx.measureText(routeName).width; const titleH = 22;
-      ctx.font = metaFont;  const metaW  = distText ? ctx.measureText(`Відстань: ${distText}`).width : 0; const metaH = distText ? 18 : 0;
-      const boxW = Math.ceil(Math.max(titleW, metaW) + padX*2);
-      const boxH = Math.ceil(titleH + (distText ? (gap + metaH) : 0) + padY*2);
+      ctx.font = titleFont;
+      const titleLine = fitText(routeName, maxTextW);
+      const titleW = ctx.measureText(titleLine).width;
+      const titleH = 22;
+
+      ctx.font = metaFont;
+      const distLine = distText ? fitText(`Відстань: ${distText}`, maxTextW) : '';
+      const viaLine = intermediateText ? fitText(`Проміжні: ${intermediateText}`, maxTextW) : '';
+
+      const distW = distLine ? ctx.measureText(distLine).width : 0;
+      const viaW  = viaLine  ? ctx.measureText(viaLine).width  : 0;
+      const metaH = (distLine || viaLine) ? 18 : 0;
+      const linesCount = 1 + (distLine ? 1 : 0) + (viaLine ? 1 : 0);
+
+      const boxW = Math.ceil(Math.max(titleW, distW, viaW) + padX*2);
+      const boxH = Math.ceil(padY*2 + titleH + (linesCount > 1 ? ((linesCount - 1) * (gap + metaH)) : 0));
 
       // Позиція (лівий низ)
       const x = margin, y = h - boxH - margin;
@@ -3553,12 +3583,18 @@ function downloadMapPng(){
       // Текст: назва маршруту
       let tx = x + padX, ty = y + padY;
       ctx.font = titleFont; ctx.fillStyle = '#111827';
-      ctx.fillText(routeName, tx, ty);
+      ctx.fillText(titleLine, tx, ty);
       // Текст: відстань
-      if (distText){
+      if (distLine){
         ty += titleH + gap;
         ctx.font = metaFont; ctx.fillStyle = '#374151';
-        ctx.fillText(`Відстань: ${distText}`, tx, ty);
+        ctx.fillText(distLine, tx, ty);
+      }
+      // Текст: проміжні пункти
+      if (viaLine){
+        ty += (distLine ? (metaH + gap) : (titleH + gap));
+        ctx.font = metaFont; ctx.fillStyle = '#374151';
+        ctx.fillText(viaLine, tx, ty);
       }
       ctx.restore();
 
