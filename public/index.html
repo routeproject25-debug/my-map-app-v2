@@ -4705,9 +4705,13 @@ async function saveToDB() {
   const fromNamePlain = (from.name || '').trim() || String(fromNameInput||'').trim();
   const toNamePlain   = (to.name   || '').trim() || String(toNameInput||'').trim();
 
+    // На практиці інколи routeName не встигає оновитися (особливо при виборі з typeahead).
+    // Перед збереженням примусово синхронізуємо назву з поточними Від/До/типом/призначенням.
+    try { updateRouteName(); } catch(_) {}
+
     const generatedName = `${fromLabel} → ${toLabel} [${routeType}${purpose ? ' • '+purpose : ''}]`;
     const manual = (document.getElementById('routeName').value || '').trim();
-    const finalName = manual || generatedName;
+    let finalName = manual || generatedName;
 
     const user = auth?.currentUser || null;
 
@@ -4743,6 +4747,32 @@ async function saveToDB() {
       willAddIsTest: isTestMode 
     });
     
+    // Перевірка дубля + вибір режиму збереження (new/overwrite/copy)
+    let existing = await findExistingRoute(fromCode, toCode, routeType);
+    if (!existing){
+      const fLowerFB = (fromNamePlain || '').toLowerCase();
+      const tLowerFB = (toNamePlain   || '').toLowerCase();
+      if (fLowerFB && tLowerFB){
+        existing = await findExistingRouteByName(fLowerFB, tLowerFB, routeType);
+      }
+    }
+
+    const baseId = sanitizeId(finalName);
+    let docId = baseId;
+    let mode = 'new'; // 'new' | 'overwrite' | 'copy'
+
+    if (existing) {
+      const existingName = existing.data()?.name || existing.id;
+      const choice = await askDuplicateAction(existingName);
+      if (choice === 'cancel'){ alert('❎ Збереження скасовано'); return; }
+      if (choice === 'overwrite'){ docId = existing.id; mode = 'overwrite'; }
+      if (choice === 'copy'){
+        docId = makeCopyId(baseId);
+        finalName = `${finalName} (копія)`;
+        mode = 'copy';
+      }
+    }
+
     const payload = {
   name: finalName,
   fromCode, toCode, routeType, purpose, intermediateText,
@@ -4770,18 +4800,19 @@ async function saveToDB() {
     });
 
     // Встановлюємо createdAt: якщо є значення з поля - використовуємо його,
-    // інакше для overwrite беремо з існуючого документа, для нових - поточний час
+    // інакше для overwrite беремо з існуючого документа (якщо є), для нових/копій - поточний час
     if (createdAtValue) {
       payload.createdAt = createdAtValue;
-    } else if (existing && existing.data()?.createdAt) {
-      // Зберігаємо існуюче значення при overwrite
+    } else if (mode === 'overwrite' && existing && existing.data()?.createdAt) {
       payload.createdAt = existing.data().createdAt;
-    } else if (!existing || mode === 'new' || mode === 'copy') {
-      // Для нових маршрутів або копій встановлюємо поточний час
+    } else {
       payload.createdAt = new Date().toISOString();
     }
-    // Поле активності (для soft-delete). Якщо існуючий (overwrite) був неактивним — зберігаємо неактивність.
-    try { if (existing) { payload.isActive = (existing.data()?.isActive === false ? false : true); } else { payload.isActive = true; } } catch(_){ payload.isActive = true; }
+    // Поле активності (для soft-delete). Якщо overwrite був неактивним — зберігаємо неактивність.
+    try {
+      if (mode === 'overwrite' && existing) payload.isActive = (existing.data()?.isActive === false ? false : true);
+      else payload.isActive = true;
+    } catch(_){ payload.isActive = true; }
 
     // 🧠 ІНДЕКСНІ ПОЛЯ РАХУЄМО ОДИН РАЗ (поза транзакцією)
     const searchText = [finalName, fromLabel, toLabel].filter(Boolean).join(' | ');
@@ -4797,27 +4828,6 @@ async function saveToDB() {
       searchNgrams:   trigrams(searchText),
       updatedAt:      new Date().toISOString()
     };
-
-    // Перевірка дубля
-    let existing = await findExistingRoute(fromCode, toCode, routeType);
-    if (!existing){
-      const fLowerFB = (fromNamePlain || '').toLowerCase();
-      const tLowerFB = (toNamePlain   || '').toLowerCase();
-      if (fLowerFB && tLowerFB){
-        existing = await findExistingRouteByName(fLowerFB, tLowerFB, routeType);
-      }
-    }
-    const baseId = sanitizeId(finalName);
-    let docId = baseId;
-    let mode = 'new'; // 'new' | 'overwrite' | 'copy'
-
-    if (existing) {
-      const existingName = existing.data()?.name || existing.id;
-      const choice = await askDuplicateAction(existingName);
-      if (choice === 'cancel'){ alert('❎ Збереження скасовано'); return; }
-      if (choice === 'overwrite'){ docId = existing.id; mode = 'overwrite'; }
-      if (choice === 'copy'){ docId = `${baseId}__${Date.now()}`; payload.name = `${payload.name} (копія)`; mode = 'copy'; }
-    }
 
     const prefix = firstLetter(from.name) + firstLetter(to.name);
     const meta = { fromCode, toCode, fromName: from.name || '', toName: to.name || '' };
