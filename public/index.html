@@ -7066,6 +7066,15 @@ auth?.onAuthStateChanged(async (user) => {
           if (wantProp === '1' || wantProp === 'true') {
             try{ setProposalVisibility(true); }catch(_){ }
           }
+          // Після одноразового автозавантаження з ?rid= очищаємо URL, щоб F5 відкривав «чисту» головну
+          try {
+            const url = new URL(window.location.href);
+            url.searchParams.delete('rid');
+            url.searchParams.delete('showProposal');
+            window.history.replaceState({}, document.title, url.pathname + (url.searchParams.toString() ? '?' + url.searchParams.toString() : '') + url.hash);
+            window.__pendingRidToLoad = null;
+            window.__pendingShowProposal = null;
+          } catch(_){ }
         })();
       }
     }catch(e){ console.warn('auto-load rid skipped:', e?.message||e); }
