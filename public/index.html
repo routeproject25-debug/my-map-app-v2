@@ -302,6 +302,24 @@
     background: linear-gradient(135deg, #10b981 0%, #059669 100%);
     color:#fff; box-shadow: 0 4px 16px rgba(16,185,129,0.3);
   }
+  
+  /* Маленька червона кнопка для примусового оновлення ID маршруту */
+  .entry-dock .createdat-row{ display:flex; gap:6px; align-items:center; }
+  .entry-dock .createdat-row input{ flex:1 1 auto; min-width:0; }
+  .btn.route-id-refresh{
+    background: var(--danger);
+    color:#fff;
+    box-shadow: 0 2px 10px rgba(239,68,68,0.25);
+    min-height: 32px;
+    padding: 6px 10px;
+    font-size: 12px;
+    border-radius: 10px;
+  }
+  .btn.route-id-refresh:hover{
+    transform: translateY(-1px);
+    box-shadow: 0 4px 14px rgba(239,68,68,0.28);
+  }
+  .btn.route-id-refresh:active{ transform: translateY(0); }
 
   /* Лівий інструмент‑стовпчик: вирівнюємо тексти вліво і додаємо підпис шорткатів праворуч */
   #panel-create .tools-left .btn{ display:flex; align-items:center; gap:8px; justify-content:flex-start; text-align:left }
@@ -907,7 +925,10 @@
     </div>
     <div class="field w240">
       <label for="routeCreatedAt">Дата та час створення</label>
-      <input id="routeCreatedAt" type="datetime-local" title="Дата/час створення маршруту (можна змінити вручну)">
+      <div class="createdat-row">
+        <input id="routeCreatedAt" type="datetime-local" title="Дата/час створення маршруту (можна змінити вручну)">
+        <button id="refreshRouteIdBtn" type="button" class="btn route-id-refresh" style="display:none" title="Після змін Від/До/Тип/Призначення натисніть, щоб примусово оновити ID маршруту">↻ ID</button>
+      </div>
     </div>
   </div>
   <datalist id="directoryList"></datalist>
@@ -4340,6 +4361,52 @@ function updateRouteName() {
   document.getElementById('routeName').value = `${fromLabel} → ${toLabel} [${parts.join(' • ')}]`;
 }
 
+// ===== Route ID refresh indicator (UX: маленька червона кнопка біля часу створення) =====
+let __routeIdFingerprint = null;
+let __routeIdNeedsRefresh = false;
+
+function _routeIdFingerprintNow(){
+  const fromRaw = (document.getElementById('fromName')?.value || '').trim();
+  const toRaw   = (document.getElementById('toName')?.value || '').trim();
+  const routeType = (document.getElementById('routeType')?.value || '').trim();
+  const purpose   = (document.getElementById('routePurpose')?.value || '').trim();
+  return JSON.stringify({ fromRaw, toRaw, routeType, purpose });
+}
+
+function _setRouteIdNeedsRefresh(v){
+  __routeIdNeedsRefresh = !!v;
+  const btn = document.getElementById('refreshRouteIdBtn');
+  if (btn) btn.style.display = __routeIdNeedsRefresh ? 'inline-flex' : 'none';
+}
+
+function syncRouteIdSnapshot(){
+  __routeIdFingerprint = _routeIdFingerprintNow();
+  _setRouteIdNeedsRefresh(false);
+}
+
+function markRouteIdDirtyIfChanged(){
+  const cur = _routeIdFingerprintNow();
+  if (__routeIdFingerprint === null) {
+    __routeIdFingerprint = cur;
+    _setRouteIdNeedsRefresh(false);
+    return;
+  }
+  _setRouteIdNeedsRefresh(cur !== __routeIdFingerprint);
+}
+
+function forceRefreshRouteId(opts = {}){
+  const silent = !!opts.silent;
+  const fromCode = getCodeByInput('fromName');
+  const toCode   = getCodeByInput('toName');
+  if (!fromCode || !toCode) {
+    if (!silent) alert('Оберіть “Від” та “До” зі списку довідника, щоб оновити ID маршруту.');
+    return false;
+  }
+  try { updateRouteName(); } catch(_) {}
+  syncRouteIdSnapshot();
+  return true;
+}
+
 /* ===== DUPLICATES ===== */
 function sanitizeId(s){ return String(s||'').replace(/[\/\\#?\[\]]/g,'_'); }
 async function findExistingRoute(fromCode, toCode, routeType){
@@ -4708,6 +4775,10 @@ async function saveToDB() {
     // На практиці інколи routeName не встигає оновитися (особливо при виборі з typeahead).
     // Перед збереженням примусово синхронізуємо назву з поточними Від/До/типом/призначенням.
     try { updateRouteName(); } catch(_) {}
+
+    // Якщо користувач змінював поля, що впливають на ID — синхронізуємо (як натискання червоної кнопки)
+    // щоб збереження йшло вже з «оновленим» ID і кнопка зникла.
+    try { if (__routeIdNeedsRefresh) forceRefreshRouteId({ silent:true }); } catch(_) {}
 
     const generatedName = `${fromLabel} → ${toLabel} [${routeType}${purpose ? ' • '+purpose : ''}]`;
     const manual = (document.getElementById('routeName').value || '').trim();
@@ -6617,6 +6688,9 @@ async function applyRouteDataToUI(rid, data, opts = {}){
   try { updateProposalUIForData(data); } catch(_) {}
   try { subscribeToRouteLive(rid); } catch(_) {}
 
+  // Після завантаження/підстановки — вважаємо ID «синхронізованим», кнопка має бути схована
+  try { syncRouteIdSnapshot(); } catch(_) {}
+
   if (!options.silentRouteKeyAlert && data.routeKey) alert('Код маршруту: ' + data.routeKey);
 }
 
@@ -7122,6 +7196,15 @@ window.addEventListener('load', async () => {
       __createdAtManuallyEdited = true;
     });
   }
+
+  // Кнопка примусового оновлення ID маршруту
+  try {
+    const btn = document.getElementById('refreshRouteIdBtn');
+    if (btn) btn.addEventListener('click', () => forceRefreshRouteId({ silent:false }));
+  } catch(_){ }
+
+  // Початковий «снапшот» полів для індикатора ID
+  try { syncRouteIdSnapshot(); } catch(_){ }
   
   const qp = new URLSearchParams(location.search);
   const rid = (qp.get('rid') || '').trim();
@@ -7158,6 +7241,7 @@ const onFromToChange = () => {
   updateRouteName();
   updateHighlights();                 // оновлюємо фільтри підсвітки
   setGeozonesVisibility(geozonesVisible); // і одразу застосовуємо "розумну" видимість
+  markRouteIdDirtyIfChanged();
 };
 
 // реагуємо і на input (коли ти стираєш текст), і на change (коли поле втратило фокус)
@@ -7169,8 +7253,8 @@ const onFromToChange = () => {
 attachTypeahead('fromName');
 attachTypeahead('toName');
 
-document.getElementById('routeType').addEventListener('change', updateRouteName);
-document.getElementById('routePurpose').addEventListener('change', updateRouteName);
+document.getElementById('routeType').addEventListener('change', () => { updateRouteName(); markRouteIdDirtyIfChanged(); });
+document.getElementById('routePurpose').addEventListener('change', () => { updateRouteName(); markRouteIdDirtyIfChanged(); });
 
 // видалити потім
 async function backfillRoutes(){
