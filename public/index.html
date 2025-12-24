@@ -1090,6 +1090,7 @@
 <!-- Док для статусу та дистанції (праворуч угорі) -->
 <div id="statusDock">
   <div id="statusChip" class="status-chip" data-status="draft">📝 Статус: Чернетка</div>
+  <div id="routeIdChip" class="status-chip" style="display:none">🆔 ID: <span id="routeIdValue">—</span></div>
   <div id="distanceChip" class="status-chip">📏 Відстань, км: <span id="distanceTop">0</span></div>
 </div>
 
@@ -4407,6 +4408,20 @@ function forceRefreshRouteId(opts = {}){
   return true;
 }
 
+function setRouteIdChip(id){
+  const chip = document.getElementById('routeIdChip');
+  const val  = document.getElementById('routeIdValue');
+  if (!chip || !val) return;
+  const clean = String(id || '').trim();
+  if (clean){
+    val.textContent = clean;
+    chip.style.display = 'inline-flex';
+  } else {
+    val.textContent = '—';
+    chip.style.display = 'none';
+  }
+}
+
 /* ===== DUPLICATES ===== */
 function sanitizeId(s){ return String(s||'').replace(/[\/\\#?\[\]]/g,'_'); }
 async function findExistingRoute(fromCode, toCode, routeType){
@@ -4963,6 +4978,7 @@ async function saveToDB() {
           routeKeySaved = routeKey;
         });
 
+        try { setRouteIdChip(docId); } catch(_) {}
         alert(`✅ Збережено в БД: ${payload.name}\nКод маршруту: ${routeKeySaved}`);
         try{
           const prevTrack = pickTrackedFields(prev || {});
@@ -4980,6 +4996,7 @@ async function saveToDB() {
         const updateObj = { ...payload, ...indexFields, routeKey: localKey };
         await db.collection('routes').doc(docId).set(updateObj, { merge: true });
         routeKeySaved = localKey;
+        try { setRouteIdChip(docId); } catch(_) {}
         alert('⚠️ Збережено маршрут (fallback) з локальним кодом: ' + localKey + '\nПричина: ' + (txErr?.message || txErr));
       }
     } else {
@@ -5030,6 +5047,7 @@ async function saveToDB() {
       try {
         await routeRef.set(updateObj, { merge: true });
         routeKeySaved = localKey;
+        try { setRouteIdChip(docId); } catch(_) {}
         alert(`✅ Збережено в БД: ${payload.name}\nКод маршруту: ${routeKeySaved}`);
         try{
           const prevTrack = pickTrackedFields(prev || {});
@@ -5046,6 +5064,7 @@ async function saveToDB() {
           try{
             await saveRouteViaFunction(docId, updateObj);
             routeKeySaved = updateObj.routeKey;
+            try { setRouteIdChip(docId); } catch(_) {}
             alert(`✅ Збережено через сервер: ${payload.name}\nКод маршруту: ${routeKeySaved}`);
             try{
               const prevTrack = pickTrackedFields(prev || {});
@@ -6687,6 +6706,7 @@ async function applyRouteDataToUI(rid, data, opts = {}){
   try { ensureRouteOptionSelected(rid, data); } catch(_) {}
   try { updateProposalUIForData(data); } catch(_) {}
   try { subscribeToRouteLive(rid); } catch(_) {}
+  try { setRouteIdChip(rid); } catch(_) {}
 
   // Після завантаження/підстановки — вважаємо ID «синхронізованим», кнопка має бути схована
   try { syncRouteIdSnapshot(); } catch(_) {}
@@ -6769,6 +6789,9 @@ function clearForm() {
   // ⬇️ додай цю строку
   updateHighlights();
   setApprovalUI(null);
+
+  // ID чіп повертаємо у «немає»
+  try { setRouteIdChip(''); } catch(_) {}
 
   // Canvas-нумерації більше немає — лишено DOM‑маркери
 
@@ -7212,6 +7235,7 @@ window.addEventListener('load', async () => {
     if (btn) btn.addEventListener('click', () => forceRefreshRouteId({ silent:false }));
   } catch(_){ }
 
+  try { setRouteIdChip(''); } catch(_){ }
   // Початковий «снапшот» полів для індикатора ID
   try { syncRouteIdSnapshot(); } catch(_){ }
   
