@@ -1929,8 +1929,8 @@ function tilesetAllowedForUser(ts){
   const tags = Array.isArray(ts.hubs) ? ts.hubs : [];
   
   if (noHubs) return false;
-  if (!tags.length || tags.includes('*')) return true;    // не розмічено або глобальний
-  if (allHubs) return true;                           // користувачу дозволено "всі хаби"
+  if (allHubs) return true;                           // користувачу дозволено "всі хаби" (null або ['*'])
+  if (!tags.length || tags.includes('*')) return true;    // tileset не розмічено або глобальний
   return tags.some(h => (ALLOWED_HUBS || []).includes(h));
 }
 
@@ -3875,7 +3875,7 @@ try{
   }
 }catch(_){ }
 
-function isAllHubs(){ return ALLOWED_HUBS === null; }
+function isAllHubs(){ return ALLOWED_HUBS === null || (Array.isArray(ALLOWED_HUBS) && ALLOWED_HUBS.includes('*')); }
 function hasNoHubs(){ return Array.isArray(ALLOWED_HUBS) && ALLOWED_HUBS.length === 0; }
 
 function userAllowsHub(h){
