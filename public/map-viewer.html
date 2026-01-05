@@ -1042,7 +1042,12 @@
 
       const processSelection = (q) => {
         const found = results.find(r => r.full === q);
-        console.log('[search] Processing selection:', { q, found, resultsCount: results.length });
+        console.log('[search] Processing selection:', { 
+          q, 
+          found, 
+          resultsCount: results.length,
+          resultsFullValues: results.map(r => r.full)
+        });
         
         if (found && found.center && lastProcessedValue !== q) {
           lastProcessedValue = q;
