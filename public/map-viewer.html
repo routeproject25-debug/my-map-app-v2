@@ -688,15 +688,33 @@
       TS_FILL_IDS = [];
       TS_OUTLINE_IDS = [];
       
+      console.log('[addTilesets] TILESETS:', TILESETS.length, 'allowedHubs:', allowedHubs);
+      
       TILESETS.forEach(ts => {
-        if (ts.enabled === false) return;
+        if (ts.enabled === false) {
+          console.warn('[tileset] disabled:', ts.key);
+          return;
+        }
         
-        // Перевірка доступу за хабами
+        // Перевірка доступу за хабами - така ж логіка як в index.html
         const tsHubs = Array.isArray(ts.hubs) ? ts.hubs : [];
-        if (allowedHubs !== null && allowedHubs.length > 0) {
-          if (tsHubs.length > 0 && !tsHubs.some(h => allowedHubs.includes(h))) {
-            return; // немає доступу
-          }
+        
+        // Якщо allowedHubs === null - доступ до всіх хабів
+        if (allowedHubs === null) {
+          console.log(`[tileset] ${ts.key}: allowed (all hubs)`);
+        }
+        // Якщо тайлсет не має хабів або має '*' - глобальний, доступний всім
+        else if (!tsHubs.length || tsHubs.includes('*')) {
+          console.log(`[tileset] ${ts.key}: allowed (global tileset)`);
+        }
+        // Якщо є перетин хабів користувача і тайлсета
+        else if (allowedHubs && allowedHubs.length > 0 && tsHubs.some(h => allowedHubs.includes(h))) {
+          console.log(`[tileset] ${ts.key}: allowed (hub match)`);
+        }
+        // Інакше - немає доступу
+        else {
+          console.log(`[tileset] ${ts.key}: denied (no hub match)`);
+          return;
         }
 
         const sourceId = `geozones-tileset-${ts.key}`;
