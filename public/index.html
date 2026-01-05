@@ -1108,7 +1108,7 @@
     <option value="mapbox://styles/mapbox/satellite-streets-v12">Satellite Streets</option>
     <option value="mapbox://styles/mapbox/outdoors-v12">Outdoors</option>
   </select>
-  <input id="placeSearch" type="text" list="placeList" placeholder="Пошук…" autocomplete="off" />
+  <input id="placeSearch" type="text" list="placeList" placeholder="🔎 Пошук геозон і міст…" autocomplete="off" />
   <datalist id="placeList"></datalist>
   <div class="mapbox-brand">mapbox</div>
   
@@ -2573,9 +2573,80 @@ document.getElementById('mapStyleDock').addEventListener('change', function(){
   setMapStyle(this.value);
 });
 
-/* ==== Bottom-left place search (Mapbox Geocoding) ==== */
+/* ==== Bottom-left place search (Mapbox Geocoding + Geozones) ==== */
 let __placeSearchTimer = null;
 let __placeResults = [];
+
+// Пошук геозон по всіх тайлсетах
+async function searchGeozones(q){
+  const results = [];
+  if (!q || q.length < 2) return results;
+  const qLower = q.toLowerCase();
+  
+  try {
+    // Отримуємо всі видимі полігони з тайлсетів
+    const fillLayers = TS_FILL_IDS || [];
+    if (!fillLayers.length) return results;
+    
+    const features = map.queryRenderedFeatures({ layers: fillLayers }) || [];
+    const seen = new Set();
+    
+    for (const f of features) {
+      const props = f.properties || {};
+      const { name, code, client, farm } = getFieldProps(props);
+      
+      // Створюємо унікальний ключ
+      const key = `${name}-${code}`;
+      if (seen.has(key)) continue;
+      
+      // Перевірка: чи збігається запит з назвою або кодом
+      const matchName = name && name.toLowerCase().includes(qLower);
+      const matchCode = code && code.toLowerCase().includes(qLower);
+      const matchClient = client && client.toLowerCase().includes(qLower);
+      const matchFarm = farm && farm.toLowerCase().includes(qLower);
+      
+      if (matchName || matchCode || matchClient || matchFarm) {
+        // Обчислюємо центр полігону для навігації
+        let center = null;
+        try {
+          if (window.turf && f.geometry) {
+            const centroid = turf.centerOfMass(f);
+            center = centroid.geometry.coordinates;
+          }
+        } catch(_) {
+          try {
+            const bbox = turf.bbox(f);
+            center = [(bbox[0] + bbox[2]) / 2, (bbox[1] + bbox[3]) / 2];
+          } catch(_) {}
+        }
+        
+        if (center) {
+          // Формуємо повну назву для відображення
+          let fullName = name || code || 'Поле';
+          if (code && name !== code) fullName = `${name} (${code})`;
+          if (farm) fullName += ` • ${farm}`;
+          if (client && client !== farm) fullName += ` • ${client}`;
+          
+          results.push({
+            id: key,
+            name: name || code,
+            code: code,
+            full: fullName,
+            center: center,
+            type: 'geozone' // маркер типу результату
+          });
+          seen.add(key);
+        }
+      }
+    }
+  } catch(err) {
+    console.warn('Помилка пошуку геозон:', err);
+  }
+  
+  return results.slice(0, 10); // Обмежуємо 10 результатами
+}
+
+// Пошук населених пунктів через Mapbox Geocoding
 async function suggestPlaces(q){
   try{
     const token = mapboxgl.accessToken || '';
@@ -2584,9 +2655,8 @@ async function suggestPlaces(q){
     url.searchParams.set('access_token', token);
     url.searchParams.set('autocomplete', 'true');
     url.searchParams.set('language', 'uk');
-    url.searchParams.set('limit', '7');
+    url.searchParams.set('limit', '5'); // зменшено з 7 до 5, бо ще будуть геозони
     url.searchParams.set('types', 'place,locality,neighborhood');
-    // Обмежимо за замовчуванням Україною; за потреби можна прибрати
     url.searchParams.set('country', 'ua');
     try{
       const c = map.getCenter();
@@ -2595,8 +2665,28 @@ async function suggestPlaces(q){
     const res = await fetch(url.toString());
     const data = await res.json();
     const feats = Array.isArray(data?.features) ? data.features : [];
-    return feats.map(f => ({ id:f.id, name:f.text_uk || f.text || '', full:f.place_name_uk || f.place_name || '', center:f.center }));
+    return feats.map(f => ({ 
+      id: f.id, 
+      name: f.text_uk || f.text || '', 
+      full: f.place_name_uk || f.place_name || '', 
+      center: f.center,
+      type: 'place' // маркер типу результату
+    }));
   }catch(_){ return []; }
+}
+
+// Комбінований пошук: геозони + населені пункти
+async function searchAll(q){
+  if (!q || q.length < 2) return [];
+  
+  // Запускаємо обидва пошуки паралельно
+  const [geozones, places] = await Promise.all([
+    searchGeozones(q),
+    suggestPlaces(q)
+  ]);
+  
+  // Комбінуємо: спочатку геозони, потім населені пункти
+  return [...geozones, ...places];
 }
 function fillPlaceDatalist(rows){
   const list = document.getElementById('placeList');
@@ -2604,7 +2694,10 @@ function fillPlaceDatalist(rows){
   list.innerHTML = '';
   rows.forEach(r => {
     const opt = document.createElement('option');
+    // Додаємо візуальні маркери для розрізнення типів
+    const prefix = r.type === 'geozone' ? '🗺️ ' : '📍 ';
     opt.value = r.full || r.name;
+    opt.label = prefix + (r.full || r.name);
     list.appendChild(opt);
   });
 }
@@ -2624,12 +2717,11 @@ function flyToPlaceFromInput(){
   const input = document.getElementById('placeSearch');
   const q = (input?.value || '').trim();
   if (!q) return;
-  // Допоміжна: сховати підказки після вибору, щоб нічого не накладалось на мапу
+  
+  // Допоміжна: сховати підказки після вибору
   const closePlaceSuggestions = () => {
     try {
-      // Зняти фокус — нативний datalist закривається при blur
       if (input) input.blur();
-      // Прибрати варіанти, щоб не «підсвічувались» після навігації
       fillPlaceDatalist([]);
     } catch(_) {}
   };
@@ -2644,22 +2736,42 @@ function flyToPlaceFromInput(){
   
   // Пробуємо знайти точний збіг серед останніх підказок
   let target = __placeResults.find(r => (r.full || r.name) === q);
+  
   const use = async () => {
     if (target && Array.isArray(target.center)){
-      try{ map.flyTo({ center: target.center, zoom: Math.max(map.getZoom()||0, 11), essential:true }); }catch(_){ }
-      // Закриваємо список одразу після переходу
+      // Визначаємо зум залежно від типу результату
+      const targetZoom = target.type === 'geozone' ? 
+        Math.max(map.getZoom() || 0, 13) : // для геозон — ближче
+        Math.max(map.getZoom() || 0, 11);  // для міст — стандартно
+      
+      try{ 
+        map.flyTo({ 
+          center: target.center, 
+          zoom: targetZoom, 
+          essential: true 
+        }); 
+      }catch(_){ }
+      
       closePlaceSuggestions();
       return true;
     }
     return false;
   };
+  
   use().then(async ok => {
     if (ok) return;
-    // Якщо не знайшли — зробимо одноразовий геокодинг і використаємо перший результат
-    const rows = await suggestPlaces(q);
+    // Якщо не знайшли — зробимо повний пошук і використаємо перший результат
+    const rows = await searchAll(q);
     __placeResults = rows;
     if (rows.length && Array.isArray(rows[0].center)){
-      try{ map.flyTo({ center: rows[0].center, zoom: Math.max(map.getZoom()||0, 11), essential:true }); }catch(_){ }
+      const targetZoom = rows[0].type === 'geozone' ? 13 : 11;
+      try{ 
+        map.flyTo({ 
+          center: rows[0].center, 
+          zoom: targetZoom, 
+          essential: true 
+        }); 
+      }catch(_){ }
       closePlaceSuggestions();
     }
   });
@@ -2671,14 +2783,15 @@ if (placeInput){
     if (__placeSearchTimer) clearTimeout(__placeSearchTimer);
     if (q.length < 2){ fillPlaceDatalist([]); __placeResults = []; return; }
     __placeSearchTimer = setTimeout(async () => {
-      const rows = await suggestPlaces(q);
+      // Використовуємо комбінований пошук
+      const rows = await searchAll(q);
       __placeResults = rows;
       fillPlaceDatalist(rows);
     }, 450);
   });
   placeInput.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') { e.preventDefault(); flyToPlaceFromInput(); }
-    if (e.key === 'Escape') { // швидко сховати підказки
+    if (e.key === 'Escape') {
       fillPlaceDatalist([]);
       placeInput.blur();
     }
