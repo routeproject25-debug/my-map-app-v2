@@ -2575,18 +2575,75 @@ document.getElementById('mapStyleDock').addEventListener('change', function(){
   setMapStyle(this.value);
 });
 
-/* ==== Bottom-left place search (Mapbox Geocoding) ==== */
+/* ==== Bottom-left place search (Mapbox Geocoding + Geozones) ==== */
 let __placeSearchTimer = null;
 let __placeResults = [];
+
+// Пошук геозон за назвою
+function searchGeozones(query){
+  if (!query || query.length < 2) return [];
+  const q = query.toLowerCase().trim();
+  const results = [];
+  
+  // Шукаємо в геозонах на карті (через queryRenderedFeatures)
+  if (map && TS_FILL_IDS.length > 0){
+    try {
+      const features = map.queryRenderedFeatures({ layers: TS_FILL_IDS }) || [];
+      const seen = new Set();
+      
+      for (const f of features){
+        const props = f.properties || {};
+        const fp = getFieldProps(props);
+        const name = fp.name || fp.code || '';
+        
+        if (!name || !name.toLowerCase().includes(q)) continue;
+        
+        // Унікальність за назвою
+        if (seen.has(name)) continue;
+        seen.add(name);
+        
+        // Центр геозони
+        let center = null;
+        try {
+          if (window.turf) center = turf.centerOfMass(f).geometry.coordinates;
+        } catch(_) {
+          try {
+            if (window.turf) {
+              const bbox = turf.bbox(f);
+              center = [(bbox[0]+bbox[2])/2, (bbox[1]+bbox[3])/2];
+            }
+          } catch(_){}
+        }
+        
+        if (center){
+          results.push({
+            id: `geozone-${name}`,
+            name,
+            full: `🗺 ${name}`,
+            center,
+            type: 'geozone'
+          });
+        }
+      }
+    } catch(e) {
+      console.warn('Помилка пошуку геозон:', e);
+    }
+  }
+  
+  return results;
+}
+
 async function suggestPlaces(q){
+  const geozones = searchGeozones(q);
+  
   try{
     const token = mapboxgl.accessToken || '';
-    if (!token) return [];
+    if (!token) return geozones;
     const url = new URL('https://api.mapbox.com/geocoding/v5/mapbox.places/' + encodeURIComponent(q) + '.json');
     url.searchParams.set('access_token', token);
     url.searchParams.set('autocomplete', 'true');
     url.searchParams.set('language', 'uk');
-    url.searchParams.set('limit', '7');
+    url.searchParams.set('limit', '5'); // зменшили, щоб було місце для геозон
     url.searchParams.set('types', 'place,locality,neighborhood');
     // Обмежимо за замовчуванням Україною; за потреби можна прибрати
     url.searchParams.set('country', 'ua');
@@ -2597,8 +2654,17 @@ async function suggestPlaces(q){
     const res = await fetch(url.toString());
     const data = await res.json();
     const feats = Array.isArray(data?.features) ? data.features : [];
-    return feats.map(f => ({ id:f.id, name:f.text_uk || f.text || '', full:f.place_name_uk || f.place_name || '', center:f.center }));
-  }catch(_){ return []; }
+    const places = feats.map(f => ({ 
+      id:f.id, 
+      name:f.text_uk || f.text || '', 
+      full:`📍 ${f.place_name_uk || f.place_name || ''}`, 
+      center:f.center,
+      type: 'place'
+    }));
+    
+    // Геозони спочатку, потім населені пункти
+    return [...geozones, ...places];
+  }catch(_){ return geozones; }
 }
 function fillPlaceDatalist(rows){
   const list = document.getElementById('placeList');
