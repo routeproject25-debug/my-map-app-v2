@@ -1062,11 +1062,13 @@
       input.addEventListener('change', () => {
         const q = input.value.trim();
         const found = results.find(r => r.full === q);
+        console.log('[search] Change event:', { q, found });
         if (found && found.center) {
           map.flyTo({ center: found.center, zoom: Math.max(map.getZoom() || 0, 12) });
           
           // Якщо це геозона - підсвічуємо її
           if (found.type === 'geozone') {
+            console.log('[search] Викликаємо highlightGeozone з:', found.name);
             highlightGeozone(found.name);
           }
           
@@ -1079,11 +1081,13 @@
           e.preventDefault();
           const q = input.value.trim();
           const found = results.find(r => r.full === q);
+          console.log('[search] Enter event:', { q, found });
           if (found && found.center) {
             map.flyTo({ center: found.center, zoom: Math.max(map.getZoom() || 0, 12) });
             
             // Якщо це геозона - підсвічуємо її
             if (found.type === 'geozone') {
+              console.log('[search] Викликаємо highlightGeozone з:', found.name);
               highlightGeozone(found.name);
             }
             
