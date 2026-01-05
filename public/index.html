@@ -765,6 +765,7 @@
     <a class="nav-link" href="/">🏠 Карта</a>
     <a class="nav-link" href="/export/">📤 Експорт</a>
     <a class="nav-link" href="/calculator.html">💰 Калькулятор</a>
+    <a class="nav-link" id="navMapViewer" href="/map-viewer.html" style="display:none;">🧭 Навігатор</a>
     <!-- Мобільний компактний мейн-меню -->
   <div id="mainMenuWrap" style="position:relative;">
       <button id="mainMenuBtn" class="btn xs" type="button" aria-haspopup="true" aria-expanded="false" title="Меню"><span class="icon">☰</span> <span class="label">Меню ▾</span></button>
@@ -772,6 +773,7 @@
         <a href="/" class="admin-item" role="menuitem">🏠 Карта</a>
         <a href="/export/" class="admin-item" role="menuitem">📤 Експорт</a>
         <a href="/calculator.html" class="admin-item" role="menuitem">💰 Калькулятор</a>
+        <a href="/map-viewer.html" id="mobileNavMapViewer" class="admin-item" role="menuitem" style="display:none;">🧭 Навігатор</a>
       </div>
     </div>
     <!-- Групований випадаючий список адмін-сторінок -->
@@ -3962,6 +3964,7 @@ async function getAllowedHubsForUser(uid, role){
     
     const testMode = d.testMode === true; // 🧪 тестовий режим користувача
     const additionalRoles = Array.isArray(d.additionalRoles) ? d.additionalRoles : []; // 🔑 додаткові ролі
+    const allowMapViewer = d.allowMapViewer === true; // 🧭 доступ до навігатора
     
     let hubs = null;
     // 🔑 admin, security або користувачі з додатковою роллю security мають доступ до всіх хабів
@@ -3973,10 +3976,10 @@ async function getAllowedHubsForUser(uid, role){
     else if (typeof d.hubAccess === 'string' && d.hubAccess.trim()) hubs = [d.hubAccess.trim()];
     else hubs = [];
     
-    return { hubs, displayName, testMode };
+    return { hubs, displayName, testMode, allowMapViewer };
   }catch(e){
     console.warn('getAllowedHubsForUser:', e?.message||e);
-    return { hubs: [], displayName: '' }; // безпечний дефолт
+    return { hubs: [], displayName: '', testMode: false, allowMapViewer: false }; // безпечний дефолт
   }
 }
 
@@ -7159,7 +7162,15 @@ auth?.onAuthStateChanged(async (user) => {
       displayNameFromFirestore = result.displayName || '';
       window.__userTestMode = result.testMode === true; // 🧪 тестовий режим
       
-      console.log('[auth] Завантажено хаби для користувача:', ALLOWED_HUBS, 'testMode:', window.__userTestMode);
+      // 🧭 Показати посилання на Навігатор якщо є доступ
+      if (result.allowMapViewer === true) {
+        const navLink = document.getElementById('navMapViewer');
+        const mobileLink = document.getElementById('mobileNavMapViewer');
+        if (navLink) navLink.style.display = '';
+        if (mobileLink) mobileLink.style.display = '';
+      }
+      
+      console.log('[auth] Завантажено хаби для користувача:', ALLOWED_HUBS, 'testMode:', window.__userTestMode, 'allowMapViewer:', result.allowMapViewer);
       
       // Оновити видимість геозон після завантаження хабів
       try { applyTilesetHubVisibility(); } catch(e) { console.warn('applyTilesetHubVisibility error:', e); }

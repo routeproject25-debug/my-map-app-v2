@@ -1,0 +1,733 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+  <meta charset="utf-8" />
+  <title>🗺 Карта полів</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  
+  <link rel="preconnect" href="https://api.mapbox.com" crossorigin>
+  <script src="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.js"></script>
+  <link href="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.css" rel="stylesheet" />
+  
+  <!-- Turf.js для геометрії -->
+  <script src="https://unpkg.com/@turf/turf@6/turf.min.js"></script>
+
+  <!-- Firebase -->
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+  
+  <script src="/config/config.js"></script>
+
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      overflow: hidden;
+      touch-action: pan-x pan-y;
+    }
+
+    #map {
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      width: 100%;
+    }
+
+    /* Хедер */
+    header {
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      z-index: 10;
+      background: linear-gradient(180deg, rgba(99,102,241,0.95) 0%, rgba(99,102,241,0.85) 100%);
+      backdrop-filter: blur(10px);
+      padding: 12px 16px;
+      box-shadow: 0 2px 12px rgba(0,0,0,0.15);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    header h1 {
+      font-size: 18px;
+      color: #fff;
+      font-weight: 600;
+    }
+
+    #authInfo {
+      font-size: 13px;
+      color: rgba(255,255,255,0.9);
+    }
+
+    #btnLogout {
+      background: rgba(255,255,255,0.2);
+      border: none;
+      color: #fff;
+      padding: 6px 12px;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+    }
+
+    #btnLogout:active {
+      background: rgba(255,255,255,0.3);
+    }
+
+    /* Пошук */
+    .search-box {
+      position: absolute;
+      top: 80px;
+      left: 16px;
+      right: 16px;
+      z-index: 10;
+      max-width: 400px;
+    }
+
+    #placeSearch {
+      width: 100%;
+      height: 52px;
+      padding: 0 48px 0 16px;
+      border: none;
+      border-radius: 16px;
+      font-size: 16px;
+      background: #fff;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.12);
+    }
+
+    #placeSearch::placeholder {
+      color: #94a3b8;
+    }
+
+    .search-icon {
+      position: absolute;
+      right: 16px;
+      top: 50%;
+      transform: translateY(-50%);
+      font-size: 20px;
+      color: #6366f1;
+      pointer-events: none;
+    }
+
+    /* Плаваюча панель знизу */
+    .bottom-panel {
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      z-index: 10;
+      background: rgba(255,255,255,0.95);
+      backdrop-filter: blur(12px);
+      padding: 16px;
+      border-radius: 24px 24px 0 0;
+      box-shadow: 0 -4px 24px rgba(0,0,0,0.1);
+      display: flex;
+      gap: 12px;
+      justify-content: center;
+      flex-wrap: wrap;
+    }
+
+    .btn {
+      flex: 1;
+      min-width: 140px;
+      height: 56px;
+      border: none;
+      border-radius: 16px;
+      font-size: 15px;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      transition: all 0.2s ease;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+    }
+
+    .btn-primary {
+      background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
+      color: #fff;
+    }
+
+    .btn-primary:active {
+      transform: scale(0.96);
+      box-shadow: 0 1px 4px rgba(0,0,0,0.12);
+    }
+
+    .btn-secondary {
+      background: #fff;
+      color: #6366f1;
+      border: 2px solid #e0e7ff;
+    }
+
+    .btn-secondary:active {
+      background: #f8fafc;
+      transform: scale(0.96);
+    }
+
+    .btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    /* Маркер місцезнаходження */
+    .user-location-marker {
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      background: #3b82f6;
+      border: 3px solid #fff;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+    }
+
+    .user-location-pulse {
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+      background: rgba(59,130,246,0.3);
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      animation: pulse 2s ease-out infinite;
+    }
+
+    @keyframes pulse {
+      0% {
+        transform: translate(-50%, -50%) scale(0.5);
+        opacity: 1;
+      }
+      100% {
+        transform: translate(-50%, -50%) scale(2);
+        opacity: 0;
+      }
+    }
+
+    /* Спінер завантаження */
+    #splash {
+      position: fixed;
+      inset: 0;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 9999;
+      color: #fff;
+      font-size: 18px;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .spinner {
+      width: 48px;
+      height: 48px;
+      border: 4px solid rgba(255,255,255,0.3);
+      border-top-color: #fff;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    /* Адаптив */
+    @media (max-width: 640px) {
+      .bottom-panel {
+        padding: 12px;
+        gap: 8px;
+      }
+      
+      .btn {
+        min-width: 0;
+        flex: 1 1 calc(50% - 4px);
+      }
+    }
+  </style>
+</head>
+<body>
+  <!-- Спінер завантаження -->
+  <div id="splash">
+    <div class="spinner"></div>
+    <div>Завантаження...</div>
+  </div>
+
+  <!-- Хедер -->
+  <header>
+    <h1>🗺 Карта полів</h1>
+    <div style="display:flex; gap:8px; align-items:center;">
+      <span id="authInfo">—</span>
+      <button id="btnLogout" style="display:none;">Вийти</button>
+    </div>
+  </header>
+
+  <!-- Пошук -->
+  <div class="search-box">
+    <input id="placeSearch" type="text" list="placeList" placeholder="Пошук полів або місць..." autocomplete="off" />
+    <span class="search-icon">🔍</span>
+    <datalist id="placeList"></datalist>
+  </div>
+
+  <!-- Карта -->
+  <div id="map"></div>
+
+  <!-- Панель кнопок -->
+  <div class="bottom-panel">
+    <button class="btn btn-primary" id="btnMyLocation">
+      <span>🧭</span>
+      <span>Моє місце</span>
+    </button>
+    <button class="btn btn-secondary" id="btnToggleGeozones">
+      <span>🗺</span>
+      <span>Геозони</span>
+    </button>
+  </div>
+
+  <script>
+    'use strict';
+
+    // ===== AUTH GUARD =====
+    const CFG = window.APP_CONFIG?.firebase;
+    if (!CFG) {
+      alert('Конфігурація Firebase відсутня');
+      throw new Error('No APP_CONFIG.firebase');
+    }
+
+    firebase.initializeApp(CFG);
+    const db = firebase.firestore();
+    const auth = firebase.auth();
+
+    let currentUser = null;
+    let allowedHubs = null;
+
+    db.enablePersistence({ synchronizeTabs: true }).catch(() => {});
+
+    // Перевірка доступу
+    async function checkAccess(uid) {
+      try {
+        const snap = await db.collection('users').doc(uid).get({ source: 'server' });
+        if (!snap.exists) return false;
+        
+        const data = snap.data() || {};
+        
+        // Перевіряємо allowMapViewer
+        if (data.allowMapViewer !== true) {
+          alert('У вас немає доступу до перегляду карти. Зверніться до адміністратора.');
+          return false;
+        }
+
+        // Зберігаємо дозволені хаби
+        const role = String(data.role || 'user').toLowerCase();
+        if (role === 'admin' || role === 'security' || data.allowAllHubs === true) {
+          allowedHubs = null; // всі хаби
+        } else if (Array.isArray(data.allowedHubs)) {
+          allowedHubs = data.allowedHubs;
+        } else if (Array.isArray(data.hubs)) {
+          allowedHubs = data.hubs;
+        } else {
+          allowedHubs = [];
+        }
+
+        return true;
+      } catch (e) {
+        console.error('Помилка перевірки доступу:', e);
+        return false;
+      }
+    }
+
+    auth.onAuthStateChanged(async (user) => {
+      if (!user) {
+        window.location.replace('/login.html?next=' + encodeURIComponent(location.pathname));
+        return;
+      }
+
+      currentUser = user;
+      
+      const hasAccess = await checkAccess(user.uid);
+      if (!hasAccess) {
+        await auth.signOut();
+        window.location.replace('/login.html');
+        return;
+      }
+
+      // Показуємо ім'я
+      const displayName = user.displayName || user.email || 'Користувач';
+      document.getElementById('authInfo').textContent = displayName;
+      document.getElementById('btnLogout').style.display = '';
+
+      // Ініціалізуємо карту
+      initMap();
+    });
+
+    document.getElementById('btnLogout').addEventListener('click', async () => {
+      await auth.signOut();
+      window.location.replace('/login.html');
+    });
+
+    // ===== MAPBOX =====
+    mapboxgl.accessToken = 'pk.eyJ1Ijoicm91dGUtcHJvamVjdCIsImEiOiJjbTE4ZmRtdGkwaGUzMnJvZW12MWRpNjF4In0.01J70f_3H_e0GV3oWcfG2w';
+
+    let map;
+    let userLocationMarker = null;
+    let geozonesVisible = true;
+    let TILESETS = [];
+    let TS_FILL_IDS = [];
+    let TS_OUTLINE_IDS = [];
+
+    async function loadTilesetsConfig() {
+      try {
+        const res = await fetch('/config/tilesets.json?v=' + Date.now());
+        const data = await res.json();
+        TILESETS = Array.isArray(data) ? data : (data.tilesets || []);
+      } catch (e) {
+        console.warn('Помилка завантаження tilesets:', e);
+        TILESETS = [];
+      }
+    }
+
+    function initMap() {
+      map = new mapboxgl.Map({
+        container: 'map',
+        style: 'mapbox://styles/mapbox/satellite-streets-v12',
+        center: [30.5, 49.0],
+        zoom: 7,
+        attributionControl: false
+      });
+
+      map.addControl(new mapboxgl.NavigationControl(), 'bottom-right');
+
+      map.on('load', async () => {
+        await loadTilesetsConfig();
+        addTilesets();
+        document.getElementById('splash').style.display = 'none';
+      });
+
+      // Геолокація
+      setupGeolocation();
+      
+      // Пошук
+      setupSearch();
+      
+      // Кнопка геозон
+      document.getElementById('btnToggleGeozones').addEventListener('click', toggleGeozones);
+    }
+
+    function addTilesets() {
+      TILESETS.forEach(ts => {
+        if (ts.enabled === false) return;
+        
+        // Перевірка доступу за хабами
+        const tsHubs = Array.isArray(ts.hubs) ? ts.hubs : [];
+        if (allowedHubs !== null && allowedHubs.length > 0) {
+          if (tsHubs.length > 0 && !tsHubs.some(h => allowedHubs.includes(h))) {
+            return; // немає доступу
+          }
+        }
+
+        const sourceId = `geozones-tileset-${ts.key}`;
+        const fillId = `tileset-fill-${ts.key}`;
+        const outlineId = `tileset-outline-${ts.key}`;
+
+        if (!map.getSource(sourceId)) {
+          map.addSource(sourceId, { type: 'vector', url: ts.url });
+        }
+
+        if (!map.getLayer(fillId)) {
+          map.addLayer({
+            id: fillId,
+            type: 'fill',
+            source: sourceId,
+            'source-layer': ts.layer,
+            paint: {
+              'fill-color': '#16a34a',
+              'fill-opacity': 0.35
+            }
+          });
+          TS_FILL_IDS.push(fillId);
+        }
+
+        if (!map.getLayer(outlineId)) {
+          map.addLayer({
+            id: outlineId,
+            type: 'line',
+            source: sourceId,
+            'source-layer': ts.layer,
+            paint: {
+              'line-color': '#0d7a3a',
+              'line-width': 2
+            }
+          });
+          TS_OUTLINE_IDS.push(outlineId);
+        }
+      });
+
+      // Підписи центроїдів
+      buildGeozoneCentroids();
+    }
+
+    function buildGeozoneCentroids() {
+      if (!window.turf || TS_FILL_IDS.length === 0) return;
+
+      const features = map.queryRenderedFeatures({ layers: TS_FILL_IDS }) || [];
+      const seen = new Set();
+      const out = [];
+
+      for (const f of features) {
+        const props = f.properties || {};
+        const label = props.Name || props.name || props.Code || props.code || 'Поле';
+        const key = `${f.source}:${props.id || props.OBJECTID || label}`;
+        
+        if (seen.has(key)) continue;
+        seen.add(key);
+
+        let center = null;
+        try {
+          center = turf.centerOfMass(f).geometry.coordinates;
+        } catch (_) {
+          try {
+            const bbox = turf.bbox(f);
+            center = [(bbox[0] + bbox[2]) / 2, (bbox[1] + bbox[3]) / 2];
+          } catch (_) {}
+        }
+
+        if (center) {
+          out.push({
+            type: 'Feature',
+            geometry: { type: 'Point', coordinates: center },
+            properties: { label }
+          });
+        }
+      }
+
+      const fc = { type: 'FeatureCollection', features: out };
+
+      if (map.getSource('geozones-centroids')) {
+        map.getSource('geozones-centroids').setData(fc);
+      } else {
+        map.addSource('geozones-centroids', { type: 'geojson', data: fc });
+        map.addLayer({
+          id: 'geozones-labels',
+          type: 'symbol',
+          source: 'geozones-centroids',
+          layout: {
+            'text-field': ['get', 'label'],
+            'text-font': ['Open Sans Bold', 'Arial Unicode MS Bold'],
+            'text-size': 12
+          },
+          paint: {
+            'text-color': '#1f2937',
+            'text-halo-color': '#fff',
+            'text-halo-width': 1.5
+          }
+        });
+      }
+    }
+
+    function toggleGeozones() {
+      geozonesVisible = !geozonesVisible;
+      const visibility = geozonesVisible ? 'visible' : 'none';
+      
+      [...TS_FILL_IDS, ...TS_OUTLINE_IDS, 'geozones-labels'].forEach(id => {
+        if (map.getLayer(id)) {
+          map.setLayoutProperty(id, 'visibility', visibility);
+        }
+      });
+
+      const btn = document.getElementById('btnToggleGeozones');
+      btn.querySelector('span:last-child').textContent = geozonesVisible ? 'Сховати' : 'Показати';
+    }
+
+    // ===== ГЕОЛОКАЦІЯ =====
+    function setupGeolocation() {
+      let watchId = null;
+
+      document.getElementById('btnMyLocation').addEventListener('click', () => {
+        if (!navigator.geolocation) {
+          alert('Геолокація недоступна на вашому пристрої');
+          return;
+        }
+
+        if (watchId) {
+          // Вимкнути відстеження
+          navigator.geolocation.clearWatch(watchId);
+          watchId = null;
+          if (userLocationMarker) {
+            userLocationMarker.remove();
+            userLocationMarker = null;
+          }
+          document.getElementById('btnMyLocation').querySelector('span:last-child').textContent = 'Моє місце';
+          return;
+        }
+
+        // Увімкнути відстеження
+        watchId = navigator.geolocation.watchPosition(
+          (pos) => {
+            const { longitude, latitude } = pos.coords;
+            
+            if (!userLocationMarker) {
+              const el = document.createElement('div');
+              el.className = 'user-location-marker';
+              const pulse = document.createElement('div');
+              pulse.className = 'user-location-pulse';
+              el.appendChild(pulse);
+              
+              userLocationMarker = new mapboxgl.Marker({ element: el })
+                .setLngLat([longitude, latitude])
+                .addTo(map);
+              
+              map.flyTo({ center: [longitude, latitude], zoom: 14 });
+            } else {
+              userLocationMarker.setLngLat([longitude, latitude]);
+            }
+
+            document.getElementById('btnMyLocation').querySelector('span:last-child').textContent = 'Вимкнути';
+          },
+          (error) => {
+            console.error('Помилка геолокації:', error);
+            alert('Не вдалося отримати ваше місцезнаходження');
+          },
+          { enableHighAccuracy: true, maximumAge: 5000, timeout: 10000 }
+        );
+      });
+    }
+
+    // ===== ПОШУК =====
+    function getFieldProps(props) {
+      return {
+        name: props.Name || props.name || props.НАЗВА || props.назва || '',
+        code: props.Code || props.code || props.КОД || props.код || ''
+      };
+    }
+
+    function searchGeozones(query) {
+      if (!query || query.length < 2) return [];
+      const q = query.toLowerCase().trim();
+      const results = [];
+
+      if (map && TS_FILL_IDS.length > 0) {
+        try {
+          const features = map.queryRenderedFeatures({ layers: TS_FILL_IDS }) || [];
+          const seen = new Set();
+
+          for (const f of features) {
+            const props = f.properties || {};
+            const fp = getFieldProps(props);
+            const name = fp.name || fp.code || '';
+
+            if (!name || !name.toLowerCase().includes(q)) continue;
+            if (seen.has(name)) continue;
+            seen.add(name);
+
+            let center = null;
+            try {
+              if (window.turf) center = turf.centerOfMass(f).geometry.coordinates;
+            } catch (_) {
+              try {
+                if (window.turf) {
+                  const bbox = turf.bbox(f);
+                  center = [(bbox[0] + bbox[2]) / 2, (bbox[1] + bbox[3]) / 2];
+                }
+              } catch (_) {}
+            }
+
+            if (center) {
+              results.push({
+                id: `geozone-${name}`,
+                name,
+                full: `🗺 ${name}`,
+                center,
+                type: 'geozone'
+              });
+            }
+          }
+        } catch (e) {
+          console.warn('Помилка пошуку геозон:', e);
+        }
+      }
+
+      return results;
+    }
+
+    async function suggestPlaces(q) {
+      const geozones = searchGeozones(q);
+
+      try {
+        const url = new URL('https://api.mapbox.com/geocoding/v5/mapbox.places/' + encodeURIComponent(q) + '.json');
+        url.searchParams.set('access_token', mapboxgl.accessToken);
+        url.searchParams.set('autocomplete', 'true');
+        url.searchParams.set('language', 'uk');
+        url.searchParams.set('limit', '5');
+        url.searchParams.set('types', 'place,locality');
+        url.searchParams.set('country', 'ua');
+
+        const res = await fetch(url.toString());
+        const data = await res.json();
+        const places = (data.features || []).map(f => ({
+          id: f.id,
+          name: f.text_uk || f.text || '',
+          full: `📍 ${f.place_name_uk || f.place_name || ''}`,
+          center: f.center,
+          type: 'place'
+        }));
+
+        return [...geozones, ...places];
+      } catch (_) {
+        return geozones;
+      }
+    }
+
+    function setupSearch() {
+      const input = document.getElementById('placeSearch');
+      const list = document.getElementById('placeList');
+      let timer = null;
+      let results = [];
+
+      input.addEventListener('input', () => {
+        const q = input.value.trim();
+        if (timer) clearTimeout(timer);
+        
+        if (q.length < 2) {
+          list.innerHTML = '';
+          return;
+        }
+
+        timer = setTimeout(async () => {
+          results = await suggestPlaces(q);
+          list.innerHTML = '';
+          results.forEach(r => {
+            const opt = document.createElement('option');
+            opt.value = r.full;
+            list.appendChild(opt);
+          });
+        }, 400);
+      });
+
+      input.addEventListener('change', () => {
+        const q = input.value.trim();
+        const found = results.find(r => r.full === q);
+        if (found && found.center) {
+          map.flyTo({ center: found.center, zoom: Math.max(map.getZoom() || 0, 12) });
+          input.blur();
+        }
+      });
+
+      input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          const q = input.value.trim();
+          const found = results.find(r => r.full === q);
+          if (found && found.center) {
+            map.flyTo({ center: found.center, zoom: Math.max(map.getZoom() || 0, 12) });
+            input.blur();
+          }
+        }
+      });
+    }
+  </script>
+</body>
+</html>

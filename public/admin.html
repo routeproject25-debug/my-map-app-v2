@@ -119,6 +119,7 @@ body.compact .user-row b{font-size:14px}
     <div>
       <a href="/admin/tilesets" class="btn" id="openTilesets" title="Відкрити редактор tilesets">🧩 Tilesets</a>
       <a href="/admin/stats.html" class="btn" id="openStats" title="Відкрити графіки статистики">📈 Статистика</a>
+      <a href="/map-viewer.html" class="btn" title="Відкрити спрощену карту для навігації в полі">🧭 Навігатор</a>
       <a href="/index.html" class="btn" id="backToMap" title="Перейти на головну сторінку (карту)">🏠 На карту</a>
       <button id="btnLogout" class="btn" style="display:none;">Вийти</button>
     </div>
@@ -380,6 +381,7 @@ function renderUsers(){
   bindNameChangeHandlers();
   bindHubHandlers();
   bindTestModeHandlers(); // 🧪 перемикач тестового режиму
+  bindMapViewerHandlers(); // 🧭 доступ до map-viewer
   bindAdditionalRolesHandlers(); // 🔑 додаткові ролі
   bindDeleteHandlers();
 }
@@ -492,6 +494,11 @@ function userRowHTML(id, user){
         <label style="display:flex; align-items:center; gap:6px; margin-left:12px;" title="Користувач бачитиме лише тестові дані з директорії">
           <input type="checkbox" class="testmode-toggle" data-id="${id}" ${user.testMode === true ? 'checked' : ''}>
           <span>🧪 Тестові дані</span>
+        </label>
+
+        <label style="display:flex; align-items:center; gap:6px; margin-left:12px;" title="Доступ до спрощеної карти для навігації в полі">
+          <input type="checkbox" class="mapviewer-toggle" data-id="${id}" ${user.allowMapViewer === true ? 'checked' : ''}>
+          <span>🧭 Навігатор</span>
         </label>
 
         <button class="btn save-hubs" data-id="${id}">💾 Зберегти доступ до хабів</button>
@@ -779,6 +786,36 @@ function bindTestModeHandlers(){
         alert('Помилка збереження testMode: ' + (err.message || err));
         e.target.checked = !testMode; // відкотити
         statusEl.textContent = '❌ Не вдалося оновити testMode.';
+      } finally {
+        e.target.disabled = false;
+      }
+    });
+  });
+}
+
+/* ================= Перемикач allowMapViewer ================= */
+function bindMapViewerHandlers(){
+  document.querySelectorAll('#user-list .user-row .mapviewer-toggle').forEach((chk) => {
+    chk.addEventListener('change', async (e) => {
+      const uid = e.target.dataset.id;
+      const allowMapViewer = e.target.checked;
+      
+      e.target.disabled = true;
+      statusEl.textContent = `Оновлення доступу до Навігатора для ${uid}…`;
+      
+      try {
+        await db.collection('users').doc(uid).set({
+          allowMapViewer: allowMapViewer,
+          allowMapViewerUpdatedAt: new Date().toISOString(),
+          allowMapViewerUpdatedBy: currentUser ? currentUser.uid : null
+        }, { merge: true });
+        
+        statusEl.textContent = `✅ Доступ до Навігатора оновлено: ${uid} → ${allowMapViewer ? 'дозволено' : 'заборонено'}`;
+      } catch (err) {
+        console.error(err);
+        alert('Помилка збереження доступу: ' + (err.message || err));
+        e.target.checked = !allowMapViewer; // відкотити
+        statusEl.textContent = '❌ Не вдалося оновити доступ.';
       } finally {
         e.target.disabled = false;
       }
