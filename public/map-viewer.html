@@ -596,13 +596,24 @@
     }
 
     // HTML для popup
-    function getPopupHTML(props) {
+    function getPopupHTML(props, sourceId) {
       const fp = getFieldProps(props || {});
       const name = fp.name || fp.code || '';
       const code = fp.code || '';
       const client = props.Client || props.client || props.Підприємство || props.підприємство || '';
       const farm = props.Farm || props.farm || props.Підрозділ || props.підрозділ || '';
-      const hub = props.Hub || props.hub || props.Хаб || props.хаб || '';
+      
+      // Спочатку пробуємо взяти хаб з properties
+      let hub = props.Hub || props.hub || props.Хаб || props.хаб || '';
+      
+      // Якщо хабу немає в properties - беремо з конфігурації тайлсета
+      if (!hub && sourceId) {
+        const tileset = TILESETS.find(ts => `geozones-tileset-${ts.key}` === sourceId);
+        if (tileset && Array.isArray(tileset.hubs) && tileset.hubs.length > 0) {
+          hub = tileset.hubs.join(', ');
+        }
+      }
+      
       const area = props.Area || props.area || props.Площа || props.площа || '';
       
       const rows = [
@@ -833,12 +844,14 @@
     function setupGeozoneClickHandler() {
       const clickHandler = (e) => {
         if (!e.features || !e.features[0]) return;
-        const props = e.features[0].properties || {};
+        const feature = e.features[0];
+        const props = feature.properties || {};
+        const sourceId = feature.source;
         
         if (popup) {
           popup
             .setLngLat(e.lngLat)
-            .setHTML(getPopupHTML(props))
+            .setHTML(getPopupHTML(props, sourceId))
             .addTo(map);
         }
       };
