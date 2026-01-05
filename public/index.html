@@ -7162,8 +7162,10 @@ auth?.onAuthStateChanged(async (user) => {
       displayNameFromFirestore = result.displayName || '';
       window.__userTestMode = result.testMode === true; // 🧪 тестовий режим
       
-      // 🧭 Показати посилання на Навігатор якщо є доступ
-      if (result.allowMapViewer === true) {
+      // 🧭 Показати посилання на Навігатор: admin - завжди, інші - з allowMapViewer
+      const userRole = window.__userRole || role || 'user';
+      const isAdmin = userRole.toLowerCase() === 'admin';
+      if (isAdmin || result.allowMapViewer === true) {
         const navLink = document.getElementById('navMapViewer');
         const mobileLink = document.getElementById('mobileNavMapViewer');
         if (navLink) navLink.style.display = '';

@@ -314,16 +314,18 @@
         if (!snap.exists) return false;
         
         const data = snap.data() || {};
+        const role = String(data.role || 'user').toLowerCase();
+        const additionalRoles = Array.isArray(data.additionalRoles) ? data.additionalRoles : [];
         
-        // Перевіряємо allowMapViewer
-        if (data.allowMapViewer !== true) {
+        // Admin - завжди доступ, інші - тільки з allowMapViewer
+        const isAdmin = role === 'admin';
+        if (!isAdmin && data.allowMapViewer !== true) {
           alert('У вас немає доступу до перегляду карти. Зверніться до адміністратора.');
           return false;
         }
 
         // Зберігаємо дозволені хаби
-        const role = String(data.role || 'user').toLowerCase();
-        if (role === 'admin' || role === 'security' || data.allowAllHubs === true) {
+        if (role === 'admin' || role === 'security' || additionalRoles.includes('security') || data.allowAllHubs === true) {
           allowedHubs = null; // всі хаби
         } else if (Array.isArray(data.allowedHubs)) {
           allowedHubs = data.allowedHubs;
