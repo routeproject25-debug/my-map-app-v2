@@ -1247,23 +1247,39 @@ function equalData(a, b){
     const oldCodes = Array.from(changedCodes.keys()).filter(code => code); // фільтруємо undefined/null
     if (!oldCodes.length) { alert('Немає змінених кодів'); return; }
 
-    const confirmMsg = `Оновити маршрути, де fromCode або toCode є одним із старих кодів: ${oldCodes.join(', ')}?\n\nЦе торкнеться тільки маршрутів із цими кодами.`;
+    const confirmMsg = `Оновити маршрути, де fromCode або toCode є одним із старих кодів: ${oldCodes.join(', ')}?\n\nЦе також оновить назви та підрозділи з довідника для цих маршрутів.`;
     if (!confirm(confirmMsg)) return;
 
     try {
       log(`Починаємо оновлення маршрутів із ${oldCodes.length} старими кодами...`, 'ok');
 
+      // Завантажити довідник для оновлення назв/підрозділів
+      const dirSnap = await db.collection('directory').get();
+      const codeToData = new Map();
+      dirSnap.forEach(doc => {
+        const d = doc.data();
+        if (d.code) {
+          codeToData.set(d.code, { name: d.name || '', unit: d.unit || '', company: d.company || '' });
+        }
+      });
+      log(`Завантажено ${codeToData.size} записів довідника для оновлення`, 'ok');
+
       let updatedCount = 0;
       // Оскільки Firestore не дозволяє 'in' з >10 значеннями, робимо окремі запити для кожного старого коду
       for (const oldCode of oldCodes) {
         const newCode = changedCodes.get(oldCode);
-        log(`Обробляємо старий код: ${oldCode} → ${newCode}`, 'ok');
+        const newData = codeToData.get(newCode) || { name: '', unit: '', company: '' };
+        log(`Обробляємо старий код: ${oldCode} → ${newCode} (назва: ${newData.name}, підрозділ: ${newData.unit})`, 'ok');
 
         // Знайти маршрути з fromCode == oldCode
         let query = db.collection('routes').where('fromCode', '==', oldCode);
         let snap = await query.get();
         snap.forEach(doc => {
-          doc.ref.update({ fromCode: newCode });
+          const update = { fromCode: newCode };
+          if (newData.name) update.fromName = newData.name;
+          if (newData.unit) update.unitFrom = newData.unit;
+          if (newData.company) update.companyFrom = newData.company;
+          doc.ref.update(update);
           updatedCount++;
         });
 
@@ -1271,7 +1287,11 @@ function equalData(a, b){
         query = db.collection('routes').where('toCode', '==', oldCode);
         snap = await query.get();
         snap.forEach(doc => {
-          doc.ref.update({ toCode: newCode });
+          const update = { toCode: newCode };
+          if (newData.name) update.toName = newData.name;
+          if (newData.unit) update.unitTo = newData.unit;
+          if (newData.company) update.companyTo = newData.company;
+          doc.ref.update(update);
           updatedCount++;
         });
       }
