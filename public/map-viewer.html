@@ -991,7 +991,7 @@
               results.push({
                 id: `geozone-${name}`,
                 name,
-                full: `🗺 ${name}`,
+                label: `🗺 ${name}`,
                 center,
                 type: 'geozone'
               });
@@ -1019,13 +1019,16 @@
 
         const res = await fetch(url.toString());
         const data = await res.json();
-        const places = (data.features || []).map(f => ({
-          id: f.id,
-          name: f.text_uk || f.text || '',
-          full: `📍 ${f.place_name_uk || f.place_name || ''}`,
-          center: f.center,
-          type: 'place'
-        }));
+        const places = (data.features || []).map(f => {
+          const placeName = f.place_name_uk || f.place_name || '';
+          return {
+            id: f.id,
+            name: placeName,
+            label: `📍 ${placeName}`,
+            center: f.center,
+            type: 'place'
+          };
+        });
 
         return [...geozones, ...places];
       } catch (_) {
@@ -1044,29 +1047,11 @@
         console.log('[search] Processing selection:', { 
           q, 
           resultsCount: results.length,
-          resultsFullValues: results.map(r => r.full)
+          resultsNames: results.map(r => r.name)
         });
         
-        // Спочатку точний збіг
-        let found = results.find(r => r.full === q);
-        
-        // Якщо не знайшли точний збіг і це схоже на геозону (починається з 🗺)
-        if (!found && q.startsWith('🗺')) {
-          // Видаляємо емодзі та пробіли для порівняння
-          const cleanQ = q.replace('🗺', '').trim().toLowerCase();
-          console.log('[search] Шукаємо нечіткий збіг для:', cleanQ);
-          
-          // Шукаємо геозону де назва містить цей текст
-          found = results.find(r => {
-            if (r.type !== 'geozone') return false;
-            const cleanFull = r.full.replace('🗺', '').trim().toLowerCase();
-            const match = cleanFull === cleanQ || cleanFull.includes(cleanQ) || cleanQ.includes(cleanFull);
-            if (match) {
-              console.log('[search] Знайдено нечіткий збіг:', { cleanFull, cleanQ });
-            }
-            return match;
-          });
-        }
+        // Шукаємо за name (без емодзі)
+        const found = results.find(r => r.name === q);
         
         console.log('[search] Результат пошуку:', { found: found ? found.name : 'не знайдено' });
         
@@ -1104,7 +1089,8 @@
           list.innerHTML = '';
           results.forEach(r => {
             const opt = document.createElement('option');
-            opt.value = r.full;
+            opt.value = r.name;
+            opt.label = r.label;
             list.appendChild(opt);
           });
           
