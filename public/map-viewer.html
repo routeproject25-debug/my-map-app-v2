@@ -534,6 +534,57 @@
         // Кнопка геозон
         document.getElementById('btnToggleGeozones').addEventListener('click', toggleGeozones);
         
+        // Context menu для відкриття в Google Maps
+        let contextMenuPopup = new mapboxgl.Popup({
+          closeButton: false,
+          closeOnClick: true,
+          className: 'context-menu-popup'
+        });
+
+        map.on('contextmenu', (e) => {
+          e.preventDefault();
+          const { lng, lat } = e.lngLat;
+          
+          contextMenuPopup
+            .setLngLat([lng, lat])
+            .setHTML(`
+              <div style="padding:8px;">
+                <a href="https://www.google.com/maps?q=${lat},${lng}" target="_blank" 
+                   style="display:block; padding:8px 12px; background:#4285f4; color:#fff; text-decoration:none; border-radius:8px; text-align:center; font-weight:600;">
+                  🗺 Відкрити в Google Maps
+                </a>
+              </div>
+            `)
+            .addTo(map);
+        });
+        
+        // Також на мобільних - довге натискання
+        let longPressTimer;
+        map.on('touchstart', (e) => {
+          longPressTimer = setTimeout(() => {
+            const { lng, lat } = e.lngLat;
+            contextMenuPopup
+              .setLngLat([lng, lat])
+              .setHTML(`
+                <div style="padding:8px;">
+                  <a href="https://www.google.com/maps?q=${lat},${lng}" target="_blank" 
+                     style="display:block; padding:8px 12px; background:#4285f4; color:#fff; text-decoration:none; border-radius:8px; text-align:center; font-weight:600;">
+                    🗺 Відкрити в Google Maps
+                  </a>
+                </div>
+              `)
+              .addTo(map);
+          }, 500);
+        });
+
+        map.on('touchend', () => {
+          if (longPressTimer) clearTimeout(longPressTimer);
+        });
+
+        map.on('touchmove', () => {
+          if (longPressTimer) clearTimeout(longPressTimer);
+        });
+        
         // Перемикач стилю карти
         document.getElementById('mapStyleSelect').addEventListener('change', (e) => {
           const newStyle = e.target.value;
@@ -768,14 +819,16 @@
           layout: {
             'text-field': ['get', 'label'],
             'text-font': ['Open Sans Bold', 'Arial Unicode MS Bold'],
-            'text-size': 13,
+            'text-size': 14,
             'text-allow-overlap': false,
-            'text-ignore-placement': false
+            'text-ignore-placement': false,
+            'text-padding': 2
           },
           paint: {
-            'text-color': '#1f2937',
+            'text-color': '#0f172a',
             'text-halo-color': '#fff',
-            'text-halo-width': 2
+            'text-halo-width': 2.5,
+            'text-halo-blur': 0.5
           }
         });
       }
@@ -1044,29 +1097,30 @@
       let lastProcessedValue = '';
 
       const processSelection = (q) => {
-        console.log('[search] Processing selection:', { 
+        const timestamp = Date.now();
+        console.log(`[search-${timestamp}] Processing selection:`, { 
           q, 
           resultsCount: results.length,
-          results: results
+          firstResult: results[0]
         });
         
         if (results.length === 0) {
-          console.log('[search] Масив results порожній');
+          console.log(`[search-${timestamp}] Масив results порожній`);
           return false;
         }
         
         // Шукаємо за name з нормалізацією (trim + toLowerCase)
         const normalizedQ = q.trim().toLowerCase();
-        console.log('[search] Нормалізований пошук:', normalizedQ);
+        console.log(`[search-${timestamp}] Нормалізований пошук:`, normalizedQ);
         
         const found = results.find(r => {
-          const normalizedName = r.name.trim().toLowerCase();
+          const normalizedName = r.name ? r.name.trim().toLowerCase() : '';
           const match = normalizedName === normalizedQ;
-          console.log('[search] Порівнюємо:', { q: normalizedQ, rName: normalizedName, match });
+          console.log(`[search-${timestamp}] Порівнюємо:`, { q: normalizedQ, rName: normalizedName, match });
           return match;
         });
         
-        console.log('[search] Результат пошуку:', { found: found ? found.name : 'не знайдено' });
+        console.log(`[search-${timestamp}] Результат пошуку:`, { found: found ? found.name : 'не знайдено' });
         
         if (found && found.center && lastProcessedValue !== q) {
           lastProcessedValue = q;
