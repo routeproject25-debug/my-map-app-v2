@@ -1040,12 +1040,36 @@
       let results = [];
       let lastProcessedValue = '';
 
-      input.addEventListener('input', () => {
+      const processSelection = (q) => {
+        const found = results.find(r => r.full === q);
+        console.log('[search] Processing selection:', { q, found, resultsCount: results.length });
+        
+        if (found && found.center && lastProcessedValue !== q) {
+          lastProcessedValue = q;
+          map.flyTo({ center: found.center, zoom: Math.max(map.getZoom() || 0, 12) });
+          
+          if (found.type === 'geozone') {
+            console.log('[search] Викликаємо highlightGeozone з:', found.name);
+            highlightGeozone(found.name);
+          }
+          
+          input.blur();
+          return true;
+        }
+        return false;
+      };
+
+      input.addEventListener('input', async (e) => {
         const q = input.value.trim();
         if (timer) clearTimeout(timer);
         
         if (q.length < 2) {
           list.innerHTML = '';
+          return;
+        }
+
+        // Спочатку перевіряємо чи це вже готовий вибір зі списку
+        if (processSelection(q)) {
           return;
         }
 
@@ -1058,55 +1082,23 @@
             list.appendChild(opt);
           });
           
-          // Перевіряємо чи вибрано значення з списку (для datalist)
-          const found = results.find(r => r.full === q);
-          if (found && found.center && lastProcessedValue !== q) {
-            lastProcessedValue = q;
-            console.log('[search] Input match found:', { q, found });
-            map.flyTo({ center: found.center, zoom: Math.max(map.getZoom() || 0, 12) });
-            
-            if (found.type === 'geozone') {
-              console.log('[search] Викликаємо highlightGeozone з:', found.name);
-              highlightGeozone(found.name);
-            }
-          }
+          // Після оновлення results перевіряємо ще раз
+          processSelection(q);
         }, 400);
       });
 
       input.addEventListener('change', () => {
         const q = input.value.trim();
-        const found = results.find(r => r.full === q);
-        console.log('[search] Change event:', { q, found });
-        if (found && found.center && lastProcessedValue !== q) {
-          lastProcessedValue = q;
-          map.flyTo({ center: found.center, zoom: Math.max(map.getZoom() || 0, 12) });
-          
-          if (found.type === 'geozone') {
-            console.log('[search] Викликаємо highlightGeozone з:', found.name);
-            highlightGeozone(found.name);
-          }
-          
-          input.blur();
-        }
+        console.log('[search] Change event:', { q, resultsCount: results.length });
+        processSelection(q);
       });
 
       input.addEventListener('keydown', (e) => {
         if (e.key === 'Enter') {
           e.preventDefault();
           const q = input.value.trim();
-          const found = results.find(r => r.full === q);
-          console.log('[search] Enter event:', { q, found });
-          if (found && found.center) {
-            lastProcessedValue = q;
-            map.flyTo({ center: found.center, zoom: Math.max(map.getZoom() || 0, 12) });
-            
-            if (found.type === 'geozone') {
-              console.log('[search] Викликаємо highlightGeozone з:', found.name);
-              highlightGeozone(found.name);
-            }
-            
-            input.blur();
-          }
+          console.log('[search] Enter event:', { q });
+          processSelection(q);
         }
       });
     }
