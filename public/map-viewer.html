@@ -529,16 +529,36 @@
 
     // Встановлення української мови для підписів на карті
     function setMapLanguage(lang) {
-      try {
-        map.setLayoutProperty('country-label', 'text-field', ['get', `name_${lang}`]);
-        map.setLayoutProperty('state-label', 'text-field', ['get', `name_${lang}`]);
-        map.setLayoutProperty('settlement-label', 'text-field', ['get', `name_${lang}`]);
-        map.setLayoutProperty('settlement-subdivision-label', 'text-field', ['get', `name_${lang}`]);
-        console.log('[map-viewer] Map language set to:', lang);
-      } catch (e) {
-        // Ігноруємо помилки - деякі шари можуть бути відсутні
-        console.log('[map-viewer] Language setting (some layers may not exist):', e.message);
-      }
+      const style = map.getStyle();
+      if (!style || !style.layers) return;
+      
+      const ukTextExpr = [
+        'coalesce',
+        ['get', 'name_uk'],
+        ['get', 'name:uk'],
+        ['get', 'name_ua'],
+        ['get', 'name:ua'],
+        ['get', 'name_local'],
+        ['get', 'name']
+      ];
+      
+      const skip = new Set(['geozones-labels']);
+      
+      style.layers.forEach(l => {
+        if (l.type !== 'symbol') return;
+        if (skip.has(l.id)) return; // не чіпаємо підписи полів
+        
+        const hasTextField = map.getLayoutProperty(l.id, 'text-field') !== undefined;
+        if (hasTextField) {
+          try {
+            map.setLayoutProperty(l.id, 'text-field', ukTextExpr);
+          } catch (e) {
+            // Ігноруємо помилки для окремих шарів
+          }
+        }
+      });
+      
+      console.log('[map-viewer] Ukrainian labels applied');
     }
 
     function addTilesets() {
