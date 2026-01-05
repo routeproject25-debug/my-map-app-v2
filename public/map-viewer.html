@@ -773,9 +773,21 @@
     }
 
     function buildGeozoneCentroids() {
-      if (!window.turf || TS_FILL_IDS.length === 0) return;
+      console.log('[buildGeozoneCentroids] Початок, TS_FILL_IDS:', TS_FILL_IDS);
+      
+      if (!window.turf) {
+        console.warn('[buildGeozoneCentroids] Turf.js недоступний');
+        return;
+      }
+      
+      if (TS_FILL_IDS.length === 0) {
+        console.warn('[buildGeozoneCentroids] TS_FILL_IDS порожній');
+        return;
+      }
 
       const features = map.queryRenderedFeatures({ layers: TS_FILL_IDS }) || [];
+      console.log('[buildGeozoneCentroids] Знайдено features:', features.length);
+      
       const seen = new Set();
       const out = [];
 
@@ -807,11 +819,15 @@
       }
 
       const fc = { type: 'FeatureCollection', features: out };
+      console.log('[buildGeozoneCentroids] Створено підписів:', out.length);
 
       if (map.getSource('geozones-centroids')) {
         map.getSource('geozones-centroids').setData(fc);
+        console.log('[buildGeozoneCentroids] Оновлено існуючий source');
       } else {
         map.addSource('geozones-centroids', { type: 'geojson', data: fc });
+        console.log('[buildGeozoneCentroids] Створено source');
+        
         map.addLayer({
           id: 'geozones-labels',
           type: 'symbol',
@@ -831,6 +847,7 @@
             'text-halo-blur': 0.5
           }
         });
+        console.log('[buildGeozoneCentroids] Створено layer geozones-labels');
       }
     }
 
