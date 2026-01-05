@@ -676,19 +676,6 @@ function makeNGrams(s, n = 3){
       if (!name){ alert('Поле "Назва" обовʼязкове'); return; }
       const legacyNameId = makeNameId(name); // старий формат (тільки назва)
       const compositeId = makeDirectoryId(name, company, unit, hub); // новий формат
-
-      const isTest = $('singleIsTest').checked;
-      const newData = {
-        name,
-        nameLower: toUkLower(name),
-        nameNgrams: makeNGrams(name),
-        ...(company && { company }),
-        ...(unit && { unit }),
-        ...(hub && { hub }),
-        ...(codeIn && { code: codeIn }),
-        ...(isTest && { isTest: true })
-      };
-
       const ref = db.collection('directory').doc(compositeId);
       let snap = await ref.get();
 
@@ -708,24 +695,17 @@ function makeNGrams(s, n = 3){
         }
       }
 
-      const mergeDup = $('mergeDup').checked;
-      if (mergeDup && !snap.exists){
-        // Шукати legacy за nameLower для міграції
-        const legacyQuery = db.collection('directory').where('nameLower', '==', toUkLower(name));
-        const legacySnaps = await legacyQuery.get();
-        for (const doc of legacySnaps.docs) {
-          const old = doc.data() || {};
-          if ((old.company || '') === company && (old.unit || '') === unit && (old.hub || '') === hub) {
-            // Міграція: створити новий документ і видалити старий
-            await ref.set(newData, { merge: true });
-            await doc.ref.delete();
-            setMsg(`<span class='ok'>Міграція старого запису: ${doc.id} → ${compositeId}</span>`);
-            log(`(single) MIGRATE name="${name}" oldId=${doc.id} newId=${compositeId}`, 'warn');
-            showImportSummary({ new: [{ id: compositeId, name, code: newData.code||'', company: company||'', unit: unit||'', hub: hub||'' }], updated: [], unchanged: [], deleted: [{ id: doc.id, name, company: company||'', unit: unit||'', hub: hub||'', reason: 'migrated' }], other: [], dry: false });
-            return;
-          }
-        }
-      }
+      const isTest = $('singleIsTest').checked;
+      const newData = {
+        name,
+        nameLower: toUkLower(name),
+        nameNgrams: makeNGrams(name),
+        ...(company && { company }),
+        ...(unit && { unit }),
+        ...(hub && { hub }),
+        ...(codeIn && { code: codeIn }),
+        ...(isTest && { isTest: true })
+      };
 
       const statusEl = $('singleStatus');
       function setMsg(html){ statusEl.innerHTML = html; }
