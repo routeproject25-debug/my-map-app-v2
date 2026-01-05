@@ -301,9 +301,9 @@
   <!-- Перемикач стилю карти -->
   <div class="map-style-selector">
     <select id="mapStyleSelect">
-      <option value="mapbox://styles/mapbox/streets-v12">🗺 Схема</option>
+      <option value="mapbox://styles/mapbox/streets-v12" selected>🗺 Схема</option>
       <option value="mapbox://styles/mapbox/outdoors-v12">🏞 На природі</option>
-      <option value="mapbox://styles/mapbox/satellite-streets-v12" selected>🛰 Супутник</option>
+      <option value="mapbox://styles/mapbox/satellite-streets-v12">🛰 Супутник</option>
       <option value="mapbox://styles/mapbox/satellite-v9">📡 Супутник (чистий)</option>
     </select>
   </div>
@@ -439,7 +439,7 @@
     let map;
     let userLocationMarker = null;
     let geozonesVisible = true;
-    let currentStyle = 'mapbox://styles/mapbox/satellite-streets-v12';
+    let currentStyle = 'mapbox://styles/mapbox/streets-v12';
     let TILESETS = [];
     let TS_FILL_IDS = [];
     let TS_OUTLINE_IDS = [];
@@ -489,17 +489,13 @@
 
         // При зміні стилю карти - перезавантажуємо геозони
         map.on('style.load', () => {
+          console.log('[map-viewer] Style loaded event');
           // Встановлюємо українську мову
           setMapLanguage('uk');
-          
-          // Перевіряємо чи карта повністю завантажена (не перший раз)
-          if (map.isStyleLoaded() && map.loaded()) {
-            console.log('[map-viewer] Style changed, re-adding tilesets...');
-            // Невелика затримка щоб стиль точно встиг завантажитись
-            setTimeout(() => {
-              addTilesets();
-            }, 100);
-          }
+          // Завжди додаємо геозони після завантаження стилю
+          setTimeout(() => {
+            addTilesets();
+          }, 200);
         });
 
         map.on('error', (e) => {
@@ -534,65 +530,22 @@
     // Встановлення української мови для підписів на карті
     function setMapLanguage(lang) {
       try {
-        const style = map.getStyle();
-        if (!style || !style.layers) return;
-
-        style.layers.forEach((layer) => {
-          if (layer.layout && layer.layout['text-field']) {
-            // Змінюємо поле тексту на локалізовану версію
-            const textField = layer.layout['text-field'];
-            
-            // Якщо це вираз Mapbox
-            if (Array.isArray(textField)) {
-              // Шукаємо поле name і замінюємо на name_uk
-              const newTextField = JSON.parse(JSON.stringify(textField));
-              replaceNameFields(newTextField, lang);
-              map.setLayoutProperty(layer.id, 'text-field', newTextField);
-            } else if (typeof textField === 'string' && textField.includes('{name}')) {
-              // Проста заміна для строкових шаблонів
-              map.setLayoutProperty(layer.id, 'text-field', textField.replace('{name}', `{name_${lang}}`));
-            }
-          }
-        });
-
+        map.setLayoutProperty('country-label', 'text-field', ['get', `name_${lang}`]);
+        map.setLayoutProperty('state-label', 'text-field', ['get', `name_${lang}`]);
+        map.setLayoutProperty('settlement-label', 'text-field', ['get', `name_${lang}`]);
+        map.setLayoutProperty('settlement-subdivision-label', 'text-field', ['get', `name_${lang}`]);
         console.log('[map-viewer] Map language set to:', lang);
       } catch (e) {
-        console.warn('[map-viewer] Could not set language:', e);
-      }
-    }
-
-    function replaceNameFields(expr, lang) {
-      if (!Array.isArray(expr)) return;
-      
-      for (let i = 0; i < expr.length; i++) {
-        if (expr[i] === 'get' && expr[i + 1] === 'name') {
-          expr[i + 1] = `name_${lang}`;
-        } else if (expr[i] === 'coalesce') {
-          // Для coalesce додаємо спочатку локалізовану версію
-          const coalesceIndex = i;
-          if (Array.isArray(expr[coalesceIndex + 1])) {
-            const args = [];
-            for (let j = coalesceIndex + 1; j < expr.length; j++) {
-              if (Array.isArray(expr[j])) {
-                const arg = JSON.parse(JSON.stringify(expr[j]));
-                if (arg[0] === 'get' && arg[1] === 'name') {
-                  // Додаємо спочатку локалізовану версію
-                  args.push(['get', `name_${lang}`]);
-                }
-                args.push(arg);
-              }
-            }
-            if (args.length > 0) {
-              expr.splice(coalesceIndex + 1, expr.length - coalesceIndex - 1, ...args);
-            }
-          }
-        } else if (Array.isArray(expr[i])) {
-          replaceNameFields(expr[i], lang);
-        }
+        // Ігноруємо помилки - деякі шари можуть бути відсутні
+        console.log('[map-viewer] Language setting (some layers may not exist):', e.message);
       }
     }
 
     function addTilesets() {
+      // Очищаємо старі ID шарів
+      TS_FILL_IDS = [];
+      TS_OUTLINE_IDS = [];
+      
       TILESETS.forEach(ts => {
         if (ts.enabled === false) return;
         
