@@ -996,6 +996,10 @@ function equalData(a, b){
                 if (old.hub     && !data.hub)     extras.hub     = old.hub;
                 Object.assign(data, extras);
                 log(`↻ Міграція (комбінація) «${data.name}»: legacy id=${primary.id} → id=${id}`, 'warn');
+                // Зібрати змінений код при міграції
+                if (old.code && old.code !== data.code) {
+                  changedCodes.set(old.code, data.code);
+                }
               }
             }
 
@@ -1044,7 +1048,7 @@ function equalData(a, b){
               if ((old.hub||'') !== (data.hub||'')) changed.push('hub');
               recapUpdated.push({ id:targetId, name:data.name, codeOld:old.code||'', codeNew:data.code||'', company:data.company||'', unit:data.unit||'', hub:data.hub||'', changed:changed.join('|') });
               if ((old.code||'') !== (data.code||'')) {
-                changedCodes.set(old.code, data.code);
+                if (old.code) changedCodes.set(old.code, data.code);
               }
               if (!dry){ batch.set(targetRef, data, { merge: true }); writes++; }
             } else {
@@ -1081,6 +1085,7 @@ function equalData(a, b){
       setProg(100, 'Готово');
 
       // Відкрити модальне вікно з деталями
+      LastSummary.changedCodes = changedCodes;
       showImportSummary({
         new: recapNew,
         updated: recapUpdated,
@@ -1089,7 +1094,6 @@ function equalData(a, b){
         other: recapOther,
         dry
       });
-      LastSummary.changedCodes = changedCodes;
     }catch(e){
       fail = total - ok;
       log(`Помилка імпорту: ${e.message || e}`, 'err');
@@ -1240,7 +1244,7 @@ function equalData(a, b){
     if (!db || !currentUser) { alert('Необхідно увійти'); return; }
     if (!WRITE_ROLES.has(currentRole)) { alert('Недостатньо прав (потрібно: admin)'); return; }
 
-    const oldCodes = Array.from(changedCodes.keys());
+    const oldCodes = Array.from(changedCodes.keys()).filter(code => code); // фільтруємо undefined/null
     if (!oldCodes.length) { alert('Немає змінених кодів'); return; }
 
     const confirmMsg = `Оновити маршрути, де fromCode або toCode є одним із старих кодів: ${oldCodes.join(', ')}?\n\nЦе торкнеться тільки маршрутів із цими кодами.`;
