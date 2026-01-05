@@ -736,8 +736,20 @@
         }
       });
 
-      // Підписи центроїдів
-      buildGeozoneCentroids();
+      // Підписи центроїдів - викликаємо після завантаження даних
+      // Чекаємо поки карта завантажить всі тайли
+      const buildLabelsWhenReady = () => {
+        if (map.loaded() && map.isStyleLoaded()) {
+          console.log('[addTilesets] Карта готова, викликаємо buildGeozoneCentroids');
+          buildGeozoneCentroids();
+        } else {
+          console.log('[addTilesets] Карта ще не готова, чекаємо...');
+          setTimeout(buildLabelsWhenReady, 500);
+        }
+      };
+      
+      // Запускаємо з невеликою затримкою
+      setTimeout(buildLabelsWhenReady, 300);
 
       // Source і layer для підсвічування вибраної геозони
       if (!map.getSource('geozone-highlight')) {
