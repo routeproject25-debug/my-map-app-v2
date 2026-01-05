@@ -343,27 +343,43 @@
     }
 
     auth.onAuthStateChanged(async (user) => {
-      if (!user) {
-        window.location.replace('/login.html?next=' + encodeURIComponent(location.pathname));
-        return;
+      try {
+        console.log('[map-viewer] Auth state changed:', user?.uid);
+        
+        if (!user) {
+          window.location.replace('/login.html?next=' + encodeURIComponent(location.pathname));
+          return;
+        }
+
+        currentUser = user;
+        
+        console.log('[map-viewer] Checking access...');
+        const hasAccess = await checkAccess(user.uid);
+        if (!hasAccess) {
+          await auth.signOut();
+          window.location.replace('/login.html');
+          return;
+        }
+
+        // Показуємо ім'я
+        const displayName = user.displayName || user.email || 'Користувач';
+        document.getElementById('authInfo').textContent = displayName;
+        document.getElementById('btnLogout').style.display = '';
+
+        console.log('[map-viewer] Initializing map...');
+        // Ініціалізуємо карту
+        initMap();
+      } catch (error) {
+        console.error('[map-viewer] Error in auth handler:', error);
+        document.getElementById('splash').innerHTML = `
+          <div style="color:#fee2e2; background:#991b1b; padding:16px; border-radius:12px; max-width:400px; text-align:center;">
+            <div style="font-size:32px; margin-bottom:8px;">⚠️</div>
+            <div style="font-size:16px; font-weight:600; margin-bottom:8px;">Помилка завантаження</div>
+            <div style="font-size:14px; opacity:0.9;">${error.message || error}</div>
+            <button onclick="location.reload()" style="margin-top:16px; padding:8px 16px; background:#fff; color:#991b1b; border:none; border-radius:8px; cursor:pointer; font-weight:600;">Перезавантажити</button>
+          </div>
+        `;
       }
-
-      currentUser = user;
-      
-      const hasAccess = await checkAccess(user.uid);
-      if (!hasAccess) {
-        await auth.signOut();
-        window.location.replace('/login.html');
-        return;
-      }
-
-      // Показуємо ім'я
-      const displayName = user.displayName || user.email || 'Користувач';
-      document.getElementById('authInfo').textContent = displayName;
-      document.getElementById('btnLogout').style.display = '';
-
-      // Ініціалізуємо карту
-      initMap();
     });
 
     document.getElementById('btnLogout').addEventListener('click', async () => {
@@ -393,30 +409,51 @@
     }
 
     function initMap() {
-      map = new mapboxgl.Map({
-        container: 'map',
-        style: 'mapbox://styles/mapbox/satellite-streets-v12',
-        center: [30.5, 49.0],
-        zoom: 7,
-        attributionControl: false
-      });
+      try {
+        console.log('[map-viewer] Creating Mapbox instance...');
+        map = new mapboxgl.Map({
+          container: 'map',
+          style: 'mapbox://styles/mapbox/satellite-streets-v12',
+          center: [30.5, 49.0],
+          zoom: 7,
+          attributionControl: false
+        });
 
-      map.addControl(new mapboxgl.NavigationControl(), 'bottom-right');
+        map.addControl(new mapboxgl.NavigationControl(), 'bottom-right');
 
-      map.on('load', async () => {
-        await loadTilesetsConfig();
-        addTilesets();
+        map.on('load', async () => {
+          try {
+            console.log('[map-viewer] Map loaded, adding tilesets...');
+            await loadTilesetsConfig();
+            addTilesets();
+            console.log('[map-viewer] Tilesets added, hiding splash...');
+            document.getElementById('splash').style.display = 'none';
+          } catch (error) {
+            console.error('[map-viewer] Error loading tilesets:', error);
+            // Приховуємо спінер навіть якщо помилка
+            document.getElementById('splash').style.display = 'none';
+            alert('Помилка завантаження геозон: ' + (error.message || error));
+          }
+        });
+
+        map.on('error', (e) => {
+          console.error('[map-viewer] Map error:', e);
+          document.getElementById('splash').style.display = 'none';
+        });
+
+        // Геолокація
+        setupGeolocation();
+        
+        // Пошук
+        setupSearch();
+        
+        // Кнопка геозон
+        document.getElementById('btnToggleGeozones').addEventListener('click', toggleGeozones);
+      } catch (error) {
+        console.error('[map-viewer] Error initializing map:', error);
         document.getElementById('splash').style.display = 'none';
-      });
-
-      // Геолокація
-      setupGeolocation();
-      
-      // Пошук
-      setupSearch();
-      
-      // Кнопка геозон
-      document.getElementById('btnToggleGeozones').addEventListener('click', toggleGeozones);
+        alert('Помилка ініціалізації карти: ' + (error.message || error));
+      }
     }
 
     function addTilesets() {
