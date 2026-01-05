@@ -219,6 +219,7 @@
       <button class="btn ghost" id="parseBtn">Перевірити дані</button>
       <button class="btn primary" id="importBtn" disabled>Імпорт у Firestore</button>
       <button class="btn warn" id="clearBtn">Очистити поля</button>
+      <button class="btn" id="updateRoutesBtn" style="background:#f59e0b; color:#000;">Оновити коди в маршрутах</button>
     </div>
 
     <div class="progress-wrap">
@@ -1126,6 +1127,98 @@ function equalData(a, b){
   $('btnAddSingle')?.addEventListener('click', (e) => {
     e.preventDefault();
     addSingleDirectoryEntry();
+  });
+
+  // Оновити коди в маршрутах після зміни довідника
+  $('updateRoutesBtn').addEventListener('click', async () => {
+    if (!db || !currentUser) { alert('Необхідно увійти'); return; }
+    if (!WRITE_ROLES.has(currentRole)) { alert('Недостатньо прав (потрібно: admin)'); return; }
+
+    const confirmMsg = 'Це оновить fromCode/toCode у ВСІХ маршрутах на основі поточних назв з довідника.\n\nПереконайтеся, що довідник актуальний. Продовжити?';
+    if (!confirm(confirmMsg)) return;
+
+    $('updateRoutesBtn').disabled = true;
+    $('importBtn').disabled = true;
+    $('parseBtn').disabled = true;
+    $('clearBtn').disabled = true;
+
+    try {
+      log('Починаємо оновлення кодів у маршрутах...', 'ok');
+
+      // 1) Завантажити довідник: мапа nameLower -> code
+      const dirSnap = await db.collection('directory').get();
+      const nameToCode = new Map();
+      dirSnap.forEach(doc => {
+        const d = doc.data();
+        if (d.nameLower && d.code) {
+          nameToCode.set(d.nameLower, d.code);
+        }
+      });
+      log(`Завантажено ${nameToCode.size} записів з довідника`, 'ok');
+
+      // 2) Читати маршрути порціями
+      let updatedCount = 0;
+      let query = db.collection('routes').orderBy('updatedAt', 'desc');
+      let hasMore = true;
+      const batchSize = 100; // менші батчі для оновлень
+
+      while (hasMore) {
+        const snap = await query.limit(batchSize).get();
+        if (snap.empty) break;
+
+        const batch = db.batch();
+        let batchWrites = 0;
+
+        snap.forEach(doc => {
+          const d = doc.data();
+          let newFromCode = d.fromCode;
+          let newToCode = d.toCode;
+
+          // Знайти новий код за назвою (якщо назва є)
+          if (d.fromName) {
+            const fromKey = toUkLower(d.fromName);
+            if (nameToCode.has(fromKey)) {
+              newFromCode = nameToCode.get(fromKey);
+            }
+          }
+          if (d.toName) {
+            const toKey = toUkLower(d.toName);
+            if (nameToCode.has(toKey)) {
+              newToCode = nameToCode.get(toKey);
+            }
+          }
+
+          // Якщо щось змінилося, оновити
+          if (newFromCode !== d.fromCode || newToCode !== d.toCode) {
+            batch.update(doc.ref, { fromCode: newFromCode, toCode: newToCode });
+            batchWrites++;
+            updatedCount++;
+          }
+        });
+
+        if (batchWrites > 0) {
+          await batch.commit();
+          log(`Оновлено батч: ${batchWrites} маршрутів`, 'ok');
+        }
+
+        // Наступна сторінка
+        const lastDoc = snap.docs[snap.docs.length - 1];
+        query = query.startAfter(lastDoc);
+        hasMore = snap.size === batchSize;
+      }
+
+      log(`Готово! Оновлено кодів у ${updatedCount} маршрутах`, 'ok');
+      alert(`Оновлено ${updatedCount} маршрутів. Перезавантажте експорт для перевірки.`);
+    } catch (e) {
+      log(`Помилка оновлення: ${e.message}`, 'err');
+      alert('Сталася помилка: ' + e.message);
+    } finally {
+      $('updateRoutesBtn').disabled = false;
+      $('importBtn').disabled = false;
+      $('parseBtn').disabled = false;
+      $('clearBtn').disabled = false;
+      updateImportButton();
+    }
   });
 });
 </script>
