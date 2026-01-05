@@ -819,17 +819,17 @@
         const name = fp.name || fp.code || '';
         const normalizedFeatureName = name.trim().toLowerCase();
         
-        // Для дебагу
-        if (normalizedFeatureName.includes('склад') || normalizedFeatureName.includes('яриш')) {
-          console.log('[highlightGeozone] Порівнюємо:', {
-            feature: name,
-            normalized: normalizedFeatureName,
-            search: normalizedSearchName,
-            match: normalizedFeatureName === normalizedSearchName
-          });
-        }
+        const match = normalizedFeatureName === normalizedSearchName;
         
-        return normalizedFeatureName === normalizedSearchName;
+        // Логуємо всі порівняння для дебагу
+        console.log('[highlightGeozone] Порівнюємо:', {
+          feature: name,
+          normalized: normalizedFeatureName,
+          search: normalizedSearchName,
+          match
+        });
+        
+        return match;
       });
 
       console.log('[highlightGeozone] Знайдено features:', targetFeatures.length);
