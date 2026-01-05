@@ -429,8 +429,7 @@
       document.getElementById('splash').innerHTML = `
         <div style="color:#fee2e2; background:#991b1b; padding:16px; border-radius:12px; max-width:400px; text-align:center;">
           <div style="font-size:32px; margin-bottom:8px;">⚠️</div>
-        currentStyle = 'mapbox://styles/mapbox/satellite-streets-v12';
-    let   <div style="font-size:16px; font-weight:600; margin-bottom:8px;">Помилка конфігурації</div>
+          <div style="font-size:16px; font-weight:600; margin-bottom:8px;">Помилка конфігурації</div>
           <div style="font-size:14px; opacity:0.9;">Mapbox token не налаштований</div>
         </div>
       `;
@@ -440,6 +439,7 @@
     let map;
     let userLocationMarker = null;
     let geozonesVisible = true;
+    let currentStyle = 'mapbox://styles/mapbox/satellite-streets-v12';
     let TILESETS = [];
     let TS_FILL_IDS = [];
     let TS_OUTLINE_IDS = [];
@@ -459,7 +459,8 @@
       try {
         console.log('[map-viewer] Creating Mapbox instance...');
         map = new mapboxgl.Map({
-          containcurrentStyle,
+          container: 'map',
+          style: currentStyle,
           center: [30.5, 49.0],
           zoom: 7,
           attributionControl: false
@@ -515,8 +516,7 @@
             currentStyle = newStyle;
             map.setStyle(currentStyle);
           }
-        }
-        document.getElementById('btnToggleGeozones').addEventListener('click', toggleGeozones);
+        });
       } catch (error) {
         console.error('[map-viewer] Error initializing map:', error);
         document.getElementById('splash').style.display = 'none';
