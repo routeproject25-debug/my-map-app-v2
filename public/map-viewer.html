@@ -1041,13 +1041,34 @@
       let lastProcessedValue = '';
 
       const processSelection = (q) => {
-        const found = results.find(r => r.full === q);
         console.log('[search] Processing selection:', { 
           q, 
-          found, 
           resultsCount: results.length,
           resultsFullValues: results.map(r => r.full)
         });
+        
+        // Спочатку точний збіг
+        let found = results.find(r => r.full === q);
+        
+        // Якщо не знайшли точний збіг і це схоже на геозону (починається з 🗺)
+        if (!found && q.startsWith('🗺')) {
+          // Видаляємо емодзі та пробіли для порівняння
+          const cleanQ = q.replace('🗺', '').trim().toLowerCase();
+          console.log('[search] Шукаємо нечіткий збіг для:', cleanQ);
+          
+          // Шукаємо геозону де назва містить цей текст
+          found = results.find(r => {
+            if (r.type !== 'geozone') return false;
+            const cleanFull = r.full.replace('🗺', '').trim().toLowerCase();
+            const match = cleanFull === cleanQ || cleanFull.includes(cleanQ) || cleanQ.includes(cleanFull);
+            if (match) {
+              console.log('[search] Знайдено нечіткий збіг:', { cleanFull, cleanQ });
+            }
+            return match;
+          });
+        }
+        
+        console.log('[search] Результат пошуку:', { found: found ? found.name : 'не знайдено' });
         
         if (found && found.center && lastProcessedValue !== q) {
           lastProcessedValue = q;
