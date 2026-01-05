@@ -732,24 +732,24 @@
         highlightTimeout = null;
       }
 
-      // Знаходимо геозону за назвою
+      // Знаходимо ВСІ features геозони з такою назвою (може бути розбита на тайли)
       const features = map.queryRenderedFeatures({ layers: TS_FILL_IDS }) || [];
-      const targetFeature = features.find(f => {
+      const targetFeatures = features.filter(f => {
         const props = f.properties || {};
         const fp = getFieldProps(props);
         const name = fp.name || fp.code || '';
         return name === geozonenName;
       });
 
-      if (!targetFeature) {
+      if (targetFeatures.length === 0) {
         console.warn('Геозону не знайдено:', geozonenName);
         return;
       }
 
-      // Оновлюємо source для підсвічування
+      // Оновлюємо source для підсвічування - додаємо всі частини
       const fc = {
         type: 'FeatureCollection',
-        features: [targetFeature]
+        features: targetFeatures
       };
 
       if (map.getSource('geozone-highlight')) {
