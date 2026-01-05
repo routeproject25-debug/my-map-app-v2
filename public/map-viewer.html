@@ -443,6 +443,7 @@
     let TILESETS = [];
     let TS_FILL_IDS = [];
     let TS_OUTLINE_IDS = [];
+    let highlightTimeout = null;
 
     async function loadTilesetsConfig() {
       try {
@@ -616,6 +617,38 @@
 
       // Підписи центроїдів
       buildGeozoneCentroids();
+
+      // Source і layer для підсвічування вибраної геозони
+      if (!map.getSource('geozone-highlight')) {
+        map.addSource('geozone-highlight', {
+          type: 'geojson',
+          data: { type: 'FeatureCollection', features: [] }
+        });
+      }
+
+      if (!map.getLayer('geozone-highlight-fill')) {
+        map.addLayer({
+          id: 'geozone-highlight-fill',
+          type: 'fill',
+          source: 'geozone-highlight',
+          paint: {
+            'fill-color': '#fbbf24',
+            'fill-opacity': 0.6
+          }
+        });
+      }
+
+      if (!map.getLayer('geozone-highlight-outline')) {
+        map.addLayer({
+          id: 'geozone-highlight-outline',
+          type: 'line',
+          source: 'geozone-highlight',
+          paint: {
+            'line-color': '#f59e0b',
+            'line-width': 3
+          }
+        });
+      }
     }
 
     function buildGeozoneCentroids() {
@@ -688,6 +721,51 @@
 
       const btn = document.getElementById('btnToggleGeozones');
       btn.querySelector('span:last-child').textContent = geozonesVisible ? 'Сховати' : 'Показати';
+    }
+
+    function highlightGeozone(geozonenName) {
+      if (!map || !window.turf || TS_FILL_IDS.length === 0) return;
+
+      // Очищаємо попередній таймер
+      if (highlightTimeout) {
+        clearTimeout(highlightTimeout);
+        highlightTimeout = null;
+      }
+
+      // Знаходимо геозону за назвою
+      const features = map.queryRenderedFeatures({ layers: TS_FILL_IDS }) || [];
+      const targetFeature = features.find(f => {
+        const props = f.properties || {};
+        const fp = getFieldProps(props);
+        const name = fp.name || fp.code || '';
+        return name === geozonenName;
+      });
+
+      if (!targetFeature) {
+        console.warn('Геозону не знайдено:', geozonenName);
+        return;
+      }
+
+      // Оновлюємо source для підсвічування
+      const fc = {
+        type: 'FeatureCollection',
+        features: [targetFeature]
+      };
+
+      if (map.getSource('geozone-highlight')) {
+        map.getSource('geozone-highlight').setData(fc);
+      }
+
+      // Через 30 секунд - очищаємо підсвічування
+      highlightTimeout = setTimeout(() => {
+        if (map.getSource('geozone-highlight')) {
+          map.getSource('geozone-highlight').setData({
+            type: 'FeatureCollection',
+            features: []
+          });
+        }
+        highlightTimeout = null;
+      }, 30000);
     }
 
     // ===== ГЕОЛОКАЦІЯ =====
@@ -860,6 +938,12 @@
         const found = results.find(r => r.full === q);
         if (found && found.center) {
           map.flyTo({ center: found.center, zoom: Math.max(map.getZoom() || 0, 12) });
+          
+          // Якщо це геозона - підсвічуємо її
+          if (found.type === 'geozone') {
+            highlightGeozone(found.name);
+          }
+          
           input.blur();
         }
       });
@@ -871,6 +955,12 @@
           const found = results.find(r => r.full === q);
           if (found && found.center) {
             map.flyTo({ center: found.center, zoom: Math.max(map.getZoom() || 0, 12) });
+            
+            // Якщо це геозона - підсвічуємо її
+            if (found.type === 'geozone') {
+              highlightGeozone(found.name);
+            }
+            
             input.blur();
           }
         }
