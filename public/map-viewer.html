@@ -1047,11 +1047,17 @@
         console.log('[search] Processing selection:', { 
           q, 
           resultsCount: results.length,
-          resultsNames: results.map(r => r.name)
+          resultsNames: results.map(r => ({ name: r.name, type: r.type }))
         });
         
-        // Шукаємо за name (без емодзі)
-        const found = results.find(r => r.name === q);
+        // Шукаємо за name з нормалізацією (trim + toLowerCase)
+        const normalizedQ = q.trim().toLowerCase();
+        const found = results.find(r => {
+          const normalizedName = r.name.trim().toLowerCase();
+          const match = normalizedName === normalizedQ;
+          console.log('[search] Порівнюємо:', { q: normalizedQ, rName: normalizedName, match });
+          return match;
+        });
         
         console.log('[search] Результат пошуку:', { found: found ? found.name : 'не знайдено' });
         
