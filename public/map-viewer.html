@@ -444,6 +444,7 @@
     let TS_FILL_IDS = [];
     let TS_OUTLINE_IDS = [];
     let highlightTimeout = null;
+    let popup = null;
 
     async function loadTilesetsConfig() {
       try {
@@ -478,6 +479,17 @@
             
             await loadTilesetsConfig();
             addTilesets();
+            
+            // Створюємо popup
+            popup = new mapboxgl.Popup({
+              closeButton: true,
+              closeOnClick: false,
+              maxWidth: '360px'
+            });
+            
+            // Додаємо обробник кліку на геозони
+            setupGeozoneClickHandler();
+            
             console.log('[map-viewer] Tilesets added, hiding splash...');
             document.getElementById('splash').style.display = 'none';
           } catch (error) {
@@ -560,6 +572,44 @@
       });
       
       console.log('[map-viewer] Ukrainian labels applied');
+    }
+
+    // Форматування площі
+    function fmtArea(a) {
+      const n = parseFloat(a);
+      if (isNaN(n)) return '';
+      return n.toLocaleString('uk-UA', { maximumFractionDigits: 2 });
+    }
+
+    // Екранування HTML
+    function esc(v) {
+      return String(v ?? '').replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+    }
+
+    // HTML для popup
+    function getPopupHTML(props) {
+      const fp = getFieldProps(props || {});
+      const name = fp.name || fp.code || '';
+      const code = fp.code || '';
+      const client = props.Client || props.client || props.Підприємство || props.підприємство || '';
+      const farm = props.Farm || props.farm || props.Підрозділ || props.підрозділ || '';
+      const hub = props.Hub || props.hub || props.Хаб || props.хаб || '';
+      const area = props.Area || props.area || props.Площа || props.площа || '';
+      
+      const rows = [
+        ['Хаб', hub],
+        ['Назва', name],
+        ['Код', code],
+        ['Підприємство', client],
+        ['Підрозділ', farm],
+        ['Площа', (area !== '' && area !== null && area !== undefined) ? (fmtArea(area) + ' га') : '']
+      ];
+
+      const htmlRows = rows.map(([label, val]) =>
+        `<div style="margin-bottom:4px;"><b>${label}:</b> ${esc(val) || '—'}</div>`
+      ).join('');
+
+      return `<div style="font-size:14px;line-height:1.5;">${htmlRows}</div>`;
     }
 
     function addTilesets() {
@@ -698,12 +748,14 @@
           layout: {
             'text-field': ['get', 'label'],
             'text-font': ['Open Sans Bold', 'Arial Unicode MS Bold'],
-            'text-size': 12
+            'text-size': 13,
+            'text-allow-overlap': false,
+            'text-ignore-placement': false
           },
           paint: {
             'text-color': '#1f2937',
             'text-halo-color': '#fff',
-            'text-halo-width': 1.5
+            'text-halo-width': 2
           }
         });
       }
@@ -766,6 +818,36 @@
         }
         highlightTimeout = null;
       }, 30000);
+    }
+
+    // Обробник кліку на геозону
+    function setupGeozoneClickHandler() {
+      const clickHandler = (e) => {
+        if (!e.features || !e.features[0]) return;
+        const props = e.features[0].properties || {};
+        
+        if (popup) {
+          popup
+            .setLngLat(e.lngLat)
+            .setHTML(getPopupHTML(props))
+            .addTo(map);
+        }
+      };
+
+      // Додаємо обробник для всіх fill layers
+      TS_FILL_IDS.forEach(id => {
+        map.on('click', id, clickHandler);
+      });
+
+      // Курсор pointer при наведенні
+      TS_FILL_IDS.forEach(id => {
+        map.on('mouseenter', id, () => {
+          map.getCanvas().style.cursor = 'pointer';
+        });
+        map.on('mouseleave', id, () => {
+          map.getCanvas().style.cursor = '';
+        });
+      });
     }
 
     // ===== ГЕОЛОКАЦІЯ =====
