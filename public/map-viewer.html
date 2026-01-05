@@ -388,7 +388,18 @@
     });
 
     // ===== MAPBOX =====
-    mapboxgl.accessToken = 'pk.eyJ1Ijoicm91dGUtcHJvamVjdCIsImEiOiJjbTE4ZmRtdGkwaGUzMnJvZW12MWRpNjF4In0.01J70f_3H_e0GV3oWcfG2w';
+    mapboxgl.accessToken = window.APP_CONFIG?.mapboxToken || '';
+    if (!mapboxgl.accessToken) {
+      console.error('Mapbox token відсутній у APP_CONFIG');
+      document.getElementById('splash').innerHTML = `
+        <div style="color:#fee2e2; background:#991b1b; padding:16px; border-radius:12px; max-width:400px; text-align:center;">
+          <div style="font-size:32px; margin-bottom:8px;">⚠️</div>
+          <div style="font-size:16px; font-weight:600; margin-bottom:8px;">Помилка конфігурації</div>
+          <div style="font-size:14px; opacity:0.9;">Mapbox token не налаштований</div>
+        </div>
+      `;
+      throw new Error('Mapbox token missing');
+    }
 
     let map;
     let userLocationMarker = null;
