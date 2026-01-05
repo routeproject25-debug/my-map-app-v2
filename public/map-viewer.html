@@ -175,6 +175,29 @@
       cursor: not-allowed;
     }
 
+    /* Перемикач стилю карти */
+    .map-style-selector {
+      position: absolute;
+      top: 160px;
+      left: 16px;
+      z-index: 10;
+      background: #fff;
+      border-radius: 12px;
+      padding: 8px 12px;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.12);
+    }
+
+    #mapStyleSelect {
+      border: none;
+      background: transparent;
+      font-size: 14px;
+      font-weight: 600;
+      color: #6366f1;
+      cursor: pointer;
+      padding: 4px;
+      outline: none;
+    }
+
     /* Маркер місцезнаходження */
     .user-location-marker {
       width: 20px;
@@ -271,6 +294,16 @@
     <input id="placeSearch" type="text" list="placeList" placeholder="Пошук полів або місць..." autocomplete="off" />
     <span class="search-icon">🔍</span>
     <datalist id="placeList"></datalist>
+  </div>
+
+  <!-- Перемикач стилю карти -->
+  <div class="map-style-selector">
+    <select id="mapStyleSelect">
+      <option value="mapbox://styles/mapbox/streets-v12">🗺 Схема</option>
+      <option value="mapbox://styles/mapbox/outdoors-v12">🏞 На природі</option>
+      <option value="mapbox://styles/mapbox/satellite-streets-v12" selected>🛰 Супутник</option>
+      <option value="mapbox://styles/mapbox/satellite-v9">📡 Супутник (чистий)</option>
+    </select>
   </div>
 
   <!-- Карта -->
@@ -394,7 +427,8 @@
       document.getElementById('splash').innerHTML = `
         <div style="color:#fee2e2; background:#991b1b; padding:16px; border-radius:12px; max-width:400px; text-align:center;">
           <div style="font-size:32px; margin-bottom:8px;">⚠️</div>
-          <div style="font-size:16px; font-weight:600; margin-bottom:8px;">Помилка конфігурації</div>
+        currentStyle = 'mapbox://styles/mapbox/satellite-streets-v12';
+    let   <div style="font-size:16px; font-weight:600; margin-bottom:8px;">Помилка конфігурації</div>
           <div style="font-size:14px; opacity:0.9;">Mapbox token не налаштований</div>
         </div>
       `;
@@ -423,8 +457,7 @@
       try {
         console.log('[map-viewer] Creating Mapbox instance...');
         map = new mapboxgl.Map({
-          container: 'map',
-          style: 'mapbox://styles/mapbox/satellite-streets-v12',
+          containcurrentStyle,
           center: [30.5, 49.0],
           zoom: 7,
           attributionControl: false
@@ -447,6 +480,12 @@
           }
         });
 
+        // При зміні стилю карти - перезавантажуємо геозони
+        map.on('style.load', () => {
+          console.log('[map-viewer] Style loaded, re-adding tilesets...');
+          addTilesets();
+        });
+
         map.on('error', (e) => {
           console.error('[map-viewer] Map error:', e);
           document.getElementById('splash').style.display = 'none';
@@ -459,6 +498,16 @@
         setupSearch();
         
         // Кнопка геозон
+        document.getElementById('btnToggleGeozones').addEventListener('click', toggleGeozones);
+        
+        // Перемикач стилю карти
+        document.getElementById('mapStyleSelect').addEventListener('change', (e) => {
+          const newStyle = e.target.value;
+          if (newStyle !== currentStyle) {
+            currentStyle = newStyle;
+            map.setStyle(currentStyle);
+          }
+        }
         document.getElementById('btnToggleGeozones').addEventListener('click', toggleGeozones);
       } catch (error) {
         console.error('[map-viewer] Error initializing map:', error);
