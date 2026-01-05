@@ -1928,8 +1928,6 @@ function tilesetAllowedForUser(ts){
   const allHubs = isAllHubs();
   const tags = Array.isArray(ts.hubs) ? ts.hubs : [];
   
-  console.log(`[tilesetAllowedForUser] ts.key=${ts.key}, noHubs=${noHubs}, allHubs=${allHubs}, tags=${JSON.stringify(tags)}, ALLOWED_HUBS=${JSON.stringify(ALLOWED_HUBS)}`);
-  
   if (noHubs) return false;
   if (!tags.length || tags.includes('*')) return true;    // не розмічено або глобальний
   if (allHubs) return true;                           // користувачу дозволено "всі хаби"
@@ -1938,18 +1936,10 @@ function tilesetAllowedForUser(ts){
 
 // Застосувати видимість шарів tileset-ів згідно доступу
 function applyTilesetHubVisibility(){
-  TILESETS.forEach(ts => {
-    const vis = tilesetAllowedForUser(ts) ? 'visible' : 'none';
-    const ids = [
-      `tileset-fill-${ts.key}`,
-      `tileset-outline-${ts.key}`,
-      `tileset-hl-from-${ts.key}`,
-      `tileset-hl-to-${ts.key}`,
-      `tileset-hl-from-label-${ts.key}`,
-      `tileset-hl-to-label-${ts.key}`,
-    ];
-    ids.forEach(id => { if (map.getLayer(id)) try{ map.setLayoutProperty(id, 'visibility', vis); }catch{} });
-  });
+  console.log('[applyTilesetHubVisibility] Оновлюємо видимість геозон за доступами. geozonesVisible:', geozonesVisible);
+  
+  // Замість прямого setLayoutProperty викликаємо setGeozonesVisibility, щоб враховувався поточний стан кнопки
+  setGeozonesVisibility(geozonesVisible);
 
   // Підписи центроїдів перебудуємо з урахуванням видимих шарів
   try { buildGeozoneCentroids(); } catch(_) {}
@@ -3270,6 +3260,8 @@ function setManyOpacity(ids, opacity){
 }
 
 function setGeozonesVisibility(visible){
+  console.log('[setGeozonesVisibility] visible:', visible, 'ALLOWED_HUBS:', ALLOWED_HUBS);
+  
   const hasFromSel = !!(getCodeByInput('fromName') || (document.getElementById('fromName').value || '').trim());
   const hasToSel   = !!(getCodeByInput('toName')   || (document.getElementById('toName').value   || '').trim());
 
@@ -3293,7 +3285,8 @@ function setGeozonesVisibility(visible){
   const key = id.replace('tileset-fill-','');
   const ts  = TILESETS.find(t => t.key === key);
   const allowed = ts ? tilesetAllowedForUser(ts) : true;
-  setLayerVisibility(id, !!visible && allowed);
+  const shouldShow = !!visible && allowed;
+  setLayerVisibility(id, shouldShow);
   setLayerOpacity(id, visible ? GZ_DEFAULTS.fill : 0);
 });
 
@@ -7099,6 +7092,11 @@ auth?.onAuthStateChanged(async (user) => {
       ALLOWED_HUBS = result.hubs;
       displayNameFromFirestore = result.displayName || '';
       window.__userTestMode = result.testMode === true; // 🧪 тестовий режим
+      
+      console.log('[auth] Завантажено хаби для користувача:', ALLOWED_HUBS, 'testMode:', window.__userTestMode);
+      
+      // Оновити видимість геозон після завантаження хабів
+      try { applyTilesetHubVisibility(); } catch(e) { console.warn('applyTilesetHubVisibility error:', e); }
     } catch (_) {
       ALLOWED_HUBS = [];
     }
