@@ -123,28 +123,28 @@
       z-index: 10;
       background: rgba(255,255,255,0.95);
       backdrop-filter: blur(12px);
-      padding: 16px;
-      border-radius: 24px 24px 0 0;
+      padding: 10px 12px;
+      border-radius: 16px 16px 0 0;
       box-shadow: 0 -4px 24px rgba(0,0,0,0.1);
       display: flex;
-      gap: 12px;
+      gap: 8px;
       justify-content: center;
       flex-wrap: wrap;
     }
 
     .btn {
       flex: 1;
-      min-width: 140px;
-      height: 56px;
+      min-width: 120px;
+      height: 44px;
       border: none;
-      border-radius: 16px;
-      font-size: 15px;
+      border-radius: 12px;
+      font-size: 14px;
       font-weight: 600;
       cursor: pointer;
       display: flex;
       align-items: center;
       justify-content: center;
-      gap: 8px;
+      gap: 6px;
       transition: all 0.2s ease;
       box-shadow: 0 2px 8px rgba(0,0,0,0.08);
     }
@@ -262,13 +262,15 @@
     /* Адаптив */
     @media (max-width: 640px) {
       .bottom-panel {
-        padding: 12px;
-        gap: 8px;
+        padding: 8px;
+        gap: 6px;
       }
       
       .btn {
         min-width: 0;
-        flex: 1 1 calc(50% - 4px);
+        flex: 1 1 calc(50% - 3px);
+        height: 40px;
+        font-size: 13px;
       }
     }
   </style>
@@ -482,8 +484,14 @@
 
         // При зміні стилю карти - перезавантажуємо геозони
         map.on('style.load', () => {
-          console.log('[map-viewer] Style loaded, re-adding tilesets...');
-          addTilesets();
+          // Перевіряємо чи карта повністю завантажена (не перший раз)
+          if (map.isStyleLoaded() && map.loaded()) {
+            console.log('[map-viewer] Style changed, re-adding tilesets...');
+            // Невелика затримка щоб стиль точно встиг завантажитись
+            setTimeout(() => {
+              addTilesets();
+            }, 100);
+          }
         });
 
         map.on('error', (e) => {
