@@ -1047,11 +1047,18 @@
         console.log('[search] Processing selection:', { 
           q, 
           resultsCount: results.length,
-          resultsNames: results.map(r => ({ name: r.name, type: r.type }))
+          results: results
         });
+        
+        if (results.length === 0) {
+          console.log('[search] Масив results порожній');
+          return false;
+        }
         
         // Шукаємо за name з нормалізацією (trim + toLowerCase)
         const normalizedQ = q.trim().toLowerCase();
+        console.log('[search] Нормалізований пошук:', normalizedQ);
+        
         const found = results.find(r => {
           const normalizedName = r.name.trim().toLowerCase();
           const match = normalizedName === normalizedQ;
