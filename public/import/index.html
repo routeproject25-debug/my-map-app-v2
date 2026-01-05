@@ -316,7 +316,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // ===== Summary helpers =====
   const SUMMARY_LIMIT = 200; // показуємо у таблиці максимум N записів на категорію
-  const LastSummary = { data:null }; // зберігаємо останній результат для повторного відкриття/експорту
+  const LastSummary = { data:null, changedCodes: new Map() }; // зберігаємо останній результат для повторного відкриття/експорту + змінені коди
 
   function toCSV(rows){
     if (!rows || !rows.length) return '';
@@ -366,6 +366,7 @@ document.addEventListener('DOMContentLoaded', () => {
         ${o.deleted?.length? `<span class="badge">Видалено legacy: ${o.deleted.length}</span>`:''}
       </div>
       <div class="muted" style="margin-top:8px">Dry-run: ${o.dry? 'так' : 'ні'}</div>
+      ${LastSummary.changedCodes.size > 0 ? `<div style="margin-top:12px"><button class="btn primary" id="updateRoutesFromSummary">Оновити маршрути з цими змінами (${LastSummary.changedCodes.size} кодів)</button></div>` : ''}
     `;
     $('tab-overview').innerHTML = overviewHTML;
     $('tab-new').innerHTML = renderTable(o.new, 'Створені документи');
@@ -375,6 +376,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
     activate('overview');
     bd.style.display = 'flex';
+
+    // Додати подію для кнопки оновлення
+    const btn = $('updateRoutesFromSummary');
+    if (btn) {
+      btn.addEventListener('click', () => updateRoutesFromChangedCodes(LastSummary.changedCodes), { once: true });
+    }
   }
 
   function exportSummaryCSV(){
@@ -925,6 +932,9 @@ function equalData(a, b){
     const startedAt = Date.now();
     setProg(0, 'Початок…');
 
+    // Збираємо змінені коди для швидкого оновлення маршрутів
+    const changedCodes = new Map(); // oldCode -> newCode
+
     try{
       for (let b = 0; b < totalBatches; b++){
         const slice = entries.slice(b*SAFE_BATCH, (b+1)*SAFE_BATCH);
@@ -1033,6 +1043,9 @@ function equalData(a, b){
               if ((old.unit||'') !== (data.unit||'')) changed.push('unit');
               if ((old.hub||'') !== (data.hub||'')) changed.push('hub');
               recapUpdated.push({ id:targetId, name:data.name, codeOld:old.code||'', codeNew:data.code||'', company:data.company||'', unit:data.unit||'', hub:data.hub||'', changed:changed.join('|') });
+              if ((old.code||'') !== (data.code||'')) {
+                changedCodes.set(old.code, data.code);
+              }
               if (!dry){ batch.set(targetRef, data, { merge: true }); writes++; }
             } else {
               unchangedCount++;
@@ -1076,6 +1089,7 @@ function equalData(a, b){
         other: recapOther,
         dry
       });
+      LastSummary.changedCodes = changedCodes;
     }catch(e){
       fail = total - ok;
       log(`Помилка імпорту: ${e.message || e}`, 'err');
@@ -1220,6 +1234,51 @@ function equalData(a, b){
       updateImportButton();
     }
   });
+
+  // Оновити маршрути тільки з зміненими кодами (з підсумку імпорту)
+  async function updateRoutesFromChangedCodes(changedCodes) {
+    if (!db || !currentUser) { alert('Необхідно увійти'); return; }
+    if (!WRITE_ROLES.has(currentRole)) { alert('Недостатньо прав (потрібно: admin)'); return; }
+
+    const oldCodes = Array.from(changedCodes.keys());
+    if (!oldCodes.length) { alert('Немає змінених кодів'); return; }
+
+    const confirmMsg = `Оновити маршрути, де fromCode або toCode є одним із старих кодів: ${oldCodes.join(', ')}?\n\nЦе торкнеться тільки маршрутів із цими кодами.`;
+    if (!confirm(confirmMsg)) return;
+
+    try {
+      log(`Починаємо оновлення маршрутів із ${oldCodes.length} старими кодами...`, 'ok');
+
+      let updatedCount = 0;
+      // Оскільки Firestore не дозволяє 'in' з >10 значеннями, робимо окремі запити для кожного старого коду
+      for (const oldCode of oldCodes) {
+        const newCode = changedCodes.get(oldCode);
+        log(`Обробляємо старий код: ${oldCode} → ${newCode}`, 'ok');
+
+        // Знайти маршрути з fromCode == oldCode
+        let query = db.collection('routes').where('fromCode', '==', oldCode);
+        let snap = await query.get();
+        snap.forEach(doc => {
+          doc.ref.update({ fromCode: newCode });
+          updatedCount++;
+        });
+
+        // Знайти маршрути з toCode == oldCode
+        query = db.collection('routes').where('toCode', '==', oldCode);
+        snap = await query.get();
+        snap.forEach(doc => {
+          doc.ref.update({ toCode: newCode });
+          updatedCount++;
+        });
+      }
+
+      log(`Готово! Оновлено ${updatedCount} маршрутів`, 'ok');
+      alert(`Оновлено ${updatedCount} маршрутів. Перезавантажте експорт для перевірки.`);
+    } catch (e) {
+      log(`Помилка оновлення: ${e.message}`, 'err');
+      alert('Сталася помилка: ' + e.message);
+    }
+  }
 });
 </script>
 <script>
