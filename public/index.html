@@ -1924,10 +1924,15 @@ async function loadTilesetsConfigOnce(){
 
 // Перевірка: чи дозволено tileset користувачу за хабами
 function tilesetAllowedForUser(ts){
-  if (hasNoHubs()) return false;
+  const noHubs = hasNoHubs();
+  const allHubs = isAllHubs();
   const tags = Array.isArray(ts.hubs) ? ts.hubs : [];
+  
+  console.log(`[tilesetAllowedForUser] ts.key=${ts.key}, noHubs=${noHubs}, allHubs=${allHubs}, tags=${JSON.stringify(tags)}, ALLOWED_HUBS=${JSON.stringify(ALLOWED_HUBS)}`);
+  
+  if (noHubs) return false;
   if (!tags.length || tags.includes('*')) return true;    // не розмічено або глобальний
-  if (isAllHubs()) return true;                           // користувачу дозволено "всі хаби"
+  if (allHubs) return true;                           // користувачу дозволено "всі хаби"
   return tags.some(h => (ALLOWED_HUBS || []).includes(h));
 }
 
@@ -2286,11 +2291,16 @@ function buildGeozoneCentroids(){
 
 // створюємо ВСІ векторні джерела/шари з масиву TILESETS
 function addTilesets(){
+  console.log('[addTilesets] Початок. TILESETS:', TILESETS.length, 'записів');
   TS_FILL_IDS = [];
   TS_OUTLINE_IDS = [];
 
   TILESETS.forEach(ts => {
     if (ts.enabled === false) { console.warn('[tileset] disabled:', ts.key, ts.url); return; }
+    
+    const allowed = tilesetAllowedForUser(ts);
+    console.log(`[tileset] ${ts.key}: allowed=${allowed}, hubs=${JSON.stringify(ts.hubs)}, userHubs=${JSON.stringify(ALLOWED_HUBS)}`);
+    
     const sourceId = `geozones-tileset-${ts.key}`;
     if (!map.getSource(sourceId)){
       map.addSource(sourceId, { type: 'vector', url: ts.url });
@@ -2343,6 +2353,8 @@ function addTilesets(){
     // ⬇️ застосувати видимість tileset-ів за доступами хабів
     // тільки дозволені хабом tileset-и мають бути видимі
   applyTilesetHubVisibility();
+  
+  console.log('[addTilesets] Завершено. Fill шари:', TS_FILL_IDS.length, 'Outline шари:', TS_OUTLINE_IDS.length);
 }
 
 const rebuildLabelsOnce = (fn=>{ let t; return (...a)=>{ clearTimeout(t); t=setTimeout(()=>fn(...a),150); }; })(buildGeozoneCentroids);
