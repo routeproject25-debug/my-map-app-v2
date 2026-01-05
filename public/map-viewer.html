@@ -1038,6 +1038,7 @@
       const list = document.getElementById('placeList');
       let timer = null;
       let results = [];
+      let lastProcessedValue = '';
 
       input.addEventListener('input', () => {
         const q = input.value.trim();
@@ -1056,6 +1057,19 @@
             opt.value = r.full;
             list.appendChild(opt);
           });
+          
+          // Перевіряємо чи вибрано значення з списку (для datalist)
+          const found = results.find(r => r.full === q);
+          if (found && found.center && lastProcessedValue !== q) {
+            lastProcessedValue = q;
+            console.log('[search] Input match found:', { q, found });
+            map.flyTo({ center: found.center, zoom: Math.max(map.getZoom() || 0, 12) });
+            
+            if (found.type === 'geozone') {
+              console.log('[search] Викликаємо highlightGeozone з:', found.name);
+              highlightGeozone(found.name);
+            }
+          }
         }, 400);
       });
 
@@ -1063,10 +1077,10 @@
         const q = input.value.trim();
         const found = results.find(r => r.full === q);
         console.log('[search] Change event:', { q, found });
-        if (found && found.center) {
+        if (found && found.center && lastProcessedValue !== q) {
+          lastProcessedValue = q;
           map.flyTo({ center: found.center, zoom: Math.max(map.getZoom() || 0, 12) });
           
-          // Якщо це геозона - підсвічуємо її
           if (found.type === 'geozone') {
             console.log('[search] Викликаємо highlightGeozone з:', found.name);
             highlightGeozone(found.name);
@@ -1083,9 +1097,9 @@
           const found = results.find(r => r.full === q);
           console.log('[search] Enter event:', { q, found });
           if (found && found.center) {
+            lastProcessedValue = q;
             map.flyTo({ center: found.center, zoom: Math.max(map.getZoom() || 0, 12) });
             
-            // Якщо це геозона - підсвічуємо її
             if (found.type === 'geozone') {
               console.log('[search] Викликаємо highlightGeozone з:', found.name);
               highlightGeozone(found.name);
