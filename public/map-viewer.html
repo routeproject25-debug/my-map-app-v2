@@ -683,6 +683,46 @@
       return `<div style="font-size:14px;line-height:1.5;">${htmlRows}</div>`;
     }
 
+    // Перевірка доступу до тайлсета за хабами
+    function tilesetAllowedForUser(ts) {
+      const tsHubs = Array.isArray(ts.hubs) ? ts.hubs : [];
+      
+      // Якщо allowedHubs === null - доступ до всіх хабів
+      if (allowedHubs === null) return true;
+      
+      // Якщо тайлсет не має хабів або має '*' - глобальний, доступний всім
+      if (!tsHubs.length || tsHubs.includes('*')) return true;
+      
+      // Якщо є перетин хабів користувача і тайлсета
+      if (allowedHubs && allowedHubs.length > 0 && tsHubs.some(h => allowedHubs.includes(h))) {
+        return true;
+      }
+      
+      // Інакше - немає доступу
+      return false;
+    }
+
+    // Застосувати видимість тайлсетів згідно доступу
+    function applyTilesetHubVisibility() {
+      console.log('[applyTilesetHubVisibility] Перевіряємо доступи для', TILESETS.length, 'тайлсетів');
+      
+      TILESETS.forEach(ts => {
+        const allowed = tilesetAllowedForUser(ts);
+        const fillId = `tileset-fill-${ts.key}`;
+        const outlineId = `tileset-outline-${ts.key}`;
+        const visibility = (allowed && geozonesVisible) ? 'visible' : 'none';
+        
+        console.log(`[tileset] ${ts.key}: allowed=${allowed}, visibility=${visibility}`);
+        
+        if (map.getLayer(fillId)) {
+          map.setLayoutProperty(fillId, 'visibility', visibility);
+        }
+        if (map.getLayer(outlineId)) {
+          map.setLayoutProperty(outlineId, 'visibility', visibility);
+        }
+      });
+    }
+
     function addTilesets() {
       // Очищаємо старі ID шарів
       TS_FILL_IDS = [];
@@ -696,27 +736,6 @@
           return;
         }
         
-        // Перевірка доступу за хабами - така ж логіка як в index.html
-        const tsHubs = Array.isArray(ts.hubs) ? ts.hubs : [];
-        
-        // Якщо allowedHubs === null - доступ до всіх хабів
-        if (allowedHubs === null) {
-          console.log(`[tileset] ${ts.key}: allowed (all hubs)`);
-        }
-        // Якщо тайлсет не має хабів або має '*' - глобальний, доступний всім
-        else if (!tsHubs.length || tsHubs.includes('*')) {
-          console.log(`[tileset] ${ts.key}: allowed (global tileset)`);
-        }
-        // Якщо є перетин хабів користувача і тайлсета
-        else if (allowedHubs && allowedHubs.length > 0 && tsHubs.some(h => allowedHubs.includes(h))) {
-          console.log(`[tileset] ${ts.key}: allowed (hub match)`);
-        }
-        // Інакше - немає доступу
-        else {
-          console.log(`[tileset] ${ts.key}: denied (no hub match)`);
-          return;
-        }
-
         const sourceId = `geozones-tileset-${ts.key}`;
         const fillId = `tileset-fill-${ts.key}`;
         const outlineId = `tileset-outline-${ts.key}`;
@@ -736,7 +755,6 @@
               'fill-opacity': 0.35
             }
           });
-          TS_FILL_IDS.push(fillId);
         }
 
         if (!map.getLayer(outlineId)) {
@@ -750,9 +768,16 @@
               'line-width': 2
             }
           });
-          TS_OUTLINE_IDS.push(outlineId);
         }
+        
+        TS_FILL_IDS.push(fillId);
+        TS_OUTLINE_IDS.push(outlineId);
       });
+      
+      console.log('[addTilesets] Додано шарів - Fill:', TS_FILL_IDS.length, 'Outline:', TS_OUTLINE_IDS.length);
+      
+      // Застосовуємо видимість згідно доступів до хабів
+      applyTilesetHubVisibility();
 
       // Підписи центроїдів - викликаємо після завантаження даних
       // Чекаємо поки карта завантажить всі тайли
