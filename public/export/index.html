@@ -243,8 +243,8 @@
 #xScroller{
   position: sticky;
   top: 8px;              /* якщо перекривається хедером – збільш це число */
-  z-index: 20;
-  height: 20px;          /* висота зони скролу */
+  z-index: 30;
+  height: 18px;          /* висота зони скролу */
   overflow-x: scroll;
   overflow-y: hidden;
   background: #fff;
@@ -252,6 +252,7 @@
   border-radius: 8px;
   margin-bottom: 8px;
   scrollbar-gutter: stable both-edges;
+  display: block !important;
 }
 #xScroller::-webkit-scrollbar { height: 14px; }   /* товстіший скрол у WebKit */
 #xScroller > div { height: 1px; }                 /* «доріжка» для ширини */
