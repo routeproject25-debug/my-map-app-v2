@@ -354,6 +354,8 @@
 
   let routeGeoJSON = null;
   let manualSegments = [];
+  let startRuler = [];
+  let endRuler = [];
   let steps = [];
   let routeLengthKm = 0;
   let totalDistance = 0;
@@ -406,6 +408,20 @@
 
   function showToast(msg){ $toast.textContent = msg; $toast.style.display='block'; setTimeout(()=>{$toast.style.display='none'}, 1300); }
   function metersToKM(m){ return (m/1000).toFixed(1); }
+  function lineDistanceMeters(coords){
+    if (!Array.isArray(coords) || coords.length < 2) return 0;
+    try{
+      return turf.length({ type:'Feature', geometry:{ type:'LineString', coordinates: coords } }, {units:'kilometers'}) * 1000;
+    }catch(_){ return 0; }
+  }
+  function updateDisplayedDistance(){
+    const baseMeters = routeGeoJSON ? (turf.length(routeGeoJSON, {units:'kilometers'}) * 1000) : (totalDistance || 0);
+    const rulersMeters = lineDistanceMeters(startRuler) + lineDistanceMeters(endRuler);
+    const totalMeters = baseMeters + rulersMeters;
+    if (Number.isFinite(totalMeters) && totalMeters > 0){
+      $dist.textContent = `${metersToKM(totalMeters)} км`;
+    }
+  }
   function secondsToETA(s){ const dt = new Date(Date.now() + s*1000); const hh=String(dt.getHours()).padStart(2,'0'); const mm=String(dt.getMinutes()).padStart(2,'0'); return `${hh}:${mm}`; }
 
   function normalizeLineCoords(raw){
@@ -439,7 +455,9 @@
     const segs = Array.isArray(json.manualSegments) ? json.manualSegments : [];
     const cleanedSegs = segs.map(arr => (Array.isArray(arr)?arr:[]).filter(p=>Array.isArray(p)&&p.length>=2&&isFinite(p[0])&&isFinite(p[1])));
     const routeGeometry = normalizeLineCoords(json.routeGeometry || json.routeGeoJSON || json.geometry || null);
-    return { name: json.name || 'Маршрут', points: json.points, routeGeometry, manualSegments: cleanedSegs };
+    const sr = normalizeLineCoords(json.startRuler || json.start || null) || [];
+    const er = normalizeLineCoords(json.endRuler || json.end || null) || [];
+    return { name: json.name || 'Маршрут', points: json.points, routeGeometry, startRuler: sr, endRuler: er, manualSegments: cleanedSegs };
   }
 
   function addRouteToMap(){
@@ -476,10 +494,36 @@
     }
   }
 
+  function addRulersToMap(){
+    const features = [];
+    if (Array.isArray(startRuler) && startRuler.length >= 2){
+      features.push({ type:'Feature', geometry:{ type:'LineString', coordinates: startRuler }, properties:{ kind:'start' } });
+    }
+    if (Array.isArray(endRuler) && endRuler.length >= 2){
+      features.push({ type:'Feature', geometry:{ type:'LineString', coordinates: endRuler }, properties:{ kind:'end' } });
+    }
+    const fc = { type:'FeatureCollection', features };
+    if (map.getSource('rulers')){
+      map.getSource('rulers').setData(fc);
+    } else {
+      map.addSource('rulers', { type:'geojson', data: fc });
+      map.addLayer({
+        id:'rulers-line', type:'line', source:'rulers',
+        paint:{
+          'line-width':4,
+          'line-color':["match", ["get", "kind"], "start", "#2563eb", "end", "#ea580c", "#2563eb"],
+          'line-dasharray':[2,2]
+        }
+      });
+    }
+  }
+
   function rebuildSnapFeatures(){
     snapFeatures = [];
     if (routeGeoJSON) snapFeatures.push({ type:'Feature', geometry: routeGeoJSON.geometry, properties:{_kind:'route'} });
     (manualSegments||[]).forEach(seg => snapFeatures.push({ type:'Feature', geometry:{type:'LineString', coordinates: seg}, properties:{_kind:'manual'} }));
+    if (Array.isArray(startRuler) && startRuler.length >= 2) snapFeatures.push({ type:'Feature', geometry:{type:'LineString', coordinates: startRuler}, properties:{_kind:'ruler'} });
+    if (Array.isArray(endRuler) && endRuler.length >= 2) snapFeatures.push({ type:'Feature', geometry:{type:'LineString', coordinates: endRuler}, properties:{_kind:'ruler'} });
     /* видалено підтримку камер швидкості */
   }
 
@@ -500,7 +544,9 @@
       routeGeoJSON = { type:'Feature', geometry:r.geometry, properties:{} };
     }
     totalDistance = r.distance; totalDuration = r.duration;
-    $dist.textContent = `${metersToKM(totalDistance)} км`;
+    if (!routeGeoJSON) {
+      $dist.textContent = `${metersToKM(totalDistance)} км`;
+    }
     $eta.textContent = `ETA ${secondsToETA(totalDuration)}`;
 
     const rawSteps = r.legs.flatMap(l=>l.steps);
@@ -1236,7 +1282,7 @@
     if (!routeGeoJSON){ showToast('Маршрут ще не готовий'); return; }
     const name = $title.textContent || 'Маршрут';
     const points = routeGeoJSON.geometry.coordinates;
-    const payload = { name, points, manualSegments };
+    const payload = { name, points, routeGeometry: routeGeoJSON.geometry, startRuler, endRuler, manualSegments };
     const url = buildShareURL(payload);
     try{
       if (navigator.share){ await navigator.share({ title:name, url }); }
@@ -1248,17 +1294,18 @@
 
   map.on('load', async ()=>{
     try{
-      const { name, points, routeGeometry, manualSegments: segs } = await loadRouteData();
+      const { name, points, routeGeometry, startRuler: sr, endRuler: er, manualSegments: segs } = await loadRouteData();
       document.getElementById('routeTitle').textContent = name;
       manualSegments = Array.isArray(segs) ? segs : [];
+      startRuler = Array.isArray(sr) ? sr : [];
+      endRuler = Array.isArray(er) ? er : [];
 
       const cleanedPoints = Array.isArray(points) ? points.filter(p => Array.isArray(p) && p.length >= 2) : [];
       const geometryCoords = routeGeometry || (cleanedPoints.length > 25 ? cleanedPoints : null);
       if (geometryCoords && geometryCoords.length >= 2){
         routeGeoJSON = { type:'Feature', geometry:{ type:'LineString', coordinates: geometryCoords }, properties:{} };
         routeLengthKm = turf.length(routeGeoJSON, {units:'kilometers'});
-        totalDistance = routeLengthKm * 1000;
-        $dist.textContent = `${metersToKM(totalDistance)} км`;
+        updateDisplayedDistance();
       }
 
       const waypoints = clampWaypoints(cleanedPoints, 25);
@@ -1272,8 +1319,11 @@
         }
       }
 
+      updateDisplayedDistance();
+
       addRouteToMap();
       addManualToMap();
+      addRulersToMap();
       rebuildSnapFeatures();
 
       /* видалено ініціалізацію камер */
