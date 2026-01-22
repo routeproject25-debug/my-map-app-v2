@@ -244,15 +244,16 @@
   position: sticky;
   top: 8px;              /* якщо перекривається хедером – збільш це число */
   z-index: 20;
-  height: 16px;          /* висота зони скролу */
-  overflow-x: auto;
+  height: 20px;          /* висота зони скролу */
+  overflow-x: scroll;
   overflow-y: hidden;
   background: #fff;
   border: 1px solid #e5e7eb;
   border-radius: 8px;
   margin-bottom: 8px;
+  scrollbar-gutter: stable both-edges;
 }
-#xScroller::-webkit-scrollbar { height: 12px; }   /* товстіший скрол у WebKit */
+#xScroller::-webkit-scrollbar { height: 14px; }   /* товстіший скрол у WebKit */
 #xScroller > div { height: 1px; }                 /* «доріжка» для ширини */
 
 /* Нижній фіксований скролбар */
