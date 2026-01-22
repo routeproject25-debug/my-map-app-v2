@@ -4447,6 +4447,20 @@ function getLogistNameById(id){ return (logistById[id]?.name) || ''; }
 /* Helpers for route points */
 function toObjPoints(arr) { return (arr || []).map(p => ({ lng: p[0], lat: p[1] })); }
 function fromObjPoints(arr) { return (arr || []).map(p => [p.lng, p.lat]); }
+function serializeRouteGeometry(geom){
+  if (!geom || !geom.coordinates) return null;
+  const coords = Array.isArray(geom.coordinates) ? geom.coordinates : [];
+  const asObj = coords.map(p => Array.isArray(p) ? ({ lng: p[0], lat: p[1] }) : ({ lng: p.lng, lat: p.lat }));
+  return { type: 'LineString', coordinates: asObj };
+}
+function deserializeRouteGeometry(raw){
+  if (!raw) return null;
+  const geom = (raw.type === 'Feature' && raw.geometry) ? raw.geometry : raw;
+  if (!geom || !Array.isArray(geom.coordinates)) return null;
+  const coords = geom.coordinates.map(p => Array.isArray(p) ? [p[0], p[1]] : [p.lng, p.lat]);
+  const clean = coords.filter(p => Number.isFinite(p[0]) && Number.isFinite(p[1]));
+  return clean.length ? { type: 'LineString', coordinates: clean } : null;
+}
 
 function getCodeByInput(inputId) {
   const raw = document.getElementById(inputId).value;
@@ -4668,7 +4682,7 @@ document.getElementById('saveRoute').onclick = () => {
     points: toObjPoints(points),
     startRuler: toObjPoints(startRuler),
     endRuler: toObjPoints(endRuler),
-    routeGeometry: routeGeometry, // Зберігаємо повну геометрію маршруту
+    routeGeometry: serializeRouteGeometry(routeGeometry), // Зберігаємо повну геометрію маршруту (без вкладених масивів)
     logisticId: logistId || null,
     logisticName: logistName || '',
     distance_km: getUIKm(),
@@ -4728,7 +4742,7 @@ const arrFrom = (pts) => {
       endRuler = arrFrom(routeData.endRuler || []);
       
       // Завантажуємо збережену геометрію, якщо вона є
-      routeGeometry = routeData.routeGeometry || null;
+      routeGeometry = deserializeRouteGeometry(routeData.routeGeometry) || null;
 
       const fCode = routeData.fromCode || null;
       const tCode = routeData.toCode   || null;
@@ -5017,7 +5031,7 @@ async function saveToDB() {
   points: toObjPoints(points),
   startRuler: toObjPoints(startRuler),
   endRuler: toObjPoints(endRuler),
-  routeGeometry: routeGeometry, // Зберігаємо повну геометрію маршруту
+  routeGeometry: serializeRouteGeometry(routeGeometry), // Зберігаємо повну геометрію маршруту (без вкладених масивів)
   logisticId: logistId,          // ✅ ключ у БД лишається logisticId, значення — змінна logistId
   logisticName: getLogistNameById(logistId),
   createdByUid: user?.uid || null,
@@ -5783,7 +5797,7 @@ async function loadFromDB() {
     startRuler = fromObjPoints(data.startRuler || []);
     endRuler = fromObjPoints(data.endRuler || []);
     // Завантажуємо збережену геометрію, якщо вона є
-    routeGeometry = data.routeGeometry || null;
+    routeGeometry = deserializeRouteGeometry(data.routeGeometry) || null;
     // гарантуємо відповідності назва ↔ код у локальному кеші
 registerDirEntry(data.fromCode, data.fromLabel || document.getElementById('fromName').value);
 registerDirEntry(data.toCode,   data.toLabel   || document.getElementById('toName').value);
