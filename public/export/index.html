@@ -244,6 +244,11 @@ td.cell-nav, td.cell-delete{
   white-space: nowrap;
   text-align: center;
 }
+td.cell-nav .btn.nav-btn{
+  padding: 4px 8px;
+  font-size: 12px;
+  min-height: 28px;
+}
 td.cell-nav, td.cell-delete{
   overflow: hidden;
 }
@@ -3042,7 +3047,7 @@ function renderTable(rows){
             ? `<a href="${REVIEW_PAGE}?rid=${encodeURIComponent(r.id)}" target="_blank" rel="noopener">Погодити</a>`
             : '—')
     }</td>
-    <td class="cell-nav"><button class="btn sm share-btn" data-id="${r.id}" data-name="${(r.fromName||'') + ' → ' + (r.toName||'')}">🔗 Поділитися</button></td>
+    <td class="cell-nav"><button class="btn sm nav-btn" data-id="${r.id}" data-name="${(r.fromName||'') + ' → ' + (r.toName||'')}">🧭 Навігатор</button></td>
     <td><button class="btn sm json-one" data-id="${r.id}">JSON</button></td>
     <td class="cell-delete">${
       canDelete
@@ -3492,10 +3497,10 @@ function updateFilterButtonsActive(){
 
 /* Делегування кліків: Поділитися + Копіювати ID/Код */
 document.querySelector('#resTable tbody').addEventListener('click', async (ev)=>{
-  const shareBtn = ev.target.closest('.share-btn');
-  if (shareBtn){
-    const id = shareBtn.getAttribute('data-id');
-    const prettyName = shareBtn.getAttribute('data-name') || 'Маршрут';
+  const navBtn = ev.target.closest('.nav-btn');
+  if (navBtn){
+    const id = navBtn.getAttribute('data-id');
+    const prettyName = navBtn.getAttribute('data-name') || 'Маршрут';
     try{
       setBusy(true);
       const payload = await buildNavigatePayloadById(id, prettyName);
