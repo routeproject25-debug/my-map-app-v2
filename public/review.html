@@ -482,6 +482,7 @@
   let draw = null;
   let proposalEditOn = false;
   let proposalMode = 'route'; // 'route' | 'start' | 'end'
+  let CURRENT_PROPOSAL_GEOMETRY = [];
   const propIds = { route: null, start: null, end: null };
   function ensureDrawOnce(){
     if (draw) return;
@@ -639,6 +640,16 @@
       const start = getDrawCoordsBy('start') || [];
       const end   = getDrawCoordsBy('end')   || [];
       let meters = 0;
+      // якщо редагування вимкнене й є збережена геометрія — показуємо її без Directions
+      if (!proposalEditOn && Array.isArray(CURRENT_PROPOSAL_GEOMETRY) && CURRENT_PROPOSAL_GEOMETRY.length >= 2){
+        meters += pathLengthMeters(CURRENT_PROPOSAL_GEOMETRY);
+        meters += pathLengthMeters(start) + pathLengthMeters(end);
+        setProposalSources(CURRENT_PROPOSAL_GEOMETRY, start, end);
+        const km = meters/1000;
+        const chip = document.getElementById('chipProposal');
+        if (chip) chip.textContent = 'Пропозиція: ' + (isFinite(km) && km>0 ? km.toFixed(2)+' км' : '—');
+        return;
+      }
       // snapped route distance via Directions, if we have 2+
       let snapped = [];
       if (route.length >= 2){
@@ -656,7 +667,8 @@
       }
       // rulers
       meters += pathLengthMeters(start) + pathLengthMeters(end);
-      setProposalSources(snapped.length ? snapped : route, start, end);
+      CURRENT_PROPOSAL_GEOMETRY = snapped.length ? snapped : route;
+      setProposalSources(CURRENT_PROPOSAL_GEOMETRY, start, end);
       const km = meters/1000;
       const chip = document.getElementById('chipProposal');
       if (chip) chip.textContent = 'Пропозиція: ' + (isFinite(km) && km>0 ? km.toFixed(2)+' км' : '—');
@@ -666,6 +678,7 @@
     ensureDrawOnce();
     try{ draw.deleteAll(); }catch(_){ }
     if (!proposal || typeof proposal !== 'object') { updateProposalPreview(); return; }
+    CURRENT_PROPOSAL_GEOMETRY = normalizePoints(proposal.routeGeometry) || [];
     const route = normalizePoints(proposal.points) || [];
     const start = normalizePoints(proposal.startRuler) || [];
     const end   = normalizePoints(proposal.endRuler) || [];
@@ -673,6 +686,10 @@
     if (start.length) upsertDrawLine('start', start);
     if (end.length)   upsertDrawLine('end',   end);
     updateProposalPreview();
+  }
+  function serializeProposalGeometry(coords){
+    if (!Array.isArray(coords) || coords.length < 2) return null;
+    return { type:'LineString', coordinates: coords.map(([lng,lat]) => ({ lng, lat })) };
   }
   function proposalObjFromDraw(){
     const toObj = coords => (coords||[]).map(([lng,lat]) => ({ lng, lat }));
@@ -696,6 +713,7 @@
     const payload = {
       proposal: {
         ...base,
+        routeGeometry: serializeProposalGeometry(CURRENT_PROPOSAL_GEOMETRY),
         distance_km,
         createdAt: new Date().toISOString(),
         createdByUid: user?.uid || null,

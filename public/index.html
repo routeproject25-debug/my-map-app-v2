@@ -6212,11 +6212,14 @@ function updateProposalUIForData(data){
   const chip = document.getElementById('proposalKmChip');
   if (chip) chip.textContent = 'Пропозиція СБ: ' + (Number.isFinite(km) ? km.toFixed(3) + ' км' : '—');
   if (has){
+    const propGeom = deserializeRouteGeometry(p.routeGeometry) || null;
     CURRENT_PROPOSAL = {
       points: fromObjPoints(p.points || p.route || []),
       startRuler: fromObjPoints(p.startRuler || []),
       endRuler: fromObjPoints(p.endRuler || []),
-      distance_km: km
+      distance_km: km,
+      routeGeometry: propGeom,
+      snappedPoints: propGeom?.coordinates || []
     };
     // Підготуємо шари і дані; спочатку покажемо «як є», потім асинхронно дотягнемо снапнуту геометрію
   setProposalOverlayData(CURRENT_PROPOSAL);
@@ -6250,12 +6253,14 @@ async function acceptProposal(){
       startRuler: (CURRENT_PROPOSAL.startRuler || []).slice(),
       endRuler: (CURRENT_PROPOSAL.endRuler || []).slice(),
       distance_km: (typeof CURRENT_PROPOSAL.distance_km === 'number') ? CURRENT_PROPOSAL.distance_km : undefined,
+      routeGeometry: CURRENT_PROPOSAL.routeGeometry || (Array.isArray(CURRENT_PROPOSAL.snappedPoints) ? { type:'LineString', coordinates: CURRENT_PROPOSAL.snappedPoints } : null)
     };
 
     const payload = {
       points: toObjPoints(propLocal.points),
       startRuler: toObjPoints(propLocal.startRuler),
       endRuler: toObjPoints(propLocal.endRuler),
+      routeGeometry: serializeRouteGeometry(propLocal.routeGeometry),
       distance_km: propLocal.distance_km,
       updatedAt: new Date().toISOString(),
       proposal: firebase.firestore.FieldValue.delete()
@@ -6285,7 +6290,11 @@ async function acceptProposal(){
   points = propLocal.points.slice();
   startRuler = propLocal.startRuler.slice();
   endRuler = propLocal.endRuler.slice();
-    rebuildMarkers(); rebuildRulerMarkers(); drawRulers(); updateRoute();
+    routeGeometry = propLocal.routeGeometry || null;
+    rebuildMarkers(); rebuildRulerMarkers(); drawRulers();
+    if (!displaySavedGeometry()) {
+      updateRoute();
+    }
     clearProposalOverlay();
     alert('✅ Пропозицію застосовано до маршруту.');
   }catch(e){

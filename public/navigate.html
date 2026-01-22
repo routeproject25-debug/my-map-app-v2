@@ -408,6 +408,21 @@
   function metersToKM(m){ return (m/1000).toFixed(1); }
   function secondsToETA(s){ const dt = new Date(Date.now() + s*1000); const hh=String(dt.getHours()).padStart(2,'0'); const mm=String(dt.getMinutes()).padStart(2,'0'); return `${hh}:${mm}`; }
 
+  function normalizeLineCoords(raw){
+    try{
+      if (!raw) return null;
+      let g = raw;
+      if (g.type === 'Feature' && g.geometry) g = g.geometry;
+      if (g.type === 'LineString' && Array.isArray(g.coordinates)) g = g.coordinates;
+      if (!Array.isArray(g)) return null;
+      const out = g.map(p => Array.isArray(p)
+        ? [Number(p[0]), Number(p[1])]
+        : [Number(p.lng), Number(p.lat)])
+        .filter(p => Number.isFinite(p[0]) && Number.isFinite(p[1]));
+      return out.length >= 2 ? out : null;
+    }catch(_){ return null; }
+  }
+
   async function loadRouteData(){
     let json = null;
     if (SRCZ) {
@@ -423,7 +438,8 @@
     if (!json) throw new Error('Не передано маршрут. Використай ?srcz=... або ?src=...');
     const segs = Array.isArray(json.manualSegments) ? json.manualSegments : [];
     const cleanedSegs = segs.map(arr => (Array.isArray(arr)?arr:[]).filter(p=>Array.isArray(p)&&p.length>=2&&isFinite(p[0])&&isFinite(p[1])));
-    return { name: json.name || 'Маршрут', points: json.points, manualSegments: cleanedSegs };
+    const routeGeometry = normalizeLineCoords(json.routeGeometry || json.routeGeoJSON || json.geometry || null);
+    return { name: json.name || 'Маршрут', points: json.points, routeGeometry, manualSegments: cleanedSegs };
   }
 
   function addRouteToMap(){
@@ -467,7 +483,8 @@
     /* видалено підтримку камер швидкості */
   }
 
-  async function fetchDirections(points){
+  async function fetchDirections(points, opts = {}){
+    const preserveGeometry = !!opts.preserveGeometry;
     const coords = points.map(p => p.join(',')).join(';');
     const url = `https://api.mapbox.com/directions/v5/mapbox/${PROFILE}/${coords}?alternatives=false&geometries=geojson&overview=full&steps=true&language=uk&voice_units=metric&access_token=${MAPBOX_TOKEN}`;
     const res = await fetch(url);
@@ -479,7 +496,9 @@
     const json = await res.json();
     if (!json.routes || !json.routes[0]) throw new Error('Маршрут не побудовано');
     const r = json.routes[0];
-    routeGeoJSON = { type:'Feature', geometry:r.geometry, properties:{} };
+    if (!preserveGeometry || !routeGeoJSON){
+      routeGeoJSON = { type:'Feature', geometry:r.geometry, properties:{} };
+    }
     totalDistance = r.distance; totalDuration = r.duration;
     $dist.textContent = `${metersToKM(totalDistance)} км`;
     $eta.textContent = `ETA ${secondsToETA(totalDuration)}`;
@@ -1229,17 +1248,28 @@
 
   map.on('load', async ()=>{
     try{
-      const { name, points, manualSegments: segs } = await loadRouteData();
+      const { name, points, routeGeometry, manualSegments: segs } = await loadRouteData();
       document.getElementById('routeTitle').textContent = name;
       manualSegments = Array.isArray(segs) ? segs : [];
 
-      const waypoints = clampWaypoints(points, 25);
-      try {
-        await fetchDirections(waypoints);
-      } catch (e) {
-        if (String(e.message || '').includes('422') && waypoints.length > 2) {
-          await fetchDirections([waypoints[0], waypoints[waypoints.length - 1]]);
-        } else { throw e; }
+      const cleanedPoints = Array.isArray(points) ? points.filter(p => Array.isArray(p) && p.length >= 2) : [];
+      const geometryCoords = routeGeometry || (cleanedPoints.length > 25 ? cleanedPoints : null);
+      if (geometryCoords && geometryCoords.length >= 2){
+        routeGeoJSON = { type:'Feature', geometry:{ type:'LineString', coordinates: geometryCoords }, properties:{} };
+        routeLengthKm = turf.length(routeGeoJSON, {units:'kilometers'});
+        totalDistance = routeLengthKm * 1000;
+        $dist.textContent = `${metersToKM(totalDistance)} км`;
+      }
+
+      const waypoints = clampWaypoints(cleanedPoints, 25);
+      if (waypoints.length >= 2){
+        try {
+          await fetchDirections(waypoints, { preserveGeometry: !!routeGeoJSON });
+        } catch (e) {
+          if (String(e.message || '').includes('422') && waypoints.length > 2) {
+            await fetchDirections([waypoints[0], waypoints[waypoints.length - 1]], { preserveGeometry: !!routeGeoJSON });
+          } else { throw e; }
+        }
       }
 
       addRouteToMap();
