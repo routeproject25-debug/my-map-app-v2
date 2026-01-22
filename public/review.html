@@ -889,6 +889,35 @@
     routeLayers = [];
   }
 
+  // saved-geometry рендерінг основного маршруту (без Directions)
+  function drawSavedRoute(points){
+    clearRouteLayers();
+    if(!Array.isArray(points) || points.length < 2){
+      return 0;
+    }
+    const geom = { type:'LineString', coordinates: points };
+    const srcId = 'rev-route-saved';
+    map.addSource(srcId, { type:'geojson', data:{ type:'Feature', geometry: geom }});
+    map.addLayer({
+      id: srcId, type:'line', source:srcId,
+      layout:{ 'line-cap':'round','line-join':'round' },
+      paint:{ 'line-color': '#ff2d2d', 'line-width': 5 }
+    });
+    routeLayers.push(srcId);
+
+    // bounds
+    let bMinLng=+Infinity, bMinLat=+Infinity, bMaxLng=-Infinity, bMaxLat=-Infinity;
+    for (const [lng,lat] of points){
+      if(lng<bMinLng) bMinLng=lng; if(lat<bMinLat) bMinLat=lat;
+      if(lng>bMaxLng) bMaxLng=lng; if(lat>bMaxLat) bMaxLat=lat;
+    }
+    if(isFinite(bMinLng)){
+      map.fitBounds([[bMinLng,bMinLat],[bMaxLng,bMaxLat]], { padding: 40, maxZoom: 14 });
+    }
+
+    return pathLengthMeters(points);
+  }
+
   // snapped-to-road рендерінг основного маршруту
   async function drawSnappedRoute(points){
     clearRouteLayers();
@@ -1197,7 +1226,9 @@ function drawManualSegments(d){
 
     // --- snapped маршрут + dashed rulers ---
         // ⚙️ fallback по полях і нормалізація
+    const savedPts = normalizePoints(d.routeGeometry);
     const pts =
+      savedPts ||
       normalizePoints(d.points) ||
       normalizePoints(d.coordinates) ||
       normalizePoints(d.route) ||
@@ -1206,7 +1237,7 @@ function drawManualSegments(d){
       fromObjPoints(d.points||[]) || [];
     CURRENT_ROUTE_POINTS = Array.isArray(pts) ? pts.slice() : [];
     LAST_ROUTE_DOC = d; // збережемо для відновлення після style.load
-  const routeMeters = await drawSnappedRoute(pts);
+    const routeMeters = savedPts ? drawSavedRoute(savedPts) : await drawSnappedRoute(pts);
     setSEMarkers(pts);
     drawRulers(d);
 	drawManualSegments(d);

@@ -1273,7 +1273,8 @@ async function drawRouteOnMap(row){
   await ensureMap();
   const d = row.raw || {};
   // route line
-  const pts = normalizePoints(d.points) || normalizePoints(d.coordinates) || normalizePoints(d.route) || normalizePoints(d.geojson) || normalizePoints(d.geometry);
+  const savedPts = normalizePoints(d.routeGeometry);
+  const pts = savedPts || normalizePoints(d.points) || normalizePoints(d.coordinates) || normalizePoints(d.route) || normalizePoints(d.geojson) || normalizePoints(d.geometry);
   let points = pts;
   if (!points || points.length < 2){
     const parts = [];
@@ -1295,7 +1296,7 @@ async function drawRouteOnMap(row){
 
   // Try to snap to roads using Mapbox Directions if feasible
   try{
-    if (points && points.length >= 2){
+    if (!savedPts && points && points.length >= 2){
       const snapped = await fetchSnappedRoute(points);
       const snapCoords = snapped || points; // якщо Directions не дав результат — малюємо оригінальні точки, але тільки у snap-шарі
       const snapFC = (snapCoords && snapCoords.length>=2)

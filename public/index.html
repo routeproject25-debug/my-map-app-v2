@@ -2088,6 +2088,8 @@ let insertAfterMode = false; // legacy (підтримка старої гілк
 // Новий універсальний режим вставки: { type:'route'|'ruler-start'|'ruler-end', index:number, where:'before'|'after' }
 let insertMode = null;
 let points = [], markers = [], startRuler = [], endRuler = [], rulerLines = [], routeLayers = [];
+// Зберігаємо повну геометрію маршруту (всі координати ліній з Directions API)
+let routeGeometry = null; // { type: 'LineString', coordinates: [[lng, lat], ...] } або FeatureCollection
 // Маркери лінійок (окремо від маркерів маршруту)
 let startRulerMarkers = [], endRulerMarkers = [];
 // HTML‑лейбли для номерів (маршрут і лінійки)
@@ -3837,14 +3839,69 @@ function clearRouteLayers() {
   });
   routeLayers = [];
 }
+
+// ============= Функція для відображення збереженої геометрії =============
+function displaySavedGeometry() {
+  const geom = (() => {
+    if (!routeGeometry) return null;
+    if (routeGeometry.type === 'Feature' && routeGeometry.geometry) return routeGeometry.geometry;
+    if (routeGeometry.type === 'FeatureCollection' && Array.isArray(routeGeometry.features)) {
+      const feat = routeGeometry.features.find(f => f?.geometry?.type === 'LineString');
+      return feat ? feat.geometry : null;
+    }
+    return routeGeometry;
+  })();
+  if (!geom || !geom.coordinates || geom.coordinates.length === 0) {
+    return false; // Немає збереженої геометрії
+  }
+  
+  clearRouteLayers();
+  
+  // Відобразити збережену геометрію
+  const layerId = 'saved-route-geometry';
+  const geo = {
+    type: 'Feature',
+    geometry: geom
+  };
+  
+  if (map.getSource(layerId)) {
+    try { map.getSource(layerId).setData(geo); } catch(_){}
+    if (!map.getLayer(layerId)){
+      map.addLayer({
+        id: layerId, type: 'line', source: layerId,
+        layout: { 'line-join': 'round', 'line-cap': 'round' },
+        paint: { 'line-color': '#3887be', 'line-width': 5 }
+      });
+    }
+  } else {
+    map.addSource(layerId, { type: 'geojson', data: geo });
+    map.addLayer({
+      id: layerId, type: 'line', source: layerId,
+      layout: { 'line-join': 'round', 'line-cap': 'round' },
+      paint: { 'line-color': '#3887be', 'line-width': 5 }
+    });
+  }
+  routeLayers.push(layerId);
+  
+  // Повернути дорожню сітку під маршрут
+  try { ensureRoadGridBelowRoutes(); } catch(_) {}
+  
+  return true; // Геометрію успішно відображено
+}
+
 async function updateRoute() {
   if (points.length < 2) {
     setKmUI(calculateRulerDistance(startRuler) + calculateRulerDistance(endRuler));
-    updateCounters(); clearRouteLayers(); return;
+    updateCounters(); clearRouteLayers(); 
+    routeGeometry = null; // Очистити збережену геометрію
+    return;
   }
   const chunks = splitIntoChunks(points, 20);
   let totalDistance = 0;
   clearRouteLayers();
+  
+  // Збираємо всі координати геометрії маршруту
+  const allGeometryCoords = [];
 
   for (let i = 0; i < chunks.length; i++) {
     const chunk = chunks[i];
@@ -3863,6 +3920,12 @@ async function updateRoute() {
         totalDistance += route.distance;
         const layerId = `route-part-${i}`;
         const geo = { type: 'Feature', geometry: route.geometry };
+        
+        // Зберегти координати геометрії
+        if (route.geometry && route.geometry.coordinates) {
+          allGeometryCoords.push(...route.geometry.coordinates);
+        }
+        
         // Захист від дублювання джерела: оновлюємо якщо існує, інакше додаємо
         if (map.getSource(layerId)) {
           try { map.getSource(layerId).setData(geo); } catch(_){}
@@ -3884,6 +3947,16 @@ async function updateRoute() {
         routeLayers.push(layerId);
       }
     } catch (e) { console.error('Помилка маршруту:', e); }
+  }
+  
+  // Зберегти повну геометрію маршруту
+  if (allGeometryCoords.length > 0) {
+    routeGeometry = {
+      type: 'LineString',
+      coordinates: allGeometryCoords
+    };
+  } else {
+    routeGeometry = null;
   }
 
   totalDistance = (totalDistance / 1000) + calculateRulerDistance(startRuler) + calculateRulerDistance(endRuler);
@@ -4595,6 +4668,7 @@ document.getElementById('saveRoute').onclick = () => {
     points: toObjPoints(points),
     startRuler: toObjPoints(startRuler),
     endRuler: toObjPoints(endRuler),
+    routeGeometry: routeGeometry, // Зберігаємо повну геометрію маршруту
     logisticId: logistId || null,
     logisticName: logistName || '',
     distance_km: getUIKm(),
@@ -4652,6 +4726,9 @@ const arrFrom = (pts) => {
       points = arrFrom(routeData.points || []);
       startRuler = arrFrom(routeData.startRuler || []);
       endRuler = arrFrom(routeData.endRuler || []);
+      
+      // Завантажуємо збережену геометрію, якщо вона є
+      routeGeometry = routeData.routeGeometry || null;
 
       const fCode = routeData.fromCode || null;
       const tCode = routeData.toCode   || null;
@@ -4676,7 +4753,13 @@ const arrFrom = (pts) => {
 
 
       // Відновити маркери лінійок одразу після завантаження
-      rebuildMarkers(); rebuildRulerMarkers(); drawRulers(); updateRoute();
+      rebuildMarkers(); rebuildRulerMarkers(); drawRulers(); 
+      
+      // Якщо є збережена геометрія - відобразити її, інакше побудувати маршрут через API
+      if (!displaySavedGeometry()) {
+        updateRoute();
+      }
+      
       if (points.length > 0) map.flyTo({ center: points[0], zoom: 12 });
       alert('Маршрут успішно завантажено з файлу!');
     } catch (err) { alert('Помилка при завантаженні: ' + err.message); }
@@ -4694,11 +4777,15 @@ function buildCurrentRouteKml(){
   parts.push('<kml xmlns="http://www.opengis.net/kml/2.2"><Document>');
   parts.push(`<name>${kmlEsc(name)}</name>`);
   // основний маршрут
-  if (points.length >= 2){
+  const geom = (routeGeometry && routeGeometry.type === 'Feature') ? routeGeometry.geometry : routeGeometry;
+  const routeCoords = (geom && geom.type === 'LineString' && Array.isArray(geom.coordinates) && geom.coordinates.length >= 2)
+    ? geom.coordinates
+    : points;
+  if (routeCoords.length >= 2){
     parts.push('<Placemark>');
     parts.push(`<name>${kmlEsc('Route')}</name>`);
     parts.push('<LineString><tessellate>1</tessellate><coordinates>');
-    parts.push(kmlCoords(points));
+    parts.push(kmlCoords(routeCoords));
     parts.push('</coordinates></LineString></Placemark>');
   }
   // лінійки
@@ -4930,6 +5017,7 @@ async function saveToDB() {
   points: toObjPoints(points),
   startRuler: toObjPoints(startRuler),
   endRuler: toObjPoints(endRuler),
+  routeGeometry: routeGeometry, // Зберігаємо повну геометрію маршруту
   logisticId: logistId,          // ✅ ключ у БД лишається logisticId, значення — змінна logistId
   logisticName: getLogistNameById(logistId),
   createdByUid: user?.uid || null,
@@ -5694,13 +5782,18 @@ async function loadFromDB() {
     points = fromObjPoints(data.points || []);
     startRuler = fromObjPoints(data.startRuler || []);
     endRuler = fromObjPoints(data.endRuler || []);
+    // Завантажуємо збережену геометрію, якщо вона є
+    routeGeometry = data.routeGeometry || null;
     // гарантуємо відповідності назва ↔ код у локальному кеші
 registerDirEntry(data.fromCode, data.fromLabel || document.getElementById('fromName').value);
 registerDirEntry(data.toCode,   data.toLabel   || document.getElementById('toName').value);
 
     // Показати маркери лінійок без додаткових кліків
-    rebuildMarkers(); rebuildRulerMarkers(); drawRulers(); updateRoute();
-	updateHighlights();
+    rebuildMarkers(); rebuildRulerMarkers(); drawRulers();
+    if (!displaySavedGeometry()) {
+      updateRoute();
+    }
+    updateHighlights();
     if (points.length > 0) map.flyTo({ center: points[0], zoom: 12 });
   // ⬇️ Proposal: refresh overlay/UI if present
   try { updateProposalUIForData(data); } catch(_){ }
