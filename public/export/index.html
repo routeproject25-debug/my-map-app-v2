@@ -244,6 +244,17 @@ td.cell-nav, td.cell-delete{
   white-space: nowrap;
   text-align: center;
 }
+td.cell-nav, td.cell-delete{
+  overflow: hidden;
+}
+td.cell-nav .btn, td.cell-delete .btn{
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  max-width: 140px;
+  box-sizing: border-box;
+}
 
 /* Липкий верхній горизонтальний скрол поверх таблиці */
 .results-card { position: relative; }
