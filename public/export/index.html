@@ -1855,6 +1855,15 @@ function syncXWidth(){
     _bottomInner.style.width = w;
     if (_bottomScroller.scrollLeft !== wrap.scrollLeft) _bottomScroller.scrollLeft = wrap.scrollLeft;
   }
+  // Після зміни ширини — синхронізуємо позиції пропорційно
+  try {
+    const maxWrap = Math.max(0, (wrap.scrollWidth || 0) - (wrap.clientWidth || 0));
+    const ratio = maxWrap ? (wrap.scrollLeft / maxWrap) : 0;
+    const maxTop = Math.max(0, (_xScroller.scrollWidth || 0) - (_xScroller.clientWidth || 0));
+    const maxBottom = Math.max(0, (_bottomScroller ? _bottomScroller.scrollWidth : 0) - (_bottomScroller ? _bottomScroller.clientWidth : 0));
+    _xScroller.scrollLeft = ratio * maxTop;
+    if (_bottomScroller) _bottomScroller.scrollLeft = ratio * maxBottom;
+  } catch(_){ }
 }
 
 function bindXSync(){
@@ -1866,23 +1875,32 @@ function bindXSync(){
 
   const setLeft = (el, x) => {
     if (!el) return;
-    if (el.scrollLeft === x) return;
-    el.scrollLeft = x;
+    const nx = Math.max(0, Math.round(x || 0));
+    if (el.scrollLeft === nx) return;
+    el.scrollLeft = nx;
+  };
+  const maxScroll = (el) => el ? Math.max(0, (el.scrollWidth || 0) - (el.clientWidth || 0)) : 0;
+  const syncScroll = (fromEl, toEl) => {
+    if (!fromEl || !toEl) return;
+    const maxFrom = maxScroll(fromEl);
+    const maxTo = maxScroll(toEl);
+    const ratio = maxFrom ? (fromEl.scrollLeft / maxFrom) : 0;
+    setLeft(toEl, ratio * maxTo);
   };
   
   // Таблиця → верхній і нижній скролбари
   wrap.addEventListener('scroll', () => {
     if (lock) return; lock = true;
-    setLeft(_xScroller, wrap.scrollLeft);
-    setLeft(_bottomScroller, wrap.scrollLeft);
+    syncScroll(wrap, _xScroller);
+    syncScroll(wrap, _bottomScroller);
     lock = false;
   }, { passive:true });
 
   // Верхній скролбар → таблиця і нижній
   _xScroller.addEventListener('scroll', () => {
     if (lock) return; lock = true;
-    setLeft(wrap, _xScroller.scrollLeft);
-    setLeft(_bottomScroller, _xScroller.scrollLeft);
+    syncScroll(_xScroller, wrap);
+    syncScroll(_xScroller, _bottomScroller);
     lock = false;
   }, { passive:true });
   
@@ -1890,8 +1908,8 @@ function bindXSync(){
   if (_bottomScroller) {
     _bottomScroller.addEventListener('scroll', () => {
       if (lock) return; lock = true;
-      setLeft(wrap, _bottomScroller.scrollLeft);
-      setLeft(_xScroller, _bottomScroller.scrollLeft);
+      syncScroll(_bottomScroller, wrap);
+      syncScroll(_bottomScroller, _xScroller);
       lock = false;
     }, { passive:true });
   }
