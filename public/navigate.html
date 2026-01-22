@@ -1121,7 +1121,17 @@
     }
   }
 
-  function onPositionError(err){ console.warn('GPS error', err); }
+  function onPositionError(err){
+    console.warn('GPS error', err);
+    try{
+      const msg = (err && err.message) ? err.message : 'Неможливо отримати геолокацію.';
+      showToast('GPS: ' + msg);
+      if ($notice){
+        $notice.textContent = 'GPS не працює. Перевір дозвіл у браузері, ввімкни геолокацію (GPS) і онови сторінку.';
+        $notice.style.display = 'block';
+      }
+    }catch(_){ }
+  }
 
   document.getElementById('btnStart').onclick = startNav;
   document.getElementById('btnStop').onclick = stopNav;
