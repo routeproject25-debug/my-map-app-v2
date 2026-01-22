@@ -154,14 +154,18 @@
 
 
 .colpicker{
-  grid-column: 1 / -1;           /* на всю ширину, як картка */
-  position: static;              /* більше не sticky */
+  position: fixed;
+  right: 12px;
+  top: 96px;
   background:#fff;
   border:1px solid #e5e7eb;
   border-radius:12px;
   padding:12px;
-  max-height: none;
-  overflow: visible;
+  max-width: min(920px, calc(100vw - 24px));
+  max-height: 70vh;
+  overflow: auto;
+  box-shadow: 0 10px 24px rgba(0,0,0,.12);
+  z-index: 2600;
 }
 
 .colpicker h3{ margin:0 0 8px; font-size:14px; }
@@ -195,7 +199,7 @@
 /* мобільне: сайдбар під контент */
 @media (max-width: 980px){
   .layout{ grid-template-columns: 1fr; }
-  .colpicker{ position:static; }
+  .colpicker{ right: 8px; left: 8px; max-width: calc(100vw - 16px); }
   .filters-card{ grid-column: 1 / -1; }   /* щоб картка фільтрів не «тягнулася» в неіснуючу 2-гу колонку */
 }
 
@@ -3853,16 +3857,38 @@ if (mapResizeHandle){
 const COLPICKER = document.getElementById('columnPicker');
 const COLPICKER_STATE_KEY = 'export.colpickerHidden.v1';
 
+function positionColpicker(){
+  const btn = document.getElementById('btnToggleSidebar');
+  if (!COLPICKER || !btn) return;
+  const r = btn.getBoundingClientRect();
+  const top = Math.round(r.bottom + 8);
+  const right = Math.max(12, Math.round(window.innerWidth - r.right));
+  COLPICKER.style.top = `${top}px`;
+  COLPICKER.style.right = `${right}px`;
+}
 function applyColpickerState(){
   const hidden = localStorage.getItem(COLPICKER_STATE_KEY) === '1';
   COLPICKER.classList.toggle('is-hidden', hidden);
+  if (!hidden) positionColpicker();
 }
 applyColpickerState();
 
 document.getElementById('btnToggleSidebar')?.addEventListener('click', () => {
   const hidden = COLPICKER.classList.toggle('is-hidden');
+  if (!hidden) positionColpicker();
   localStorage.setItem(COLPICKER_STATE_KEY, hidden ? '1' : '0');
 });
+
+// Закривати поповер при кліку поза ним
+document.addEventListener('click', (e)=>{
+  const btn = document.getElementById('btnToggleSidebar');
+  if (!COLPICKER || !btn) return;
+  if (COLPICKER.classList.contains('is-hidden')) return;
+  if (COLPICKER.contains(e.target) || btn.contains(e.target)) return;
+  COLPICKER.classList.add('is-hidden');
+  localStorage.setItem(COLPICKER_STATE_KEY, '1');
+});
+window.addEventListener('resize', ()=>{ if (COLPICKER && !COLPICKER.classList.contains('is-hidden')) positionColpicker(); });
 
 /* ==== Тогл «Фільтри» як секції (показати/сховати) ==== */
 const FILTERS = document.querySelector('.filters-card');
