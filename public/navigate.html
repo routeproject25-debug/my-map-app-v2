@@ -1047,6 +1047,9 @@
       const snapKm = turf.nearestPointOnLine(routeGeoJSON, filteredPos, {units:'kilometers'});
       const userLocKm = (snapKm.properties && typeof snapKm.properties.location === 'number') ? snapKm.properties.location : 0;
       const remainRoute = Math.max(0, (routeLengthKm - userLocKm) * 1000);
+      const rulersMeters = lineDistanceMeters(startRuler) + lineDistanceMeters(endRuler);
+      const totalMetersWithRulers = (routeGeoJSON ? (routeLengthKm * 1000) : (totalDistance || 0)) + rulersMeters;
+      const remainTotal = remainRoute + rulersMeters;
 
       /* видалено озвучення камер швидкості */
 
@@ -1065,7 +1068,7 @@
         return;
       }
 
-      $dist.textContent = `${(remainRoute/1000).toFixed(1)} км`;
+      $dist.textContent = `${(remainTotal/1000).toFixed(1)} км`;
       const next = getNextStepByLocation(userLocKm);
       if (next){
         // ETA за планом і за поточною швидкістю
@@ -1077,7 +1080,7 @@
           return (map.getZoom() >= 13) ? 45/3.6 : 75/3.6; // м/с
         }
         const avgSpeed = getAverageSpeed();
-        const etaPlanSec = (totalDistance > 0) ? ((remainRoute / totalDistance) * totalDuration) : totalDuration;
+        const etaPlanSec = (totalMetersWithRulers > 0) ? ((remainTotal / totalMetersWithRulers) * totalDuration) : totalDuration;
         const etaSpeedSec = (isMoving && avgSpeed > 2) ? (remainRoute / Math.max(avgSpeed, 0.1)) : etaPlanSec;
         // Додаткові затримки (світлофори/маневри), якщо увімкнено
         let penalty = 0;
