@@ -184,8 +184,10 @@
 
 /* таблиця: ширина колонки ХАБ */
 .col-hub { width: 120px; }
+/* колонка "Навігатор" */
+.col-navigator { width: 140px; }
 /* колонка "Видалити" */
-.col-delete { width: 120px; }
+.col-delete { width: 140px; }
 
 /* щоб «Результати» не розтягувались на всю ширину в межах layout */
 .layout .main .card.edge { width:100%; margin-left:0; margin-right:0; border-radius:12px; }
@@ -237,6 +239,11 @@
 
 /* Щоб короткі колонки не стискались зовсім */
 #resTable th, #resTable td { min-width: 90px; }
+th[data-colkey="navigator"], th[data-colkey="delete"],
+td.cell-nav, td.cell-delete{
+  white-space: nowrap;
+  text-align: center;
+}
 
 /* Липкий верхній горизонтальний скрол поверх таблиці */
 .results-card { position: relative; }
@@ -737,7 +744,7 @@ body.map-open #bottomScroller{
             <col class="col-id">  <!-- ID -->
             <col>                 <!-- Карта -->
             <col>                 <!-- Погодження -->
-            <col>                 <!-- Навігатор -->
+            <col class="col-navigator"> <!-- Навігатор -->
             <col>                 <!-- JSON -->
             <col class="col-delete"> <!-- Видалити -->
           </colgroup>
@@ -3024,9 +3031,9 @@ function renderTable(rows){
             ? `<a href="${REVIEW_PAGE}?rid=${encodeURIComponent(r.id)}" target="_blank" rel="noopener">Погодити</a>`
             : '—')
     }</td>
-    <td><button class="btn sm share-btn" data-id="${r.id}" data-name="${(r.fromName||'') + ' → ' + (r.toName||'')}">🔗 Поділитися</button></td>
+    <td class="cell-nav"><button class="btn sm share-btn" data-id="${r.id}" data-name="${(r.fromName||'') + ' → ' + (r.toName||'')}">🔗 Поділитися</button></td>
     <td><button class="btn sm json-one" data-id="${r.id}">JSON</button></td>
-    <td>${
+    <td class="cell-delete">${
       canDelete
         ? `<button class="btn sm danger del-one" data-id="${r.id}" data-name="${(r.fromName||'') + ' → ' + (r.toName||'')}">🗑️ Видалити</button>`
         : '—'
