@@ -1954,13 +1954,14 @@ function syncXWidth(){
   const table = document.getElementById('resTable');
   const wrap  = document.querySelector('.table-wrap');
   if (!_xScroller || !_xInner || !table || !wrap) return;
-  const w = table.scrollWidth + 'px';
-  _xInner.style.width = w;
+  const wTop = table.scrollWidth + 'px';
+  _xInner.style.width = wTop;
   if (_xScroller.scrollLeft !== wrap.scrollLeft) _xScroller.scrollLeft = wrap.scrollLeft;
   
   // Синхронізувати нижній скролбар
   if (_bottomScroller && _bottomInner) {
-    _bottomInner.style.width = w;
+    const minBottom = Math.max(table.scrollWidth, wrap.clientWidth + 1);
+    _bottomInner.style.width = minBottom + 'px';
     if (_bottomScroller.scrollLeft !== wrap.scrollLeft) _bottomScroller.scrollLeft = wrap.scrollLeft;
   }
   // Після зміни ширини — синхронізуємо позиції пропорційно
