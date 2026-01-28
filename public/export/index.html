@@ -274,11 +274,11 @@
 
 /* Експорт: заголовок і кнопки в рядку навігації шапки */
 .export-topnav{
-  width:100%;
   display:flex;
   align-items:center;
   gap:12px;
-  flex-wrap:wrap;
+  flex:1 1 auto;
+  flex-wrap:nowrap;
 }
 .export-title{
   margin:0;
@@ -292,7 +292,15 @@
   color:#fff;
 }
 .export-actions{
+  margin-left:0;
+}
+
+/* Шапка експорту: nav зліва, authbar справа зверху */
+header.top{ flex-wrap:nowrap; }
+header.top .authbar{
   margin-left:auto;
+  align-self:flex-start;
+  white-space:nowrap;
 }
 
 /* Адаптив */
@@ -302,6 +310,9 @@
   .header-actions{ justify-content:flex-start; }
   .export-title{ order: 3; flex-basis:100%; white-space:normal; }
   .export-actions{ order: 4; width:100%; justify-content:flex-start; }
+  .export-topnav{ flex-wrap:wrap; }
+  header.top{ flex-wrap:wrap; }
+  header.top .authbar{ width:100%; justify-content:flex-start; white-space:normal; }
 }
 
 /* Щоб короткі колонки не стискались зовсім */
@@ -677,7 +688,6 @@ body.map-open #bottomScroller{
     <h1 class="page-title export-title">Експорт маршрутів (Firestore → Excel)</h1>
 
     <div class="header-actions export-actions">
-      <a class="btn" href="/index.html">← До карти</a>
       <button id="btnToggleFilters" class="btn coltoggle">☰ Фільтри</button>
       <button id="btnToggleSidebar" class="btn coltoggle">☰ Поля таблиці</button>
     </div>
