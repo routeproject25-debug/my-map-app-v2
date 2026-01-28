@@ -1964,15 +1964,6 @@ function syncXWidth(){
     _bottomInner.style.width = minBottom + 'px';
     if (_bottomScroller.scrollLeft !== wrap.scrollLeft) _bottomScroller.scrollLeft = wrap.scrollLeft;
   }
-  // Після зміни ширини — синхронізуємо позиції пропорційно
-  try {
-    const maxWrap = Math.max(0, (wrap.scrollWidth || 0) - (wrap.clientWidth || 0));
-    const ratio = maxWrap ? (wrap.scrollLeft / maxWrap) : 0;
-    const maxTop = Math.max(0, (_xScroller.scrollWidth || 0) - (_xScroller.clientWidth || 0));
-    const maxBottom = Math.max(0, (_bottomScroller ? _bottomScroller.scrollWidth : 0) - (_bottomScroller ? _bottomScroller.clientWidth : 0));
-    _xScroller.scrollLeft = ratio * maxTop;
-    if (_bottomScroller) _bottomScroller.scrollLeft = ratio * maxBottom;
-  } catch(_){ }
 }
 
 function bindXSync(){
@@ -1984,8 +1975,8 @@ function bindXSync(){
 
   const setLeft = (el, x) => {
     if (!el) return;
-    const nx = Math.max(0, Math.round(x || 0));
-    if (el.scrollLeft === nx) return;
+    const nx = Math.max(0, x || 0);
+    if (Math.abs(el.scrollLeft - nx) < 0.5) return;
     el.scrollLeft = nx;
   };
   const maxScroll = (el) => el ? Math.max(0, (el.scrollWidth || 0) - (el.clientWidth || 0)) : 0;
