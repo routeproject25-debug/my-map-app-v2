@@ -372,11 +372,13 @@ td.cell-nav .btn, td.cell-delete .btn{
   bottom: 0;
   z-index: 150;
   height: 20px;
-  overflow-x: auto;
+  overflow-x: scroll;
   overflow-y: hidden;
   background: #fff;
   border-top: 2px solid #e5e7eb;
   box-shadow: 0 -2px 8px rgba(0,0,0,.1);
+  scrollbar-gutter: stable both-edges;
+  display: block !important;
 }
 #bottomScroller::-webkit-scrollbar { height: 16px; }
 #bottomScroller::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 8px; }
