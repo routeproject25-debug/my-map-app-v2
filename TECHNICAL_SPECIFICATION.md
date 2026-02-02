@@ -127,7 +127,7 @@
 
 **FR-3.2** Система ПОВИННА автоматично генерувати:
 - Унікальний код маршруту (буква початкової точки + 10 цифр)
-- Ключ маршруту (routeKey) у форматі "КодВід-КодДо"
+- Ключ маршруту (routeKey) у форматі 2 літери + 10 цифр
 - Відстань у кілометрах з точністю до 3 знаків після коми
 
 **FR-3.3** Система ПОВИННА зберігати координати маршруту:
@@ -151,7 +151,6 @@
 **FR-4.1** Система ПОВИННА зберігати довідник точок маршрутів:
 - Код точки (унікальний у межах хабу)
 - Назва точки
-- Координати (lat, lng)
 - Підрозділ
 - Компанія
 - Хаб
@@ -163,8 +162,8 @@
 - Кешування у localStorage (TTL 12 годин)
 
 **FR-4.3** Система ПОВИННА дозволяти імпорт довідника:
-- Завантаження Excel файлу
-- Валідація даних (координати, обов'язкові поля)
+- Завантаження CSV/TSV або копіпаста з Excel
+- Валідація обов'язкових полів
 - Масове додавання/оновлення записів
 
 #### 3.1.5 Погодження маршрутів
@@ -173,7 +172,7 @@
 - **pending** — очікує розгляду
 - **approved** — погоджено
 - **rejected** — відхилено
-- **null** — не потребує погодження (legacy)
+- **draft** — чернетка (після зміни відстані/маршруту)
 
 **FR-5.2** Користувачі з роллю security або admin ПОВИННІ мати можливість:
 - Переглядати маршрути на погодження
@@ -237,13 +236,12 @@
 #### 3.1.7 Імпорт даних
 
 **FR-7.1** Система ПОВИННА дозволяти імпорт довідника точок:
-- Завантаження Excel файлу
+- Завантаження CSV/TSV або копіпаста з Excel
 - Автоматичне визначення колонок
-- Валідація координат (формати: 50.45, 50°27'18"N)
 - Попередній перегляд перед збереженням
 
 **FR-7.2** Система ПОВИННА дозволяти імпорт готових маршрутів:
-- Завантаження JSON або Excel
+- Завантаження JSON або ZIP (папка routes/)
 - Валідація структури даних
 - Автоматична генерація routeKey
 - Масове додавання у Firestore
@@ -257,7 +255,7 @@
 - Відображення ціни з ПДВ / без ПДВ
 
 **FR-8.2** Довідник розцінок ПОВИНЕН містити:
-- Діапазони відстаней (від-до км)
+- Діапазони відстаней (distFrom, distTo)
 - Тип ціни (т/км або за тону)
 - Ціни з ПДВ та без ПДВ
 - Прив'язка до хабу, року, культури
@@ -507,10 +505,12 @@
 |----------|-------------|-------------------|
 | `users` | Користувачі | {uid, email, role, additionalRoles[], allowedHubs[], testMode} |
 | `routes` | Маршрути | {code, routeKey, hub, fromCode, toCode, points[], approval, isActive, isTest} |
-| `directory` | Довідник точок | {[hub]: {items: [{code, name, lat, lng, unit, company}]}} |
-| `pricing` | Розцінки | {hub, year, crop, ranges: [{distFrom, distTo, price}]} |
+| `directory` | Довідник точок | {name, code, company, unit, hub, isTest} |
+| `pricing` | Розцінки | {hub, year, crop, distFrom, distTo, priceType, priceNoVAT, priceWithVAT} |
 | `visitor_sessions` | Сесії відвідувачів | {userId, startTime, lastHeartbeat, endTime, page} |
 | `visitor_stats` | Статистика по днях | {date, totalVisits, uniqueVisitors[]} |
+| `routeKeys` | Резерв ключів | {routeId, fromCode, toCode, fromName, toName, updatedAt} |
+| `route_logs` | Журнал змін | {routeId, routeKey, type, ts, changes, actor} |
 | `roles` | (legacy) Дзеркало ролей | {uid, role} |
 | `logists` | Логісти | {uid, name, email} |
 
@@ -524,6 +524,10 @@
 - Запис routes: admin, logist (тільки свої хаби)
 - Погодження: admin, security
 - users: читання свого профілю, запис тільки admin
+- directory: читання всім, запис admin/logist
+- pricing: читання за хабами, запис тільки admin
+- routeKeys: читання writer, запис admin/security
+- route_logs: create/read admin/security/logist (append-only)
 
 ### 4.4 Cloud Functions
 
@@ -550,7 +554,7 @@
    - Видалення з Auth + Firestore
 
 **Тригери (onDocumentCreated, onDocumentUpdated):**
-- (Резерв для майбутніх автоматизацій)
+- `routeLogOnCreate` / `routeLogOnUpdate` / `routeLogOnDelete` — журнал змін у `route_logs`
 
 ### 4.5 Cloudflare Worker
 
@@ -680,13 +684,17 @@
 - Кнопки навігаторів
 - Web Share
 
-#### 5.2.8 Імпорт (import/index.html, import/upload-routes.html)
+#### 5.2.8 Карта для польової навігації (map-viewer.html)
+- Спрощений повноекранний перегляд карти
+- Пошук місць та базові дії навігації
+
+#### 5.2.9 Імпорт (import/index.html, import/upload-routes.html)
 - Завантаження файлу
 - Попередній перегляд
 - Валідація
 - Кнопка "Імпортувати"
 
-#### 5.2.9 Адмін інструменти
+#### 5.2.10 Адмін інструменти
 - admin/tilesets.html — управління геозонами
 - admin/geojson-builder.html — створення GeoJSON
 - admin/import-codes.html — імпорт кодів
@@ -1121,9 +1129,9 @@ function calculateDistance(points) { ... }
 
 **Маршрут** — логістичний шлях від точки А до точки Б з можливими проміжними пунктами
 
-**routeKey** — унікальний ключ маршруту у форматі "КодВід-КодДо" (наприклад, "D001-D050")
+**routeKey** — унікальний ключ маршруту у форматі 2 літери + 10 цифр (наприклад, "AB-1234567890")
 
-**Довідник (Directory)** — база даних точок маршрутів з координатами та атрибутами
+**Довідник (Directory)** — база даних точок маршрутів з атрибутами (назва/код/компанія/підрозділ/хаб)
 
 **Погодження (Approval)** — процес підтвердження маршруту службою безпеки або адміністратором
 
@@ -1150,7 +1158,7 @@ function calculateDistance(points) { ... }
 ```json
 {
   "code": "D1732467894309",
-  "routeKey": "D001-D050",
+  "routeKey": "AB-1234567890",
   "hub": "Hub1",
   "fromCode": "D001",
   "fromName": "Елеватор №1",
@@ -1189,7 +1197,11 @@ function calculateDistance(points) { ... }
   "logisticName": "Іван Іванович",
   "approval": {
     "status": "pending",
-    "decisionBy": null,
+    "submittedAt": null,
+    "submittedByUid": null,
+    "submittedByEmail": null,
+    "decidedByUid": null,
+    "decidedByEmail": null,
     "decisionAt": null,
     "comment": ""
   },

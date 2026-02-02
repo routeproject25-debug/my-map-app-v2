@@ -73,6 +73,15 @@
     
     .tab-content { display: none; }
     .tab-content.active { display: block; }
+    
+    /* Modal styles */
+    .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000; align-items: center; justify-content: center; }
+    .modal.active { display: flex; }
+    .modal-content { background: #fff; border-radius: 12px; padding: 24px; max-width: 500px; width: 90%; box-shadow: 0 10px 25px rgba(0,0,0,0.2); }
+    .modal-header { margin: 0 0 20px; padding-bottom: 16px; border-bottom: 2px solid #e5e7eb; }
+    .modal-header h3 { margin: 0; font-size: 20px; color: #374151; }
+    .modal-footer { margin-top: 20px; display: flex; gap: 12px; justify-content: flex-end; }
+    .modal-footer button { padding: 8px 16px; }
   </style>
 
   <!-- AUTH GUARD -->
@@ -357,6 +366,66 @@
             </tbody>
           </table>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Edit Pricing Modal -->
+  <div id="editModal" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3>Редагування розцінки</h3>
+      </div>
+      <div class="form-row">
+        <div>
+          <label>Хаб</label>
+          <input type="text" id="editHub" readonly style="background: #f3f4f6; cursor: not-allowed;">
+        </div>
+      </div>
+      <div class="form-row">
+        <div>
+          <label>Рік</label>
+          <input type="number" id="editYear" readonly style="background: #f3f4f6; cursor: not-allowed;">
+        </div>
+      </div>
+      <div class="form-row">
+        <div>
+          <label>Культура</label>
+          <input type="text" id="editCrop" readonly style="background: #f3f4f6; cursor: not-allowed;">
+        </div>
+      </div>
+      <div class="form-row">
+        <div>
+          <label>Від, км</label>
+          <input type="number" id="editDistFrom" readonly style="background: #f3f4f6; cursor: not-allowed;">
+        </div>
+        <div>
+          <label>До, км</label>
+          <input type="number" id="editDistTo" readonly style="background: #f3f4f6; cursor: not-allowed;">
+        </div>
+      </div>
+      <div class="form-row">
+        <div>
+          <label>Без ПДВ</label>
+          <input type="number" id="editPriceNoVAT" step="0.01">
+        </div>
+        <div>
+          <label>З ПДВ</label>
+          <input type="number" id="editPriceWithVAT" step="0.01">
+        </div>
+      </div>
+      <div class="form-row">
+        <div>
+          <label>Тип розцінки</label>
+          <select id="editPriceType">
+            <option value="т/км">т/км</option>
+            <option value="за тону">за тону</option>
+          </select>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeEditModal()">Скасувати</button>
+        <button class="btn btn-primary" onclick="saveEditPricing()">Зберегти</button>
       </div>
     </div>
   </div>
@@ -985,7 +1054,10 @@
           <td>${p.priceNoVAT ? p.priceNoVAT.toFixed(2) : '-'}</td>
           <td>${p.priceWithVAT ? p.priceWithVAT.toFixed(2) : '-'}</td>
           <td>${p.priceType}</td>
-          <td><button class="btn btn-secondary" onclick="deletePricing('${p.id}')">🗑</button></td>
+          <td style="display: flex; gap: 8px;">
+            <button class="btn btn-secondary" onclick="editPricing('${p.id}')" title="Редагувати">✏️</button>
+            <button class="btn btn-secondary" onclick="deletePricing('${p.id}')" title="Видалити">🗑</button>
+          </td>
         </tr>
       `).join('');
     }
@@ -999,6 +1071,78 @@
         alert('Помилка видалення: ' + e.message);
       }
     };
+
+    let editingPricingId = null;
+
+    window.editPricing = function(id) {
+      const pricing = allPricing.find(p => p.id === id);
+      if (!pricing) {
+        alert('Розцінка не знайдена');
+        return;
+      }
+
+      editingPricingId = id;
+      
+      // Заповнюємо форму даними
+      document.getElementById('editHub').value = pricing.hub || '';
+      document.getElementById('editYear').value = pricing.year;
+      document.getElementById('editCrop').value = pricing.crop;
+      document.getElementById('editDistFrom').value = pricing.distFrom;
+      document.getElementById('editDistTo').value = pricing.distTo;
+      document.getElementById('editPriceNoVAT').value = pricing.priceNoVAT || '';
+      document.getElementById('editPriceWithVAT').value = pricing.priceWithVAT || '';
+      document.getElementById('editPriceType').value = pricing.priceType || 'т/км';
+      
+      // Відкриваємо модальне вікно
+      document.getElementById('editModal').classList.add('active');
+    };
+
+    function closeEditModal() {
+      document.getElementById('editModal').classList.remove('active');
+      editingPricingId = null;
+    }
+
+    window.saveEditPricing = async function() {
+      if (!editingPricingId) return;
+
+      const priceNoVAT = parseFloat(document.getElementById('editPriceNoVAT').value);
+      const priceWithVAT = parseFloat(document.getElementById('editPriceWithVAT').value);
+      const priceType = document.getElementById('editPriceType').value;
+
+      // Валідація
+      if (!priceType || !['т/км', 'за тону'].includes(priceType)) {
+        alert('Виберіть коректний тип розцінки');
+        return;
+      }
+
+      if (isNaN(priceNoVAT) && isNaN(priceWithVAT)) {
+        alert('Введіть хоча б одну ціну (без ПДВ або з ПДВ)');
+        return;
+      }
+
+      try {
+        await db.collection('pricing').doc(editingPricingId).update({
+          priceNoVAT: !isNaN(priceNoVAT) ? priceNoVAT : null,
+          priceWithVAT: !isNaN(priceWithVAT) ? priceWithVAT : null,
+          priceType: priceType,
+          updatedAt: new Date().toISOString()
+        });
+
+        closeEditModal();
+        loadPricingTable();
+        alert('✅ Розцінка успішно оновлена!');
+      } catch(e) {
+        console.error(e);
+        alert('Помилка збереження: ' + e.message);
+      }
+    };
+
+    // Закриття модалю при кліку поза нею
+    document.getElementById('editModal').addEventListener('click', (e) => {
+      if (e.target.id === 'editModal') {
+        closeEditModal();
+      }
+    });
 
     function populateYearFilters() {
       const years = [...new Set(allPricing.map(p => p.year))].sort((a, b) => b - a);
