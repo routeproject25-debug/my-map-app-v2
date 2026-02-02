@@ -317,7 +317,10 @@
       </div>
 
       <div class="card">
-        <h2>Поточні розцінки</h2>
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+          <h2 style="margin: 0;">Поточні розцінки</h2>
+          <button class="btn btn-primary" onclick="openAddPricingModal()">➕ Додати розцінку</button>
+        </div>
         
         <div class="form-row">
           <div>
@@ -366,6 +369,74 @@
             </tbody>
           </table>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Add Pricing Modal -->
+  <div id="addModal" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3>Додавання нової розцінки</h3>
+      </div>
+      <div class="form-row">
+        <div>
+          <label>Хаб</label>
+          <input type="text" id="addHub" placeholder="Виноградівський">
+        </div>
+      </div>
+      <div class="form-row">
+        <div>
+          <label>Рік</label>
+          <input type="number" id="addYear" placeholder="2025">
+        </div>
+      </div>
+      <div class="form-row">
+        <div>
+          <label>Культура</label>
+          <select id="addCrop">
+            <option value="">Оберіть культуру...</option>
+            <option value="Соняшник">Соняшник</option>
+            <option value="Кукурудза">Кукурудза</option>
+            <option value="Ріпак">Ріпак</option>
+            <option value="Пшениця">Пшениця</option>
+            <option value="Соя">Соя</option>
+            <option value="Органіка">Органіка</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-row">
+        <div>
+          <label>Від, км</label>
+          <input type="number" id="addDistFrom" placeholder="0">
+        </div>
+        <div>
+          <label>До, км</label>
+          <input type="number" id="addDistTo" placeholder="50">
+        </div>
+      </div>
+      <div class="form-row">
+        <div>
+          <label>Без ПДВ</label>
+          <input type="number" id="addPriceNoVAT" step="0.01" placeholder="100.00">
+        </div>
+        <div>
+          <label>З ПДВ</label>
+          <input type="number" id="addPriceWithVAT" step="0.01" placeholder="120.00">
+        </div>
+      </div>
+      <div class="form-row">
+        <div>
+          <label>Тип розцінки</label>
+          <select id="addPriceType">
+            <option value="т/км">т/км</option>
+            <option value="за тону">за тону</option>
+          </select>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeAddPricingModal()">Скасувати</button>
+        <button class="btn btn-primary" onclick="saveAddPricing()">Додати</button>
       </div>
     </div>
   </div>
@@ -1141,6 +1212,109 @@
     document.getElementById('editModal').addEventListener('click', (e) => {
       if (e.target.id === 'editModal') {
         closeEditModal();
+      }
+    });
+
+    // ==================== ADD PRICING ====================
+
+    function openAddPricingModal() {
+      // Очищуємо форму
+      document.getElementById('addHub').value = '';
+      document.getElementById('addYear').value = new Date().getFullYear();
+      document.getElementById('addCrop').value = '';
+      document.getElementById('addDistFrom').value = '';
+      document.getElementById('addDistTo').value = '';
+      document.getElementById('addPriceNoVAT').value = '';
+      document.getElementById('addPriceWithVAT').value = '';
+      document.getElementById('addPriceType').value = 'т/км';
+      
+      // Відкриваємо модальне вікно
+      document.getElementById('addModal').classList.add('active');
+    }
+
+    function closeAddPricingModal() {
+      document.getElementById('addModal').classList.remove('active');
+    }
+
+    window.saveAddPricing = async function() {
+      const hub = document.getElementById('addHub').value.trim();
+      const year = parseInt(document.getElementById('addYear').value);
+      const crop = document.getElementById('addCrop').value.trim();
+      const distFrom = parseFloat(document.getElementById('addDistFrom').value);
+      const distTo = parseFloat(document.getElementById('addDistTo').value);
+      const priceNoVAT = parseFloat(document.getElementById('addPriceNoVAT').value);
+      const priceWithVAT = parseFloat(document.getElementById('addPriceWithVAT').value);
+      const priceType = document.getElementById('addPriceType').value;
+
+      // Валідація
+      if (!hub) {
+        alert('Введіть назву хабу');
+        return;
+      }
+
+      if (!year || year < 2020 || year > 2030) {
+        alert('Введіть коректний рік (2020-2030)');
+        return;
+      }
+
+      if (!crop) {
+        alert('Оберіть культуру');
+        return;
+      }
+
+      if (isNaN(distFrom) || isNaN(distTo) || distFrom < 0 || distTo < 0 || distFrom >= distTo) {
+        alert('Введіть коректні відстані (від < до, обидва > 0)');
+        return;
+      }
+
+      if (isNaN(priceNoVAT) && isNaN(priceWithVAT)) {
+        alert('Введіть хоча б одну ціну (без ПДВ або з ПДВ)');
+        return;
+      }
+
+      if (!priceType || !['т/км', 'за тону'].includes(priceType)) {
+        alert('Виберіть коректний тип розцінки');
+        return;
+      }
+
+      try {
+        // Генеруємо унікальний ID
+        const docId = `${hub.replace(/\s/g, '_')}_${year}_${crop.replace(/\s/g, '_')}_${distFrom}_${distTo}`;
+        
+        // Перевіряємо, чи така розцінка вже існує
+        const existingDoc = await db.collection('pricing').doc(docId).get();
+        if (existingDoc.exists) {
+          alert('Розцінка з такими параметрами вже існує');
+          return;
+        }
+
+        // Зберігаємо нову розцінку
+        await db.collection('pricing').doc(docId).set({
+          hub,
+          year,
+          crop,
+          distFrom,
+          distTo,
+          priceNoVAT: !isNaN(priceNoVAT) ? priceNoVAT : null,
+          priceWithVAT: !isNaN(priceWithVAT) ? priceWithVAT : null,
+          priceType,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString()
+        });
+
+        closeAddPricingModal();
+        loadPricingTable();
+        alert('✅ Розцінка успішно додана!');
+      } catch(e) {
+        console.error(e);
+        alert('Помилка збереження: ' + e.message);
+      }
+    };
+
+    // Закриття модалю при кліку поза нею
+    document.getElementById('addModal').addEventListener('click', (e) => {
+      if (e.target.id === 'addModal') {
+        closeAddPricingModal();
       }
     });
 
